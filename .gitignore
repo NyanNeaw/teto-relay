@@ -1,0 +1,25 @@
+# Virtualenvs - multi-GB, rebuilt from requirements.txt
+.venv/
+.venv-rvc/
+
+# Model caches: torch, HuggingFace, the 1.2 GB aligner, pip wheels.
+# Redirected here by teto_relay/__init__.py to keep them off C:.
+.cache/
+
+# Generated per utterance (.ustx + .wav), trimmed to the most recent 50
+out/
+
+# Written by the hosted OpenUtau runtime
+.openutau-host/
+
+# Logs
+*.log
+teto-relay.log
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# pip --report output, not source
+_main_report.json
