@@ -1224,5 +1224,30 @@ class TestNumbersAreSung(unittest.TestCase):
         self.assertEqual(lyrics, "あいあむとうえんちいわん")
 
 
+class TestSmallKana(unittest.TestCase):
+    """P2-2: small vowels no longer become silent notes of their own."""
+
+    def test_small_vowels_become_full_size(self):
+        from teto_relay import translit
+
+        self.assertEqual(translit.expand_long_vowels("ふぁみりー"), "ふあみりい")
+        self.assertEqual(translit.to_kana("ファミリー", "ja"), "ふあみりい")
+        self.assertEqual(translit.to_kana("パーティー", "ja"), "ぱあていい")
+        self.assertEqual(translit.to_kana("ヴァイオリン", "ja"), "ぶあいおりん")
+
+    def test_every_mora_is_one_the_bank_can_sing(self):
+        from teto_relay import japanese as jp
+        from teto_relay import translit
+
+        singable = set()
+        for table in list(jp.MORA.values()) + list(jp.YOUON.values()):
+            for kana in table.values():
+                singable.update(jp.split_morae(kana))
+        singable.add("ん")
+        for word in ("ファミリー", "ウェディング", "ヴァイオリン", "ディズニー", "フォーク"):
+            for mora in jp.split_morae(translit.to_kana(word, "ja")):
+                self.assertIn(mora, singable, f"{word}: {mora}")
+
+
 if __name__ == "__main__":
     unittest.main()

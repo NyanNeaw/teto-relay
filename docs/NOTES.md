@@ -618,3 +618,7 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   and it was looked up in cmudict as one string, missed, and romanised letter
   by letter (`iam` → い あ む by spelling). Each word is now converted on its
   own and the kana joined.
+- **Small kana are expanded.** pykakasi turns ファ into ふぁ, and `split_morae`
+  made ぁ a note of its own, with no sample in any bank. Small vowels now
+  become full-size (ふぁ → ふ あ) and ゔ becomes ぶ. A test checks that loanwords
+  come out as morae the tables can produce.

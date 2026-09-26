@@ -102,6 +102,15 @@ _ENDS_ON = {kana: vowel for vowel, group in _VOWEL_OF.items() for kana in group}
 _SMALL_ENDS_ON = {"ゃ": "a", "ゅ": "u", "ょ": "o"}
 
 
+_SMALL_TO_FULL = {
+    "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "ゎ": "わ",
+    "ァ": "あ", "ィ": "い", "ゥ": "う", "ェ": "え", "ォ": "お", "ヮ": "わ",
+    "ゕ": "か", "ゖ": "け", "ヵ": "か", "ヶ": "け",
+    # ゔ (vu) is not one of the 104 morae; Japanese itself often writes ぶ.
+    "ゔ": "ぶ", "ヴ": "ぶ",
+}
+
+
 def expand_long_vowels(kana: str) -> str:
     """Make a kana string singable by a voicebank.
 
@@ -113,11 +122,17 @@ def expand_long_vowels(kana: str) -> str:
     * **っ**, the sokuon. It is a held stop before the next consonant, not a
       sound of its own - 絶対 is ぜったい, and the っ has no sample anywhere. It
       is dropped, which loses the gemination but keeps the word singing.
+
+    Small vowels (ぁぃぅぇぉ) and ゔ are replaced by morae the banks have.
     """
     out: list[str] = []
     for char in kana:
         if char in "っッ":
             continue
+        # Small vowels only exist to modify the mora before them (ファ, ティ,
+        # ウェ), and no bank records them - on their own they became silent
+        # notes. The full-size vowel is in every bank, so ふぁ is sung ふ あ.
+        char = _SMALL_TO_FULL.get(char, char)
         if char in "ーｰ―‐-" and out:
             vowel = _SMALL_ENDS_ON.get(out[-1]) or _ENDS_ON.get(out[-1])
             if vowel:
