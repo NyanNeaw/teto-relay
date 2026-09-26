@@ -1409,5 +1409,38 @@ class TestZipBombs(unittest.TestCase):
         self.assertIn("not a valid", str(caught.exception))
 
 
+class TestTickSpacing(unittest.TestCase):
+    """P2-10: gaps survive rounding to ticks; legato notes may touch."""
+
+    def blocks(self, notes, **cfg):
+        from teto_relay.config import Config
+        from teto_relay.ustx import build_project
+        from teto_relay.voicebank import Voicebank
+
+        bank = Voicebank(key="english", name="Teto", root=Path("/x/Teto"), flavour="en-cvvc")
+        return build_project(notes, bank, Config(**cfg))["voice_parts"][0]["notes"]
+
+    def test_a_sub_tick_gap_does_not_round_to_touching(self):
+        from teto_relay.notes import Note
+
+        # 0.0006 s is about half a tick: rounded independently these touch.
+        notes = [Note("a", 0.0, 0.2504, 60), Note("b", 0.251, 0.5, 60)]
+        a, b = self.blocks(notes)
+        self.assertGreaterEqual(b["position"], a["position"] + a["duration"] + 1)
+
+    def test_overlapping_notes_never_overlap_in_the_file(self):
+        from teto_relay.notes import Note
+
+        a, b = self.blocks([Note("a", 0.0, 0.4, 60), Note("b", 0.3, 0.6, 60)])
+        self.assertGreater(b["position"], a["position"] + a["duration"] - 1)
+
+    def test_legato_notes_may_touch(self):
+        from teto_relay.notes import Note
+
+        notes = [Note("か", 0.0, 0.2, 60), Note("さ", 0.2, 0.4, 60, legato=True)]
+        a, b = self.blocks(notes)
+        self.assertEqual(b["position"], a["position"] + a["duration"])
+
+
 if __name__ == "__main__":
     unittest.main()

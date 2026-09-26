@@ -34,6 +34,9 @@ class Note:
     # Space-separated X-SAMPA. When set, the phonemizer uses these sounds
     # instead of looking the lyric up in its English dictionary.
     phonetic_hint: str | None = None
+    # May touch the previous note (one continuous phrase). Only the `legato`
+    # option sets it; otherwise every note keeps a gap before it.
+    legato: bool = False
 
     @property
     def duration(self) -> float:

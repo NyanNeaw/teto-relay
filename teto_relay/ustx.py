@@ -74,13 +74,39 @@ def _note_block(note: Note, part_start: float, cfg) -> dict:
     return block
 
 
+def _space_in_ticks(notes: list[Note], blocks: list[dict], cfg) -> list[dict]:
+    """Keep the spacing the notes were given, after rounding to ticks.
+
+    Position and duration are each rounded to a tick, so a gap of a tick or
+    two in seconds could round to zero - notes touching, which collapses the
+    phonemizer - or even to an overlap. So:
+
+    * notes with a gap in seconds keep at least one tick between them;
+    * notes that touch in seconds (or are marked legato) may touch;
+    * notes never overlap.
+    """
+    previous_end = None
+    previous_note = None
+    for note, block in zip(notes, blocks):
+        if previous_end is not None:
+            gapped = note.start > previous_note.end and not note.legato
+            earliest = previous_end + (1 if gapped else 0)
+            if block["position"] < earliest:
+                moved = earliest - block["position"]
+                block["position"] = earliest
+                block["duration"] = max(1, block["duration"] - moved)
+        previous_end = block["position"] + block["duration"]
+        previous_note = note
+    return blocks
+
+
 def build_project(notes: list[Note], bank: Voicebank, cfg) -> dict:
     """Assemble the .ustx document as a plain dict."""
     if not notes:
         raise ValueError("cannot build a project with no notes")
 
     part_start = notes[0].start
-    note_blocks = [_note_block(n, part_start, cfg) for n in notes]
+    note_blocks = _space_in_ticks(notes, [_note_block(n, part_start, cfg) for n in notes], cfg)
     part_duration = max(b["position"] + b["duration"] for b in note_blocks)
     phonemizer = cfg.phonemizer or bank.phonemizer
 
