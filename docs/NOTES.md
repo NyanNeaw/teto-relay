@@ -584,3 +584,12 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   Whether WORLDLINE's `positionMs` is absolute (as I read OpenUtau's source) is
   untested here. If it turns out to be relative, the change is a no-op, and the
   `lead_silence` stage in the latency line will show which it is.
+- **Voicebank discovery is bounded.** It used `rglob`, which walks every file
+  under the root and filters by depth afterwards. The old default root
+  (`D:\Claude`) held this repo, its venv and gigabytes of model caches, and
+  was walked at every start, every panel load and every bank-image request.
+  Discovery now prunes while walking: at most 3 folders deep, and it never
+  enters hidden folders (`.venv`, `.git`, `.cache`, `.installing-*`),
+  `__pycache__`, `site-packages` or OpenUtau's own `Cache`/`Dictionaries`/
+  `Plugins`. A bank with no `character.txt`, buried deeper than 3 folders,
+  is no longer found; move it up or point `voicebank_root` nearer to it.

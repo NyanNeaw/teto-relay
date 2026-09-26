@@ -17,6 +17,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .errors import TetoRelayError
+
 log = logging.getLogger(__name__)
 
 # UTAU tooling predates UTF-8; cp932 is the practical default.
@@ -183,18 +185,51 @@ def _make_key(root: Path, taken: set[str]) -> str:
     return key
 
 
+# Folders that never hold voicebanks but can hold a great many files: a
+# voicebank root that also contains a project checkout, its virtualenv and a
+# few GB of model caches used to be walked file by file on every start.
+_SKIP_DIRS = {
+    "__pycache__", "node_modules", "site-packages", "venv", "env",
+    "UCache", "Cache", "Dictionaries", "Plugins", "Resamplers", "Wavtools",
+}
+
+
+def _walk(root: Path, max_depth: int):
+    """os.walk that stops `max_depth` folders down and skips junk folders.
+
+    Pruning happens while walking, not after - the old rglob visited every file
+    under the root and only then discarded the deep ones.
+    """
+    import os
+
+    root = Path(root)
+    base_depth = len(root.parts)
+    for current, dirs, files in os.walk(root):
+        here = Path(current)
+        depth = len(here.parts) - base_depth
+        if depth >= max_depth:
+            dirs[:] = []
+        else:
+            # Hidden folders (.venv, .git, .cache, .installing-*) and known
+            # non-bank folders are not descended into.
+            dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in _SKIP_DIRS)
+        yield here, files
+
+
+def _find_files(root: Path, name: str, max_depth: int) -> list[Path]:
+    wanted = name.lower()
+    return [folder / f for folder, files in _walk(root, max_depth) for f in files if f.lower() == wanted]
+
+
 def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
-    """A singer root has character.txt; failing that, a bare oto.ini directory."""
+    """A singer root has character.txt; failing that, a bare oto.ini directory.
+
+    Only `max_depth` folders below `search_root` are searched.
+    """
     roots: list[Path] = []
     seen: set[Path] = set()
 
-    for char in search_root.rglob("character.txt"):
-        try:
-            depth = len(char.relative_to(search_root).parts)
-        except ValueError:
-            continue
-        if depth > max_depth + 1:
-            continue
+    for char in _find_files(search_root, "character.txt", max_depth):
         root = char.parent
         if root not in seen:
             seen.add(root)
@@ -202,7 +237,7 @@ def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
 
     # Banks with no character.txt at all - fall back to oto.ini directories that
     # are not already covered by a discovered singer root.
-    for oto in search_root.rglob("oto.ini"):
+    for oto in _find_files(search_root, "oto.ini", max_depth):
         root = oto.parent
         if any(root == r or r in root.parents for r in seen):
             continue
@@ -211,9 +246,6 @@ def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
             roots.append(root)
 
     return roots
-
-
-from .errors import TetoRelayError
 
 
 class VoicebankError(TetoRelayError):
@@ -234,7 +266,8 @@ def discover(search_root: Path | str) -> list[Voicebank]:
     taken: set[str] = set()
 
     for root in sorted(find_singer_roots(search_root)):
-        oto_dirs = sorted({p.parent for p in root.rglob("oto.ini")})
+        # Sub-banks sit a level or two inside the singer root.
+        oto_dirs = sorted({p.parent for p in _find_files(root, "oto.ini", 3)})
         if not oto_dirs:
             continue
 

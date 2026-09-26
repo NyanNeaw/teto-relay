@@ -1063,5 +1063,71 @@ class TestPipelineEndToEnd(unittest.TestCase):
             self.assertIn("hello", rows[1])
 
 
+class TestVoicebankDiscoveryIsBounded(unittest.TestCase):
+    """P1-8: discovery must not walk virtualenvs, caches or deep trees."""
+
+    def make_bank(self, folder: Path, name="Teto"):
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "character.txt").write_text(f"name={name}\n", encoding="utf-8")
+        (folder / "oto.ini").write_text("a.wav=a,0,0,0,0,0\n", encoding="utf-8")
+
+    def test_finds_the_usual_layouts(self):
+        import tempfile
+
+        from teto_relay.voicebank import discover
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_bank(root / "TETO-renzokubeta-091020")
+            # English/tandoku layout: a nested singer root with sub-banks.
+            singer = root / "TETO-tandoku" / "重音テト音声ライブラリー"
+            singer.mkdir(parents=True)
+            (singer / "character.txt").write_text("name=Teto\n", encoding="utf-8")
+            for sub in ("normal", "power"):
+                (singer / sub).mkdir()
+                (singer / sub / "oto.ini").write_text("a.wav=- あ,0,0,0,0,0\n", encoding="utf-8")
+            banks = {b.key: b for b in discover(root)}
+        self.assertEqual(set(banks), {"renzokubeta", "tandoku"})
+        self.assertEqual(len(banks["tandoku"].subbanks), 2)
+
+    def test_skips_venvs_caches_and_hidden_folders_without_entering_them(self):
+        import os
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import voicebank
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_bank(root / "teto")
+            for junk in (".venv/lib/site-packages/pkg", ".cache/hf", "teto-relay/__pycache__",
+                         ".installing-x/bank"):
+                self.make_bank(root / junk)
+            entered = []
+            real_walk = os.walk
+
+            def spy(top, *args, **kwargs):
+                for current, dirs, files in real_walk(top, *args, **kwargs):
+                    entered.append(current)
+                    yield current, dirs, files
+
+            with unittest.mock.patch.object(os, "walk", spy):
+                banks = voicebank.discover(root)
+        self.assertEqual([b.root.name for b in banks], ["teto"])
+        self.assertFalse(any(".venv" in p or ".cache" in p or "__pycache__" in p for p in entered))
+
+    def test_stops_at_the_depth_limit(self):
+        import tempfile
+
+        from teto_relay.voicebank import find_singer_roots
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_bank(root / "a" / "b" / "c")
+            self.make_bank(root / "a" / "b" / "c" / "d" / "e")
+            found = find_singer_roots(root, max_depth=3)
+        self.assertEqual(found, [root / "a" / "b" / "c"])
+
+
 if __name__ == "__main__":
     unittest.main()
