@@ -92,17 +92,33 @@ def _load(cfg):
         return _bundle
 
 
+#: Characters the MMS_FA tokenizer knows. Anything else raises inside it, and
+#: one such word - a name with an accent, a kana word, a stray symbol - used to
+#: throw away the measured timings of every other word in the utterance.
+_ALIGNABLE = set("abcdefghijklmnopqrstuvwxyz'")
+
+
+def _normalise(part: str) -> str:
+    """A word reduced to what the aligner can read: "Café" -> "cafe", "会議" -> ""."""
+    import unicodedata
+
+    decomposed = unicodedata.normalize("NFKD", part.lower())
+    kept = "".join(ch for ch in decomposed if ch in _ALIGNABLE)
+    return kept.strip("'")
+
+
 def _tokenize(words: list[Word]) -> tuple[list[str], list[tuple[int, int]]]:
     """Flatten words into aligner tokens, remembering which belong together.
 
     A lyric can hold several words after contraction expansion ("I'm" becomes
     "i am"), and the aligner wants one token per word, so spans are merged back
-    afterwards.
+    afterwards. A word with nothing alignable gets an empty group and keeps
+    whisper's timing.
     """
     tokens: list[str] = []
     groups: list[tuple[int, int]] = []
     for word in words:
-        parts = [p for p in word.text.split() if p]
+        parts = [n for n in (_normalise(p) for p in word.text.split()) if n]
         start = len(tokens)
         tokens.extend(parts)
         groups.append((start, len(tokens)))

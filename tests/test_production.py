@@ -1249,5 +1249,57 @@ class TestSmallKana(unittest.TestCase):
                 self.assertIn(mora, singable, f"{word}: {mora}")
 
 
+class TestAlignmentSurvivesOddWords(unittest.TestCase):
+    """P2-3: one unalignable word must not cost the others their timings."""
+
+    def test_unalignable_words_get_no_tokens(self):
+        from teto_relay import align
+        from teto_relay.stt import Word
+
+        words = [Word("café", 0, 1), Word("会議", 1, 2), Word("don't", 2, 3), Word("i am", 3, 4)]
+        tokens, groups = align._tokenize(words)
+        self.assertEqual(tokens, ["cafe", "don't", "i", "am"])
+        self.assertEqual(groups, [(0, 1), (1, 1), (1, 2), (2, 4)])
+
+    @unittest.skipUnless(__import__("importlib").util.find_spec("torch"), "needs torch")
+    def test_other_words_are_still_aligned(self):
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import align
+        from teto_relay.config import Config
+        from teto_relay.stt import Word
+
+        vocab = align._ALIGNABLE
+
+        def tokenizer(tokens):
+            for token in tokens:  # the real one raises on unknown characters
+                if set(token) - vocab:
+                    raise KeyError(token)
+            return tokens
+
+        class Emission:
+            shape = (1, 100)
+
+            def __getitem__(self, i):
+                return self
+
+        def aligner(emission, tokens):
+            span = types.SimpleNamespace
+            return [[span(start=10 * i + 2, end=10 * i + 8)] for i, _ in enumerate(tokens)]
+
+        model = lambda waveform: (Emission(), None)  # noqa: E731
+        fake = (model, tokenizer, aligner, "cpu")
+        words = [Word("hello", 0.0, 0.5), Word("会議", 0.5, 1.0), Word("there", 1.0, 1.5)]
+        audio = np.zeros(16000, dtype=np.float32)
+        with unittest.mock.patch.object(align, "_load", return_value=fake):
+            out = align.refine(words, audio, 16000, Config())
+        self.assertEqual(out[1], words[1])  # kept whisper's timing
+        self.assertAlmostEqual(out[0].start, 0.02)
+        self.assertAlmostEqual(out[2].start, 0.12)
+
+
 if __name__ == "__main__":
     unittest.main()

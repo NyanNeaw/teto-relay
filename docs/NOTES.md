@@ -622,3 +622,8 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   made ぁ a note of its own, with no sample in any bank. Small vowels now
   become full-size (ふぁ → ふ あ) and ゔ becomes ぶ. A test checks that loanwords
   come out as morae the tables can produce.
+- **One odd word no longer disables alignment.** The MMS_FA tokenizer raises on
+  any character outside a–z and the apostrophe, and `refine` then fell back to
+  whisper's timings for the *whole* utterance. Tokens are now normalised
+  ("café" → "cafe"). A word with nothing alignable (kana, kanji) keeps
+  whisper's timing, and the rest are aligned as usual.
