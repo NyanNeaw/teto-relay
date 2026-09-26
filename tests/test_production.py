@@ -2077,5 +2077,72 @@ class TestReviewFindings(unittest.TestCase):
         self.assertEqual(app.state, "live")
 
 
+class TestReReviewFindings(unittest.TestCase):
+    """Found by a second review of the review fixes."""
+
+    def test_no_sample_lost_when_the_converter_output_is_a_sample_short(self):
+        import numpy as np
+
+        from teto_relay.streaming import BlockStreamer
+
+        def to_44k(a, r):  # frame-based length: floored, like real models
+            n = int(len(a) * 44100 / r)
+            return np.interp(np.linspace(0, len(a) - 1, n), np.arange(len(a)), a).astype(np.float32), 44100
+
+        streamer = BlockStreamer(to_44k, 16000, block_ms=300, context_ms=49, crossfade_ms=50)
+        x = np.random.default_rng(3).standard_normal(16000 * 3).astype(np.float32)
+        lengths = []
+        for i in range(0, len(x), 320):
+            lengths += [len(b) for b in streamer.feed(x[i:i + 320])]
+        self.assertTrue(all(n == 13230 for n in lengths[1:]), lengths)
+
+    def test_close_during_a_write_leaves_no_stream_open(self):
+        import threading
+        import time
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import playback
+
+        opened = []
+
+        class FakeStream:
+            def __init__(self, **kw):
+                self.closed = False
+                opened.append(self)
+
+            def start(self):
+                pass
+
+            def write(self, frames):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, query_devices=lambda *a: {
+            "default_samplerate": 48000, "max_output_channels": 2})
+        with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+            out = playback.StreamOutput(device=0)
+            real = out._resampled
+
+            def slow(*args):
+                time.sleep(0.2)  # close() arrives while this block is resampled
+                return real(*args)
+
+            out._resampled = slow
+            writer = threading.Thread(target=out.write, args=(np.zeros(400, np.float32), 16000))
+            writer.start()
+            time.sleep(0.05)
+            out.close()
+            writer.join(timeout=5)
+        self.assertTrue(all(s.closed for s in opened), "a stream was left open")
+
+
 if __name__ == "__main__":
     unittest.main()

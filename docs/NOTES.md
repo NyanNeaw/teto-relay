@@ -482,8 +482,8 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   foreign page cannot add without a CORS preflight, and the server never answers
   one. Where output and logs are written (`out_dir`, `log_file`) can no longer
   be set through the API; the Setup folders (`openutau_dir`,
-  `voicebank_root`) still can, behind the header check, because a new user has
-  to be able to set them. Uploaded models are opened with `weights_only=True`, which reads
+  `voicebank_root`) and the RVC model and index paths still can, behind the
+  header check, because the panel has fields for them. Uploaded models are opened with `weights_only=True`, which reads
   every genuine RVC checkpoint (tensors, numbers, strings) and refuses anything
   that would need to execute code.
 - **`sounddevice` is imported on first use.** At module level it loads
@@ -687,8 +687,13 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   `importlib.metadata`, which cmudict reads when it is imported.
 - **An independent review of the branch** (two reviewers: one for code, one
   checking the docs against the code) found 26 issues; all are fixed except
-  the replugged-mic limitation below, and the code ones have regression tests
-  that fail on the reviewed commit. The notable ones: the panel ignored
+  the replugged-mic limitation below. The code-review fixes have regression
+  tests that fail on the reviewed commit; of the doc-review code fixes only
+  the `--config` one has a test (the restart hints, the `innerHTML` change and
+  the installer change don't). A third pass over the fixes found two more
+  small gaps, fixed with tests: a one-sample loss per seam when a converter's
+  output length is a sample short, and a remaining race between
+  `StreamOutput.write` and `close`. The notable ones: the panel ignored
   `--config`; installing an RVC file silently disconnected the panel's settings
   from the running relay (a bug from before this branch); saved paths inside
   the data folder are now stored relative to it, so a portable copy survives

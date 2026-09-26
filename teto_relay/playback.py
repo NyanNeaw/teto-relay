@@ -248,6 +248,10 @@ class StreamOutput:
         # applies while streaming.
         self.gain = gain
         self._closed = False
+        # write() runs on the streaming thread and close() on the stopping
+        # one; without the lock a close() mid-write could still be followed
+        # by write() opening a fresh stream nothing would close.
+        self._lock = threading.Lock()
         self.rate, channels = _device_format(device)
         self.channels = min(channels or 1, 2)
         self._stream = None
@@ -279,17 +283,21 @@ class StreamOutput:
         gain = float(self.gain() if callable(self.gain) else self.gain)
         if gain != 1.0:
             data = np.clip(data * gain, -1.0, 1.0)
-        if self._stream is None:
-            self._stream = sd().OutputStream(
-                samplerate=target, channels=self.channels, dtype="float32", device=self.device
-            )
-            self._stream.start()
-        frames = np.repeat(data[:, None], self.channels, axis=1)
-        self._stream.write(np.ascontiguousarray(frames))
+        frames = np.ascontiguousarray(np.repeat(data[:, None], self.channels, axis=1))
+        with self._lock:
+            if self._closed:
+                return
+            if self._stream is None:
+                self._stream = sd().OutputStream(
+                    samplerate=target, channels=self.channels, dtype="float32", device=self.device
+                )
+                self._stream.start()
+            self._stream.write(frames)
 
     def close(self) -> None:
-        self._closed = True
-        stream, self._stream = self._stream, None
+        with self._lock:
+            self._closed = True
+            stream, self._stream = self._stream, None
         if stream is not None:
             try:
                 stream.stop()

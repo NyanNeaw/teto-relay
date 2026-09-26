@@ -106,6 +106,13 @@ class BlockStreamer:
         block_out = int(round(self.block * ratio))
         fade = int(round(self.fade_s * self.out_rate))
         search = int(round(self.search_s * self.out_rate))
+        if self.context:
+            # Measured in output samples, which a converter's frame-based
+            # length can make a sample shorter than the clamp in __init__
+            # (done in input seconds) assumed.
+            available = max(0, len(converted) - block_out)
+            fade = min(fade, available)
+            search = min(search, available - fade)
         # The new block's audio is the end of the output; take a little more
         # before it to overlap with the previous block's held-back tail.
         lead = min(len(converted) - block_out, fade + search) if len(converted) > block_out else 0
