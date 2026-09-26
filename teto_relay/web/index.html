@@ -566,9 +566,11 @@ function renderHero(d){
       p.appendChild(tag('your delivery, her voice'));
     } else {
       p.className='idle';
-      p.innerHTML=d.running
-        ? 'Hold <kbd>'+String(cfg.ptt_key||'F8').toUpperCase()+'</kbd> and speak - you will come back as Teto.'
-        : 'Start the relay to talk in Teto\u2019s voice.';
+      if(d.running){
+        // Built from nodes: the key name comes from the config file.
+        const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
+        p.append('Hold ',kbd,' and speak - you will come back as Teto.');
+      } else p.textContent='Start the relay to talk in Teto\u2019s voice.';
     }
     hero.appendChild(p);
     return;

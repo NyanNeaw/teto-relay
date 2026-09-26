@@ -206,7 +206,10 @@ default**, and listen on real hardware. Propose C (P3-3).
 
 ## Found while implementing
 
-Not in the original audit; each is fixed and has a test.
+Not in the original audit; each is fixed. The pipeline, lyric and `stop()`
+bugs have unit tests; the two panel bugs were found (and their fixes checked)
+by the browser smoke script `tools/panel_smoke.mjs`; the socket and packaging
+fixes were checked by hand (a second panel launch, the Linux frozen build).
 
 - `Player._started` was silently shadowed by `threading.Thread`'s own
   `_started` event, so the latency report crashed playback. Found by the
@@ -224,6 +227,11 @@ Not in the original audit; each is fixed and has a test.
   browser's keep-alive connections.
 - `stop()` raised on a partly built relay, hiding the real start error.
 - The packaged build was missing cmudict's metadata (see above).
+- Found by an independent review afterwards: the panel ignored `--config`
+  (it always read and saved the default `config.json`); the push-to-talk key
+  and Setup folders were saved as "applied" though they only take effect on
+  restart; the voice-mode idle text still used `innerHTML` for the key name;
+  and the installer offered an all-users install the docs didn't describe.
 
 ## Next steps
 

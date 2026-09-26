@@ -25,7 +25,6 @@ DefaultDirName={autopf}\Teto Relay
 DefaultGroupName=Teto Relay
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=TetoRelay-{#AppVersion}-setup

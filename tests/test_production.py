@@ -187,6 +187,40 @@ class TestControlPanelIsNotDrivableFromOtherSites(unittest.TestCase):
         self.assertIn(b"X-Teto-Relay", body)
         self.assertEqual(body, (ROOT / "teto_relay" / "web" / "index.html").read_bytes())
 
+    def test_the_panel_uses_the_config_file_it_was_started_with(self):
+        # --web --config other.json used to read and save the default file.
+        import json
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from teto_relay import webui
+        from teto_relay.config import Config
+
+        with _PanelServer() as s:
+            other = Path(s.tmp.name) / "other.json"
+            Config(transpose=4).save(other)
+            controller = webui.Controller(Config.load(other), other)
+            server = ThreadingHTTPServer(("127.0.0.1", 0), webui.make_handler(controller))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                import http.client
+
+                conn = http.client.HTTPConnection("127.0.0.1", server.server_address[1], timeout=10)
+                conn.request("GET", "/api/config")
+                self.assertEqual(json.loads(conn.getresponse().read())["config"]["transpose"], 4)
+                conn.request("POST", "/api/config", body=json.dumps({"transpose": 6}),
+                             headers=self.TOKEN)
+                self.assertEqual(conn.getresponse().status, 200)
+                conn.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                import logging
+
+                logging.getLogger().removeHandler(controller.buffer)
+            self.assertEqual(json.loads(other.read_text(encoding="utf-8"))["transpose"], 6)
+            self.assertEqual(self.saved(s)["transpose"], 0)  # the default file is untouched
+
     def test_host_and_origin_rules(self):
         from teto_relay.webui import host_allowed, origin_allowed
 

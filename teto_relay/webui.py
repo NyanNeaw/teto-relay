@@ -129,6 +129,8 @@ def origin_allowed(origin: str | None, port: int) -> bool:
 # `language`, for one, is passed to whisper on every transcribe call. Only
 # these need the relay stopped and started again.
 LOADED_ONCE = {
+    # Read when push-to-talk is armed and when the relay is built.
+    "ptt_key", "openutau_dir", "voicebank_root",
     "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
     "whisper_model", "whisper_device", "whisper_compute_type",
     "input_device", "output_device", "capture_mode",
@@ -321,8 +323,12 @@ class _LogBuffer(logging.Handler):
 class Controller:
     """Owns the relay so the page can start and stop it."""
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, config_path: Path | None = None):
         self.cfg = cfg
+        # The file the panel reads and saves. `--config` sets it; without it
+        # the default config.json is used. The panel used to always read the
+        # default file, so a relay started from it ignored --config.
+        self.config_path = config_path
         self.relay = None
         self._lock = threading.Lock()
         self.buffer = _LogBuffer()
@@ -339,7 +345,7 @@ class Controller:
                 return
             from .app import TetoRelay
 
-            self.cfg = Config.load()  # pick up anything just saved
+            self.cfg = Config.load(self.config_path)  # pick up anything just saved
             relay = TetoRelay(self.cfg)
             relay.start()
             self.relay = relay
@@ -564,7 +570,7 @@ def make_handler(controller: Controller):
             if route in ("", "index.html"):
                 self._send(page(), "text/html; charset=utf-8")
             elif route == "api/config":
-                cfg = Config.load()
+                cfg = Config.load(controller.config_path)
                 data = {f.name: getattr(cfg, f.name) for f in fields(cfg) if f.name not in HIDE}
                 self._json({"config": data, "meta": _meta(cfg)})
             elif route == "api/status":
@@ -572,7 +578,7 @@ def make_handler(controller: Controller):
             elif route == "api/doctor":
                 from .doctor import FAIL, format_checks, run_checks
 
-                checks = run_checks(Config.load())
+                checks = run_checks(Config.load(controller.config_path))
                 self._json({
                     "ok": not any(c.status == FAIL for c in checks),
                     "checks": [c.as_dict() for c in checks],
@@ -643,12 +649,12 @@ def make_handler(controller: Controller):
                         log.info("Installed RVC %s: %s", info["kind"], info["path"])
                         # A .pth is the voice; point the config at it. An index
                         # is an accessory and is only stored.
-                        cfg = Config.load()
+                        cfg = Config.load(controller.config_path)
                         if info["kind"] == "model":
                             cfg.rvc_model = info["path"]
                         else:
                             cfg.rvc_index = info["path"]
-                        cfg.save()
+                        cfg.save(controller.config_path)
                         controller.cfg = cfg
                     _forget_library()
                     self._json({"ok": True, "installed": info})
@@ -663,9 +669,9 @@ def make_handler(controller: Controller):
                 length = int(self.headers.get("Content-Length", 0))
                 try:
                     key = (json.loads(self.rfile.read(length) or b"{}") or {}).get("bank")
-                    cfg = Config.load()
+                    cfg = Config.load(controller.config_path)
                     cfg.voicebank = key
-                    cfg.save()
+                    cfg.save(controller.config_path)
                     controller.cfg.voicebank = key
                     applied = False
                     if controller.relay is not None:
@@ -681,7 +687,7 @@ def make_handler(controller: Controller):
                     incoming = json.loads(self.rfile.read(length) or b"{}")
                     if not isinstance(incoming, dict):
                         raise ConfigError("Settings must be sent as a JSON object.")
-                    cfg = Config.load()
+                    cfg = Config.load(controller.config_path)
                     valid = {f.name for f in fields(cfg)}
                     # Paths and internals are not the panel's to change: they
                     # are hidden from the form, so a request that sets them did
@@ -708,7 +714,7 @@ def make_handler(controller: Controller):
                         # relay would keep the old object, which is why
                         # changing the language mid-run used to do nothing.
                         setattr(controller.cfg, key, value)
-                    cfg.save()
+                    cfg.save(controller.config_path)
                     stale = sorted(set(changed) & LOADED_ONCE) if controller.running else []
                     self._json({"ok": True, "restart": stale})
                 except (ConfigError, json.JSONDecodeError) as exc:
@@ -752,7 +758,8 @@ def _panel_already_running(host: str, port: int) -> bool:
         return False
 
 
-def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> int:
+def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True,
+          config_path: Path | None = None) -> int:
     """Run the control panel until interrupted."""
     import webbrowser
 
@@ -771,7 +778,7 @@ def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: 
             f"The control panel could not use port {port} ({exc.strerror or exc}). "
             f"Another program is using it. Start with a different port, e.g. --port {port + 1}."
         ) from exc
-    controller = Controller(cfg)
+    controller = Controller(cfg, config_path)
     server.RequestHandlerClass = make_handler(controller)
     print(f"Teto Relay control panel: {url}")
     log.info("control panel on %s", url)

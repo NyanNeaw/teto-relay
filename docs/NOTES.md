@@ -480,8 +480,10 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   guards. The `Host` header must name this machine, which defeats DNS rebinding.
   Every state-changing request must carry an `X-Teto-Relay` header, which a
   foreign page cannot add without a CORS preflight, and the server never answers
-  one. Paths (`log_file`, `openutau_dir`, ...) can no longer be set through the
-  API at all. Uploaded models are opened with `weights_only=True`, which reads
+  one. Where output and logs are written (`out_dir`, `log_file`) can no longer
+  be set through the API; the Setup folders (`openutau_dir`,
+  `voicebank_root`) still can, behind the header check, because a new user has
+  to be able to set them. Uploaded models are opened with `weights_only=True`, which reads
   every genuine RVC checkpoint (tensors, numbers, strings) and refuses anything
   that would need to execute code.
 - **`sounddevice` is imported on first use.** At module level it loads

@@ -192,7 +192,8 @@ def _run(args, cfg: Config) -> int:
     if args.web:
         from .webui import serve
 
-        return serve(cfg, port=args.port, open_browser=not args.no_browser)
+        return serve(cfg, port=args.port, open_browser=not args.no_browser,
+                     config_path=args.config)
 
     if args.tray:
         from .tray import run_tray

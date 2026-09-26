@@ -37,10 +37,14 @@ or deleted in one go.
 3. Open **Show all settings → Setup**:
    - **OpenUtau folder**: the folder that contains `OpenUtau.exe`. Leave it
      empty and the usual install places are searched.
-   - **Voicebank folder**: where your voicebanks are. Leave it empty to use
-     the `voicebanks` folder in Teto Relay's data folder, or OpenUtau's
-     `Singers` folder if that already has banks. You can also drop a bank's
-     `.zip` onto **Add a voicebank** in the panel.
+   - **Voicebank folder**: where your voicebanks are. Left empty, these are
+     searched in order and the first that has a bank is used: the
+     `voicebanks` folder in Teto Relay's data folder, OpenUtau's `Singers`,
+     `Documents\OpenUtau\Singers`, `Documents\UTAU\voice`. With none, it is
+     the `voicebanks` folder. You can also drop a bank's `.zip` onto **Add a
+     voicebank** in the panel.
+   - Changing either folder takes effect when you press Stop and Start; the
+     OpenUtau folder only after quitting and restarting Teto Relay.
 4. Pick your **Microphone** and set **Output** to **CABLE Input**, then press
    **Save settings**.
 5. Press **Start**. The first start downloads the speech model (about 150 MB)
@@ -63,7 +67,7 @@ Uninstalling leaves your settings and models where they are. Delete
 
 ## 5. Troubleshooting
 
-Start with **Check setup** in the panel, or run **Teto Relay – check setup**
+Start with **Check setup** in the panel, or run **Teto Relay - check setup**
 from the Start menu (`TetoRelayConsole.exe --doctor`). It lists everything
 missing, with the fix.
 
@@ -74,12 +78,13 @@ missing, with the fix.
 | "The microphone is not available" banner | Plug the mic in, or close any app using it in exclusive mode. Teto Relay keeps retrying on its own. |
 | Teto hears herself and loops | Your Microphone is set to *CABLE Output*. Set it to your real mic. |
 | Nothing when you hold F8 | Another app may be taking the key. Change **Push-to-talk key**. |
-| A word comes out silent | It isn't in the dictionary. Add it to `pronunciations.json` in the data folder (see the README). |
+| A word comes out silent | It isn't in the dictionary. Create `pronunciations.json` in the data folder with your fixes (see the README); they are added to the built-in ones. |
 | It's slow | See the `Latency` lines in the log, or `latency.csv` in the data folder. They show which stage takes the time. A GPU and **Listen on: cuda** help most. |
-| The panel says "port 8765 in use" | Teto Relay is probably already running. Look for its panel in your browser. |
+| "The control panel could not use port 8765 ... Another program is using it" | Another program has that port. Close it, or start with `TetoRelayConsole.exe --web --port 8766`. (Starting Teto Relay twice just opens the panel that is already running.) |
 
 The log (`teto-relay.log`, in the data folder) has the details of anything
-that went wrong. **Open log** in the tray menu opens it.
+that went wrong. In tray mode (`TetoRelayConsole.exe --tray`), **Open log** in
+the tray menu opens it.
 
 ## 6. Options worth knowing
 

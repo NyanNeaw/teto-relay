@@ -10,11 +10,13 @@ repository root in PowerShell:
 powershell -ExecutionPolicy Bypass -File packaging\build.ps1 -WithGpu
 ```
 
-`-WithGpu` bundles torch (CUDA 12.1) and torchcrepe, adding about 2.5 GB.
+`-WithGpu` bundles torch and torchaudio (CUDA 12.1) and torchcrepe, adding
+about 2.5 GB.
 Leave it off for a small CPU-only build, which uses pyin for pitch and
 whisper's own word timings.
 
-The script makes a clean `.venv-build`, installs the requirements, **runs the
+The script creates `.venv-build` (and reuses it on later runs; delete it for a
+clean build), installs the requirements, **runs the
 tests** (a failure stops the build), builds with PyInstaller, runs the built
 `TetoRelayConsole.exe --version` and `--doctor` as a smoke test, and writes:
 

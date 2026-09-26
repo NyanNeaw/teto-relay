@@ -31,13 +31,15 @@ have them found automatically, or set them in the panel's Setup group.
 - A file vanishing from `out/` no longer kills the render thread.
 - The microphone is reopened when it fails or goes quiet.
 - A failed start stops whatever it had started.
-- Rendered audio no longer starts with 0.2–0.5 s of silence.
+- Rendered audio is trimmed to start at the first sound, which should remove
+  0.2–0.5 s of silence (not yet confirmed with real OpenUtau output).
 - Numbers are sung instead of being silent; small kana and multi-word lyrics
   in Japanese mode no longer produce silent or garbled notes.
 - One accented or non-Latin word no longer disables word alignment for the
   whole phrase.
 - Quick push-to-talk presses no longer lose a phrase.
 - The panel no longer overwrites the speech model setting when saving.
+- The panel uses the `--config` file it was started with.
 - Note gaps survive rounding to ticks.
 
 ### Added

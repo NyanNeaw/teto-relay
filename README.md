@@ -80,8 +80,9 @@ releases, and follow **[docs/SETUP.md](docs/SETUP.md)**. No Python needed.
    | Setting | What it is | Empty means |
    |---|---|---|
    | `openutau_dir` | The folder with `OpenUtau.exe` | search the usual install places |
-   | `voicebank_root` | The folder with your voicebanks | a `voicebanks` folder here, or OpenUtau's `Singers` |
-   | `output_device` | Where the audio goes | (default `CABLE Input`) |
+   | `voicebank_root` | The folder with your voicebanks | the first of these that has a bank: `voicebanks` here, OpenUtau's `Singers`, `Documents\OpenUtau\Singers`, `Documents\UTAU\voice` (else `voicebanks` here) |
+
+   The output device is **Output** on the main screen (default `CABLE Input`).
 
    Settings are saved to `config.json` in the project folder. It's yours and
    isn't tracked by git.
@@ -133,6 +134,11 @@ microphone in that app.
 | `--version` | Print the version |
 | `-v` | Show more detail in the log |
 
+`--config` works everywhere, including the control panel. The other setting
+options (`--bank`, `--key`, `--model`, `--vad`, `--input`, `--output`,
+`--backend`) apply to terminal and tray mode only: the panel always starts the
+relay from what is saved in the config file.
+
 ## Voicebanks
 
 Teto Relay searches `voicebank_root` and picks up these Teto banks:
@@ -175,7 +181,8 @@ setting controls this:
   shows up there, the relay is working and the problem is on the Discord side.
 - **Some setting doesn't seem to change anything.** `config.json` overrides
   the defaults in the code, so check there first. The panel tells you when a
-  setting needs Stop and Start to apply.
+  setting needs Stop and Start to apply. Changing the OpenUtau folder needs
+  Teto Relay itself restarted.
 - **The first phrase is slow.** Models load on startup, and the first run
   downloads about 1.2 GB for word alignment.
 
@@ -185,7 +192,7 @@ Every phrase logs one line saying where the time went, from releasing the key
 to hearing Teto:
 
 ```
-Latency 2.31s release->sound | speech 1.84s | wait_analyse 0.00s | asr 0.81s | align 0.06s | pitch 0.12s | notes 0.00s | ustx 0.00s | wait_render 0.00s | render 0.62s | phonemize 0.10s | synth 0.52s | wait_output 0.00s | output 0.05s | lead_silence 0.00s
+Latency 1.66s release->sound | speech 1.84s | wait_analyse 0.00s | asr 0.81s | align 0.06s | pitch 0.12s | notes 0.00s | ustx 0.00s | wait_render 0.00s | render 0.62s | phonemize 0.10s | synth 0.52s | wait_output 0.00s | output 0.05s | lead_silence 0.00s
 ```
 
 The same numbers go to `latency.csv` (next to the log), one row per phrase, so
