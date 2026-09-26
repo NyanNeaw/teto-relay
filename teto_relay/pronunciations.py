@@ -71,17 +71,29 @@ PHONEME_HINTS: dict[str, str] = {
 }
 
 
+# path -> ((mtime_ns, size), parsed). Both tables are read for every
+# utterance; re-parsing an unchanged file each time was wasted work.
+_CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
+
+
 def _read_user_file(path: Path) -> dict:
-    if not path.exists():
+    try:
+        stat = path.stat()
+    except OSError:
         return {}
+    stamp = (stat.st_mtime_ns, stat.st_size)
+    cached = _CACHE.get(path)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         log.warning("could not read %s; using built-in pronunciations only", path, exc_info=True)
-        return {}
+        data = {}
     if not isinstance(data, dict):
         log.warning("%s should contain a JSON object", path)
-        return {}
+        data = {}
+    _CACHE[path] = (stamp, data)
     return data
 
 

@@ -1330,5 +1330,30 @@ class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
         self.assertEqual(len(delivered), 3)
 
 
+class TestPronunciationsAreCached(unittest.TestCase):
+    """P2-6: the file is parsed once, and again only when it changes."""
+
+    def test_parsed_once_until_changed(self):
+        import json
+        import os
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import pronunciations as pron
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "p.json"
+            path.write_text(json.dumps({"respellings": {"foo": "fu"}}), encoding="utf-8")
+            with unittest.mock.patch.object(pron.json, "loads", wraps=json.loads) as parse:
+                self.assertEqual(pron.load(path)["foo"], "fu")
+                self.assertEqual(pron.load_hints(path).get("foo"), None)
+                self.assertEqual(parse.call_count, 1)
+                path.write_text(json.dumps({"respellings": {"foo": "fooo"}}), encoding="utf-8")
+                stat = path.stat()
+                os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+                self.assertEqual(pron.load(path)["foo"], "fooo")
+                self.assertEqual(parse.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
