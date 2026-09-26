@@ -671,3 +671,15 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   a converter that shifts its output by 40 samples is realigned by SOLA, the
   gate/flush logic, the mic tap and the resampling output. Untested: RVC's
   speed and per-block quality on a real GPU, and the audio devices.
+- **Packaging** (`packaging/`). A PyInstaller onedir build with two programs
+  sharing one folder: `TetoRelay.exe` has no console and opens the panel, and
+  `TetoRelayConsole.exe` is for `--doctor` and the other options. Onefile was
+  ruled out because it unpacks hundreds of MB to a temp folder on every start.
+  The Inno Setup installer is per-user (no admin), checks for the .NET 8
+  Desktop Runtime, and leaves the data folder on uninstall. `build.ps1` runs
+  the tests before building, smoke-tests the built exe, and makes the portable
+  zip with `portable.txt`. The panel gained Quit, because the windowed exe has
+  no console to Ctrl+C. The spec was built and run on Linux as a check; the
+  Windows build hasn't been run. `--doctor` now uses cmudict and pykakasi
+  instead of only locating them. That found the frozen build missing cmudict's
+  `importlib.metadata`, which cmudict reads when it is imported.

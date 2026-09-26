@@ -17,7 +17,7 @@ from teto_relay.config import Config  # noqa: E402
 from teto_relay.notes import Note  # noqa: E402
 from teto_relay.render import make_renderer  # noqa: E402
 from teto_relay.ustx import write_ustx  # noqa: E402
-from teto_relay.voicebank import discover, select  # noqa: E402
+from teto_relay.voicebank import VoicebankError, discover, select_or_default  # noqa: E402
 
 PHRASES = {
     "en-cvvc": ["hello", "there", "teto"],
@@ -46,7 +46,12 @@ def main() -> int:
     if args.backend:
         cfg.renderer_backend = args.backend
 
-    bank = select(discover(cfg.voicebank_path()), cfg.voicebank)
+    try:
+        root = cfg.voicebank_path()
+        bank = select_or_default(discover(root), cfg.voicebank, root)
+    except VoicebankError as exc:
+        print(exc, file=sys.stderr)
+        return 2
     print(f"bank    : {bank}")
     print(f"backend : {cfg.renderer_backend}")
 
