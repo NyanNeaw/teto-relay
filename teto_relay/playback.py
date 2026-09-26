@@ -233,6 +233,62 @@ class Player(threading.Thread):
             self._playing.clear()
 
 
+class StreamOutput:
+    """A kept-open output stream fed with blocks as they are made.
+
+    Used by the streaming voice mode, where audio arrives a block at a time
+    rather than as whole files. Blocks are resampled to the rate the device
+    accepts (WASAPI shared mode refuses anything else) with a streaming
+    resampler, so block edges do not click.
+    """
+
+    def __init__(self, device: int | None, gain: float = 1.0):
+        self.device = device
+        self.gain = gain
+        self.rate, channels = _device_format(device)
+        self.channels = min(channels or 1, 2)
+        self._stream = None
+        self._resampler = None
+        self._resample_from: int | None = None
+
+    def _resampled(self, block: np.ndarray, rate: int, target: int) -> np.ndarray:
+        if rate == target:
+            return block
+        if self._resample_from != rate:
+            self._resample_from = rate
+            try:
+                import soxr
+
+                self._resampler = soxr.ResampleStream(rate, target, 1, dtype="float32")
+            except (ImportError, AttributeError):
+                self._resampler = None
+        if self._resampler is not None:
+            return self._resampler.resample_chunk(block)
+        return _resample(block[:, None], rate, target)[:, 0]
+
+    def write(self, block: np.ndarray, rate: int) -> None:
+        target = self.rate or rate
+        data = self._resampled(np.asarray(block, dtype=np.float32), rate, target)
+        if self.gain != 1.0:
+            data = np.clip(data * self.gain, -1.0, 1.0)
+        if self._stream is None:
+            self._stream = sd().OutputStream(
+                samplerate=target, channels=self.channels, dtype="float32", device=self.device
+            )
+            self._stream.start()
+        frames = np.repeat(data[:, None], self.channels, axis=1)
+        self._stream.write(np.ascontiguousarray(frames))
+
+    def close(self) -> None:
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.close()
+            except Exception:  # noqa: BLE001
+                log.debug("closing the stream output failed", exc_info=True)
+
+
 def play_once(path: Path, device: int | None, gain: float = 1.0) -> None:
     """Blocking one-shot playback, for the command-line tools."""
     data, sample_rate = sf.read(path, dtype="float32", always_2d=True)

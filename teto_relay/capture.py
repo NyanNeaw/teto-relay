@@ -268,8 +268,12 @@ class MicCapture(threading.Thread):
         device: int | None = None,
         threshold: float | None = None,
         chunker=None,
+        tap=None,
     ):
         super().__init__(name="mic-capture")
+        # When set, every frame goes to tap(frame) instead of the chunker -
+        # the streaming voice mode converts audio as it arrives.
+        self.tap = tap
         self.cfg = cfg
         self.sink = sink
         self.device = device
@@ -367,6 +371,9 @@ class MicCapture(threading.Thread):
                 last_frame = time.monotonic()
                 flowed = True
                 if self._paused.is_set():
+                    continue
+                if self.tap is not None:
+                    self.tap(frame)
                     continue
                 chunk = self.chunker.push(frame)
                 if chunk is not None:

@@ -1643,5 +1643,200 @@ class TestLegato(unittest.TestCase):
                 self.assertGreater(b["position"], end)
 
 
+class TestBlockStreamer(unittest.TestCase):
+    """P3-1: block-wise conversion with SOLA crossfades."""
+
+    def run_stream(self, convert, seconds=3.0, frame=320, **kwargs):
+        import numpy as np
+
+        from teto_relay.streaming import BlockStreamer
+
+        rng = np.random.default_rng(1)
+        x = (0.1 * rng.standard_normal(int(16000 * seconds))).astype(np.float32)
+        streamer = BlockStreamer(convert, 16000, **kwargs)
+        out = []
+        for i in range(0, len(x), frame):
+            out += streamer.feed(x[i:i + frame])
+        out += streamer.flush()
+        return x, np.concatenate(out), streamer
+
+    def test_an_identity_converter_is_reconstructed_exactly(self):
+        import numpy as np
+
+        x, y, streamer = self.run_stream(lambda a, r: (a, r))
+        self.assertEqual(len(y), len(x))
+        self.assertLess(float(np.max(np.abs(y - x))), 1e-6)
+        self.assertAlmostEqual(streamer.latency_seconds, 0.35)
+
+    def test_output_at_another_rate(self):
+        import numpy as np
+
+        x, y, streamer = self.run_stream(lambda a, r: (np.repeat(a, 3), r * 3))
+        self.assertEqual(streamer.out_rate, 48000)
+        self.assertEqual(len(y), 3 * len(x))
+        self.assertLess(float(np.max(np.abs(y - np.repeat(x, 3)))), 1e-6)
+
+    def test_sola_realigns_a_converter_that_drifts(self):
+        # A converter whose output is shifted a few samples compared with its
+        # input - models do this - would double or drop audio at every seam
+        # with a blind crossfade. SOLA finds the matching offset.
+        import numpy as np
+
+        def shifted(a, r):
+            return np.concatenate([np.zeros(40, np.float32), a[:-40]]), r
+
+        x, y, _ = self.run_stream(shifted, crossfade_ms=20, search_ms=10)
+        # After the first block the output is the input, 40 samples late.
+        start = 16000
+        self.assertLess(float(np.max(np.abs(y[start:start + 16000] - x[start - 40:start - 40 + 16000]))),
+                        1e-6)
+
+    def test_nothing_is_converted_without_a_whole_block(self):
+        import numpy as np
+
+        from teto_relay.streaming import BlockStreamer
+
+        calls = []
+        streamer = BlockStreamer(lambda a, r: (calls.append(len(a)) or a, r), 16000, block_ms=300)
+        self.assertEqual(streamer.feed(np.zeros(4000, np.float32)), [])
+        self.assertEqual(calls, [])
+        streamer.feed(np.zeros(1000, np.float32))
+        self.assertEqual(calls, [4800 + 9600])  # the block plus its context
+
+
+class TestStreamingVoice(unittest.TestCase):
+    """The streaming worker: gate, flush, output and speed warning."""
+
+    def test_push_to_talk_gates_and_flushes(self):
+        import threading
+        import time
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.streaming import StreamingVoice
+
+        gate = threading.Event()
+        received = []
+        worker = StreamingVoice(Config(), lambda a, r: (a, r),
+                                lambda block, rate: received.append((len(block), rate)), gate.is_set)
+        worker.start()
+        frame = np.full(320, 0.1, np.float32)
+        for _ in range(20):
+            worker.frames.put(frame)  # key not held: ignored
+        while not worker.frames.empty():
+            time.sleep(0.01)
+        time.sleep(0.05)  # the last one is being looked at
+        gate.set()
+        for _ in range(50):  # 1 s held
+            worker.frames.put(frame)
+        time.sleep(0.3)
+        gate.clear()
+        worker.frames.put(frame)  # the next frame closes the stream off
+        deadline = time.monotonic() + 5
+        while sum(n for n, _ in received) < 16000 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        worker.stop()
+        worker.join(timeout=5)
+        total = sum(n for n, _ in received)
+        # One second in, rounded up to whole 300 ms blocks by the flush.
+        self.assertGreaterEqual(total, 16000)
+        self.assertLessEqual(total, 16000 + 4800)
+        self.assertTrue(all(rate == 16000 for _, rate in received))
+
+    def test_warns_when_conversion_is_slower_than_real_time(self):
+        import time
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.streaming import StreamingVoice
+
+        def slow(a, r):
+            time.sleep(0.12)
+            return a, r
+
+        worker = StreamingVoice(Config(stream_block_ms=100, stream_context_ms=0), slow,
+                                lambda b, r: None)
+        worker.streamer.feed(np.zeros(1600, np.float32))
+        with self.assertLogs("teto_relay.streaming", "WARNING") as logs:
+            worker._check_speed()
+        self.assertIn("falling behind", logs.output[0])
+
+
+class TestStreamOutput(unittest.TestCase):
+    def test_blocks_are_resampled_continuously_to_the_device_rate(self):
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import playback
+
+        written = []
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def start(self):
+                pass
+
+            def write(self, frames):
+                written.append(frames.copy())
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream,
+                                        query_devices=lambda *a: {"default_samplerate": 48000,
+                                                                  "max_output_channels": 8})
+        with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+            out = playback.StreamOutput(device=1)
+            for _ in range(10):
+                out.write(np.full(4000, 0.2, np.float32), 40000)  # 0.1 s each
+            out.close()
+        frames = np.concatenate(written)
+        self.assertEqual(frames.shape[1], 2)  # capped at stereo
+        # 1 s at 40 kHz is about 1 s at 48 kHz, less what soxr still holds.
+        self.assertGreater(len(frames), 47000)
+        self.assertLessEqual(len(frames), 48000)
+
+
+class TestMicTap(unittest.TestCase):
+    def test_frames_go_to_the_tap_not_the_chunker(self):
+        import queue
+        import time
+        import types
+        import unittest.mock
+
+        from teto_relay import capture
+        from teto_relay.config import Config
+
+        tapped = []
+
+        class NoChunks:
+            def push(self, frame):
+                raise AssertionError("the chunker should not see frames")
+
+            def flush(self):
+                return None
+
+        fake_sd = types.SimpleNamespace(InputStream=lambda **kw: _FakeInputStream(30, **kw))
+        mic = capture.MicCapture(Config(), queue.Queue(), chunker=NoChunks(), tap=tapped.append)
+        mic.STALL_SECONDS = 5
+        with unittest.mock.patch.object(capture, "sd", lambda: fake_sd):
+            mic.start()
+            deadline = time.monotonic() + 5
+            while len(tapped) < 30 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            mic.stop()
+            mic.join(timeout=5)
+        self.assertEqual(len(tapped), 30)
+
+
 if __name__ == "__main__":
     unittest.main()

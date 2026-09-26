@@ -72,6 +72,7 @@ GROUPS: dict[str, list[str]] = {
         "rvc_f0_method", "rvc_pitch", "rvc_index_rate", "rvc_protect",
         "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_device",
         "rvc_model", "rvc_index",
+        "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
     ],
     "Output": ["output_device", "playback_gain"],
 }
@@ -128,6 +129,7 @@ def origin_allowed(origin: str | None, port: int) -> bool:
 # `language`, for one, is passed to whisper on every transcribe call. Only
 # these need the relay stopped and started again.
 LOADED_ONCE = {
+    "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
     "whisper_model", "whisper_device", "whisper_compute_type",
     "input_device", "output_device", "capture_mode",
     "mode", "renderer_backend",
@@ -167,6 +169,9 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "rvc_rms_mix_rate": (0, 1, 0.05),
     "rvc_protect": (0, 0.5, 0.01),
     "sung_contour_amount": (0, 1, 0.05),
+    "stream_block_ms": (100, 1000, 10),
+    "stream_context_ms": (0, 2000, 50),
+    "stream_crossfade_ms": (0, 150, 5),
     "vibrato_min_seconds": (0.1, 1.5, 0.05),
     "vibrato_depth_cents": (0, 100, 5),
     "vibrato_period_ms": (80, 400, 5),
@@ -235,6 +240,10 @@ LABELS: dict[str, list[str]] = {
     "vibrato_depth_cents": ["Vibrato depth", "In cents; 100 is a semitone."],
     "vibrato_period_ms": ["Vibrato speed", "One wobble every this many ms."],
     "final_hold_seconds": ["Hold the last note", "Sung style: how much longer the phrase's last note lasts."],
+    "voice_streaming": ["Convert while I talk", "Voice engine: real-time, in blocks. Experimental; needs a fast GPU."],
+    "stream_block_ms": ["Block length", "Shorter is quicker but needs a faster GPU."],
+    "stream_context_ms": ["Context", "Audio before each block the model also hears; more sounds better, costs time."],
+    "stream_crossfade_ms": ["Crossfade", "Blend between blocks."],
     "legato": ["Connect syllables", "Japanese banks: sing each word's morae joined up. Experimental."],
     "min_note_seconds": ["Shortest word", ""],
     "seconds_per_syllable": ["Time per syllable", "English banks only."],

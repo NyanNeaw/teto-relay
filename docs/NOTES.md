@@ -655,3 +655,19 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   so it can be heard without OpenUtau. Unit tested at the note and `.ustx`
   level. How OpenUtau renders the vibrato, and whether touching morae still
   collapse the hosted phonemizer, are untested.
+- **Streaming voice conversion** (`voice_streaming`, voice mode only, off by
+  default; `teto_relay/streaming.py`). This is the one path that can respond
+  while you're still talking. Microphone frames go to a `BlockStreamer`, which
+  converts every `stream_block_ms` of new audio together with
+  `stream_context_ms` of what came before. It keeps only the output that
+  belongs to the new block, and joins blocks with a crossfade placed where the
+  two overlap best (SOLA), so the seams neither click nor phase. Output goes to
+  a kept-open stream, with soxr resampling to the device rate so block edges
+  are continuous. Push-to-talk opens and closes a gate; releasing finishes the
+  last block. The expected delay is one block plus the crossfade (0.35 s by
+  default) plus conversion time, and the log warns if a block takes longer to
+  convert than it lasts.
+  Tests: an identity converter is reconstructed to 1e-6, a 3× rate change,
+  a converter that shifts its output by 40 samples is realigned by SOLA, the
+  gate/flush logic, the mic tap and the resampling output. Untested: RVC's
+  speed and per-block quality on a real GPU, and the audio devices.

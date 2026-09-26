@@ -276,6 +276,14 @@ class Config:
     rvc_filter_radius: int = 3  # median-filters the pitch curve, reducing breathiness
     rvc_rms_mix_rate: float = 0.25  # 0 keeps your dynamics, 1 uses the model's
     rvc_protect: float = 0.33  # protects consonants from being over-converted
+    # Convert while you talk instead of after each phrase (teto_relay/streaming).
+    # The delay becomes about one block plus the crossfade plus conversion time,
+    # and conversion of one block must take less than a block or it falls
+    # behind. Off until tried on real hardware.
+    voice_streaming: bool = False
+    stream_block_ms: float = 300.0
+    stream_context_ms: float = 600.0  # audio before each block the model also sees
+    stream_crossfade_ms: float = 50.0
 
     # ----------------------------------------------------- stage 6: playback
     playback_gain: float = 1.0
@@ -498,6 +506,9 @@ RANGES: dict[str, tuple[float, float]] = {
     "vibrato_depth_cents": (0.0, 200.0),
     "vibrato_period_ms": (40.0, 1000.0),
     "final_hold_seconds": (0.0, 5.0),
+    "stream_block_ms": (50.0, 2000.0),
+    "stream_context_ms": (0.0, 5000.0),
+    "stream_crossfade_ms": (0.0, 500.0),
     "queue_size": (1, 64),
 }
 

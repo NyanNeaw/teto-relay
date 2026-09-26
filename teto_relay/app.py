@@ -194,6 +194,10 @@ class TetoRelay:
         # lost to model loading. Order matters - see _warmup.
         self._warmup()
 
+        if engine == "voice" and cfg.voice_streaming:
+            self._start_streaming(in_dev, out_dev)
+            return
+
         push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
 
         threshold = None
@@ -234,6 +238,50 @@ class TetoRelay:
             log.info("Teto Relay running. Hold [%s] and speak into %s.", cfg.ptt_key.upper(), mic_name)
         else:
             log.info("Teto Relay running. Speak into %s.", mic_name)
+
+    def _start_streaming(self, in_dev, out_dev) -> None:
+        """Voice mode, converting while you talk (voice_streaming).
+
+        Frames go straight from the microphone to the block converter and on
+        to a kept-open output stream; there are no phrases, so no queues of
+        chunks and files. Push-to-talk, when used, just opens and closes a gate.
+        """
+        from .playback import StreamOutput
+        from .streaming import StreamingVoice
+
+        cfg = self.cfg
+        gate = threading.Event()
+        push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
+        if push_to_talk:
+            try:
+                self._hotkey = PushToTalkListener(cfg.ptt_key, gate.set, gate.clear)
+                self._hotkey.start()
+            except Exception:
+                log.exception("could not arm push-to-talk on key %r; streaming all the time",
+                              cfg.ptt_key)
+                gate.set()
+        else:
+            gate.set()
+
+        self._stream_output = StreamOutput(out_dev.index, cfg.playback_gain)
+        self._streamer = StreamingVoice(cfg, self.converter.convert, self._stream_output.write,
+                                        gate.is_set)
+
+        def tap(frame) -> None:
+            try:
+                self._streamer.frames.put_nowait(frame)
+            except queue.Full:
+                pass  # the converter is behind; it says so in the log
+
+        self._capture = MicCapture(cfg, self.chunk_q, in_dev.index if in_dev else None, tap=tap)
+        self._streamer.start()
+        self._capture.start()
+        mic_name = in_dev.name if in_dev else "the default mic"
+        if push_to_talk and self._hotkey is not None:
+            log.info("Streaming voice conversion running. Hold [%s] and speak into %s.",
+                     cfg.ptt_key.upper(), mic_name)
+        else:
+            log.info("Streaming voice conversion running. Speak into %s.", mic_name)
 
     def _warmup(self) -> None:
         """Pay the one-time initialisation costs before the microphone opens.
@@ -362,13 +410,18 @@ class TetoRelay:
             attempt("microphone", capture.stop)
         if player:
             attempt("playback", player.stop)
+        streamer = getattr(self, "_streamer", None)
+        if streamer is not None:
+            attempt("streaming", streamer.stop)
+            attempt("streaming", lambda: streamer.join(timeout=2.0))
         for t in getattr(self, "_threads", []):
             attempt(t.name, lambda t=t: t.join(timeout=2.0))
         if capture:
             attempt("microphone", lambda: capture.join(timeout=2.0))
         if player:
             attempt("playback", lambda: player.join(timeout=2.0))
-        for closable in (getattr(self, "renderer", None), getattr(self, "converter", None)):
+        for closable in (getattr(self, "renderer", None), getattr(self, "converter", None),
+                         getattr(self, "_stream_output", None)):
             if closable is not None:
                 attempt(type(closable).__name__, closable.close)
         log.info("Stopped")
