@@ -1376,5 +1376,38 @@ class TestBankPitchCache(unittest.TestCase):
                 self.assertEqual(voicebank.estimate_pitch(b, Config()), 60.0)  # nothing to measure
 
 
+class TestZipBombs(unittest.TestCase):
+    """P2-8: a zip that claims an enormous unpacked size is refused unopened."""
+
+    def test_refused_before_extracting(self):
+        import io
+        import tempfile
+        import unittest.mock
+        import zipfile
+
+        from teto_relay import library
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("bank/oto.ini", "a.wav=a,0,0,0,0,0\n")
+            z.writestr("bank/a.wav", b"\0" * 100_000)
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(library, "MAX_UNPACKED", 50_000):
+            with self.assertRaises(ValueError) as caught:
+                library.install_voicebank(buffer.getvalue(), "bank.zip", Path(tmp))
+            self.assertIn("unpack", str(caught.exception))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_not_a_zip(self):
+        import tempfile
+
+        from teto_relay import library
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError) as caught:
+                library.install_voicebank(b"not a zip", "bank.zip", Path(tmp))
+        self.assertIn("not a valid", str(caught.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

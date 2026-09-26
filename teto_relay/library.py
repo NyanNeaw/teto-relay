@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 # conventional but not required, and plenty of banks omit it.
 BANK_MARKERS = ("oto.ini", "character.txt")
 MAX_UPLOAD = 1_500_000_000  # 1.5 GB - an RVC index alone can be 170 MB
+MAX_UNPACKED = 4_000_000_000  # what a voicebank zip may expand to
 
 
 def _safe_members(archive: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
@@ -73,10 +74,28 @@ def install_voicebank(data: bytes, filename: str, root: Path) -> dict:
     try:
         import io
 
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        try:
+            archive = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile as exc:
+            raise ValueError("That file is not a valid .zip.") from exc
+        with archive:
             members = _safe_members(archive)
             if not members:
                 raise ValueError("That zip is empty, or every entry was unsafe to extract.")
+            # The upload size is capped, but a small zip can claim to unpack
+            # to terabytes. Check what it says before writing any of it.
+            unpacked = sum(m.file_size for m in members)
+            if unpacked > MAX_UNPACKED:
+                raise ValueError(
+                    f"That zip would unpack to {unpacked/1e9:.1f} GB; a voicebank is "
+                    f"at most {MAX_UNPACKED/1e9:.0f} GB, so it was not installed."
+                )
+            free = shutil.disk_usage(root).free
+            if unpacked > free:
+                raise ValueError(
+                    f"Not enough disk space: the voicebank needs {unpacked/1e9:.1f} GB "
+                    f"and {free/1e9:.1f} GB is free."
+                )
             archive.extractall(staging, members=members)
 
         found = _find_bank_root(staging)
