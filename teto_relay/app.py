@@ -328,28 +328,41 @@ class TetoRelay:
             log.info("Warmed up analysis in %.1fs (%s)", elapsed, ", ".join(timings))
 
     def stop(self) -> None:
-        """Stop everything that is running. Safe to call more than once."""
+        """Stop everything that is running. Never raises; safe to call twice.
+
+        It runs on the failure path of `start()` as well, where some parts
+        were never created, and one part failing to stop must not leave the
+        others running - nor hide the error that caused the stop.
+        """
         log.info("Stopping...")
-        self._stop.set()
-        if self._hotkey:
-            self._hotkey.stop()
-        if self._capture:
-            self._capture.stop()
-        if self._player:
-            self._player.stop()
-        for t in self._threads:
-            t.join(timeout=2.0)
-        if self._capture:
-            self._capture.join(timeout=2.0)
-        if self._player:
-            self._player.join(timeout=2.0)
-        for closable in (self.renderer, self.converter):
-            if closable is None:
-                continue
+
+        def attempt(label: str, fn) -> None:
             try:
-                closable.close()
-            except Exception:
-                log.debug("%s close failed", type(closable).__name__, exc_info=True)
+                fn()
+            except Exception:  # noqa: BLE001 - keep stopping the rest
+                log.debug("stopping %s failed", label, exc_info=True)
+
+        stop_event = getattr(self, "_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        hotkey = getattr(self, "_hotkey", None)
+        capture = getattr(self, "_capture", None)
+        player = getattr(self, "_player", None)
+        if hotkey:
+            attempt("push-to-talk", hotkey.stop)
+        if capture:
+            attempt("microphone", capture.stop)
+        if player:
+            attempt("playback", player.stop)
+        for t in getattr(self, "_threads", []):
+            attempt(t.name, lambda t=t: t.join(timeout=2.0))
+        if capture:
+            attempt("microphone", lambda: capture.join(timeout=2.0))
+        if player:
+            attempt("playback", lambda: player.join(timeout=2.0))
+        for closable in (getattr(self, "renderer", None), getattr(self, "converter", None)):
+            if closable is not None:
+                attempt(type(closable).__name__, closable.close)
         log.info("Stopped")
 
     # ------------------------------------------------------------- controls
