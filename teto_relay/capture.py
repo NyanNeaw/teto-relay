@@ -23,7 +23,8 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
-import sounddevice as sd
+
+from .devices import sd
 
 log = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ def calibrate_threshold(cfg, device: int | None = None) -> float:
     """Measure the room's noise floor and derive an RMS gate from it."""
     frames = max(1, cfg.calibrate_ms // cfg.frame_ms)
     log.info("Calibrating noise floor for %d ms - stay quiet...", cfg.calibrate_ms)
-    with sd.InputStream(
+    with sd().InputStream(
         samplerate=cfg.sample_rate,
         channels=1,
         dtype="float32",
@@ -288,7 +289,7 @@ class MicCapture(threading.Thread):
                 log.warning("capture backlog - dropping a frame")
 
         try:
-            with sd.InputStream(
+            with sd().InputStream(
                 samplerate=self.cfg.sample_rate,
                 channels=1,
                 dtype="float32",

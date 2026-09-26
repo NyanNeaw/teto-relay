@@ -10,9 +10,29 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-import sounddevice as sd
-
 log = logging.getLogger(__name__)
+
+
+class AudioUnavailable(RuntimeError):
+    """The audio library could not be loaded, so no device can be opened."""
+
+
+def sd():
+    """The sounddevice module, imported on first use.
+
+    Importing it loads the PortAudio library, which fails outright on a machine
+    without one. Doing that at import time made every module that touches audio
+    - and the whole test suite - unimportable there, with an OSError that did
+    not say what to do about it.
+    """
+    try:
+        import sounddevice
+    except (ImportError, OSError) as exc:
+        raise AudioUnavailable(
+            f"The audio library could not be loaded ({exc}). Reinstall the "
+            "dependencies with: python -m pip install -r requirements.txt"
+        ) from exc
+    return sounddevice
 
 # Best first. WASAPI gives the lowest latency and untruncated names; MME is the
 # most universally present fallback.
@@ -44,9 +64,9 @@ class DeviceInfo:
 
 
 def list_devices() -> list[DeviceInfo]:
-    hostapis = sd.query_hostapis()
+    hostapis = sd().query_hostapis()
     out: list[DeviceInfo] = []
-    for i, d in enumerate(sd.query_devices()):
+    for i, d in enumerate(sd().query_devices()):
         out.append(
             DeviceInfo(
                 index=i,
@@ -109,7 +129,7 @@ def resolve_input(cfg) -> DeviceInfo | None:
 
 def default_input() -> DeviceInfo | None:
     try:
-        idx = sd.default.device[0]
+        idx = sd().default.device[0]
     except (TypeError, IndexError):
         return None
     if idx is None or idx < 0:

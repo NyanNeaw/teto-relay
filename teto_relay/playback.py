@@ -14,8 +14,9 @@ import threading
 from pathlib import Path
 
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
+
+from .devices import sd
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def _device_format(device: int | None) -> tuple[int | None, int | None]:
     if device is None:
         return None, None
     try:
-        info = sd.query_devices(device)
+        info = sd().query_devices(device)
         return int(info["default_samplerate"]), int(info["max_output_channels"])
     except Exception:
         log.debug("could not query device %s", device, exc_info=True)
@@ -85,7 +86,7 @@ class Player(threading.Thread):
 
     def stop(self) -> None:
         self._stopping.set()
-        sd.stop()
+        sd().stop()
 
     @property
     def busy(self) -> bool:
@@ -132,14 +133,14 @@ class Player(threading.Thread):
 
         self._playing.set()
         try:
-            sd.play(data, samplerate=sample_rate, device=self.device, blocking=False)
+            sd().play(data, samplerate=sample_rate, device=self.device, blocking=False)
             # Poll rather than block so stop() stays responsive.
             while not self._stopping.is_set():
-                if sd.get_stream() is None or not sd.get_stream().active:
+                if sd().get_stream() is None or not sd().get_stream().active:
                     break
                 self._stopping.wait(0.05)
             if self._stopping.is_set():
-                sd.stop()
+                sd().stop()
         finally:
             self._playing.clear()
         log.info("Played %s (%.2fs)", path.name, len(data) / sample_rate)
@@ -152,4 +153,4 @@ def play_once(path: Path, device: int | None, gain: float = 1.0) -> None:
         data = np.clip(data * gain, -1.0, 1.0)
     target_rate, target_channels = _device_format(device)
     data, sample_rate = _fit(data, sample_rate, target_rate, target_channels)
-    sd.play(data, samplerate=sample_rate, device=device, blocking=True)
+    sd().play(data, samplerate=sample_rate, device=device, blocking=True)
