@@ -380,6 +380,25 @@ class TetoRelay:
     def paused(self) -> bool:
         return bool(self._capture and self._capture.paused)
 
+    def health(self) -> dict[str, str]:
+        """What is wrong right now, for the panel. Empty values mean fine."""
+        capture = getattr(self, "_capture", None)
+        mic_state = capture.state if capture else "stopped"
+        problems = []
+        if capture and mic_state == "retrying":
+            problems.append(
+                f"The microphone is not available ({capture.last_error}). "
+                "Retrying - check it is plugged in and not used by another app."
+            )
+        renderer = getattr(self, "renderer", None)
+        if renderer is not None and getattr(renderer, "name", "") == "null" and \
+                (self.cfg.renderer_backend or "").lower() == "openutau":
+            problems.append(
+                "OpenUtau did not start, so you are hearing plain tones. "
+                "Run --doctor or see the log for why."
+            )
+        return {"microphone": mic_state, "problems": problems}
+
     def _warn_on_lyric_mismatch(self) -> None:
         """Flag a `lyric_mode` that contradicts the voicebank.
 

@@ -244,9 +244,20 @@ def calibrate_threshold(cfg, device: int | None = None) -> float:
 
 
 class MicCapture(threading.Thread):
-    """Owns the input stream; pushes Chunks onto `sink` until stopped."""
+    """Owns the input stream; pushes Chunks onto `sink` until stopped.
+
+    If the microphone cannot be opened, or stops delivering audio (unplugged,
+    taken by another app in exclusive mode, driver reset), it is reopened with
+    a growing delay instead of the thread quietly exiting - which used to leave
+    the relay "running" with nothing listening. `state` and `last_error` say
+    what is going on, for the control panel and the log.
+    """
 
     daemon = True
+    #: No audio for this long means the stream has died, even if it did not say so.
+    STALL_SECONDS = 2.0
+    FIRST_RETRY_SECONDS = 1.0
+    MAX_RETRY_SECONDS = 10.0
 
     def __init__(
         self,
@@ -263,6 +274,12 @@ class MicCapture(threading.Thread):
         self.chunker = chunker if chunker is not None else make_chunker(cfg, threshold)
         self._stopping = threading.Event()
         self._paused = threading.Event()
+        self.state = "starting"  # starting | listening | retrying | stopped
+        self.last_error = ""
+        # Counted in the audio callback, reported from this thread: logging
+        # from the callback itself adds jitter to the audio thread.
+        self._dropped = 0
+        self._overflows = 0
 
     def stop(self) -> None:
         self._stopping.set()
@@ -278,43 +295,90 @@ class MicCapture(threading.Thread):
         return self._paused.is_set()
 
     def run(self) -> None:
-        raw: queue.Queue[np.ndarray] = queue.Queue(maxsize=200)
-
-        def callback(indata, frames, time_info, status):
-            if status:
-                log.debug("input stream status: %s", status)
-            try:
-                raw.put_nowait(indata[:, 0].copy())
-            except queue.Full:
-                log.warning("capture backlog - dropping a frame")
-
+        delay = self.FIRST_RETRY_SECONDS
         try:
-            with sd().InputStream(
-                samplerate=self.cfg.sample_rate,
-                channels=1,
-                dtype="float32",
-                blocksize=self.cfg.frame_samples,
-                device=self.device,
-                callback=callback,
-            ):
-                log.info("Microphone open (%d Hz, %d ms frames)", self.cfg.sample_rate, self.cfg.frame_ms)
-                while not self._stopping.is_set():
-                    try:
-                        frame = raw.get(timeout=0.2)
-                    except queue.Empty:
-                        continue
-                    if self._paused.is_set():
-                        continue
-                    chunk = self.chunker.push(frame)
-                    if chunk is not None:
-                        self._offer(chunk)
-        except Exception:
-            log.exception("microphone capture failed")
+            while not self._stopping.is_set():
+                try:
+                    if self._listen():
+                        delay = self.FIRST_RETRY_SECONDS  # it worked; start the backoff over
+                except Exception as exc:  # noqa: BLE001 - reported and retried
+                    message = f"{type(exc).__name__}: {exc}"
+                    if message != self.last_error:
+                        log.warning(
+                            "The microphone could not be opened (%s). Retrying every "
+                            "few seconds - check it is plugged in and not in use by "
+                            "another app in exclusive mode.", message,
+                        )
+                        log.debug("microphone open failure", exc_info=True)
+                    self.last_error = message
+                if self._stopping.is_set():
+                    break
+                self.state = "retrying"
+                self._stopping.wait(delay)
+                delay = min(delay * 2, self.MAX_RETRY_SECONDS)
         finally:
+            self.state = "stopped"
             tail = self.chunker.flush()
             if tail is not None:
                 self._offer(tail)
             log.info("Microphone closed")
+
+    def _listen(self) -> bool:
+        """Run one input stream until it stalls or we stop.
+
+        Returns True if audio actually flowed, so the caller can tell a flaky
+        device (reset the backoff) from one that never opens (keep backing off).
+        """
+        raw: queue.Queue[np.ndarray] = queue.Queue(maxsize=200)
+
+        def callback(indata, frames, time_info, status):
+            if status:
+                self._overflows += 1
+            try:
+                raw.put_nowait(indata[:, 0].copy())
+            except queue.Full:
+                self._dropped += 1
+
+        flowed = False
+        with sd().InputStream(
+            samplerate=self.cfg.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self.cfg.frame_samples,
+            device=self.device,
+            callback=callback,
+        ):
+            if self.last_error:
+                log.info("Microphone is back")
+            log.info("Microphone open (%d Hz, %d ms frames)", self.cfg.sample_rate, self.cfg.frame_ms)
+            self.state, self.last_error = "listening", ""
+            last_frame = time.monotonic()
+            while not self._stopping.is_set():
+                self._report_drops()
+                try:
+                    frame = raw.get(timeout=0.2)
+                except queue.Empty:
+                    if time.monotonic() - last_frame > self.STALL_SECONDS:
+                        self.last_error = "the microphone stopped sending audio"
+                        log.warning("The microphone stopped sending audio; reopening it")
+                        return flowed
+                    continue
+                last_frame = time.monotonic()
+                flowed = True
+                if self._paused.is_set():
+                    continue
+                chunk = self.chunker.push(frame)
+                if chunk is not None:
+                    self._offer(chunk)
+        return flowed
+
+    def _report_drops(self) -> None:
+        dropped, self._dropped = self._dropped, 0
+        if dropped:
+            log.warning("Capture fell behind - dropped %d audio frame(s)", dropped)
+        overflows, self._overflows = self._overflows, 0
+        if overflows:
+            log.debug("input stream reported %d overflow(s)", overflows)
 
     def _offer(self, chunk: Chunk) -> None:
         """Enqueue, dropping the oldest item rather than blocking the mic."""

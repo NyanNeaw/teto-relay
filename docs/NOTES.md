@@ -545,3 +545,13 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   `SO_REUSEADDR` lets a second process share the port silently there. Handler
   threads are daemons, so Ctrl+C no longer waits for the browser's keep-alive
   connections to close.
+- **The microphone reconnects.** If the input stream couldn't be opened, or
+  died, the capture thread logged once and exited, and the relay kept saying
+  "running" with nothing listening. It now retries with a backoff (1 s,
+  doubling, capped at 10 s). It also treats 2 s without any audio as a dead
+  stream, because an unplugged USB mic often stops calling back without raising
+  anything. `MicCapture.state` / `last_error` and `TetoRelay.health()` report it
+  to the panel. Dropped frames and overflows are counted in the audio callback
+  and logged from the capture thread, instead of one log line per frame from
+  inside the callback. Tested with a scripted fake stream; untested with a real
+  unplug.

@@ -752,5 +752,113 @@ class TestDoctor(unittest.TestCase):
                 self.assertEqual(doctor.run_doctor(Config()), 1)
 
 
+class _FakeInputStream:
+    """Stands in for sounddevice.InputStream, following a script per open."""
+
+    def __init__(self, plan, callback, blocksize, **_):
+        import threading
+
+        self.plan, self.callback, self.blocksize = plan, callback, blocksize
+        self._thread = threading.Thread(target=self._feed, daemon=True)
+
+    def __enter__(self):
+        if self.plan == "fail":
+            raise OSError("Device unavailable [PaErrorCode -9985]")
+        self._thread.start()
+        return self
+
+    def _feed(self):
+        import time
+
+        import numpy as np
+
+        for _ in range(self.plan):
+            self.callback(np.full((self.blocksize, 1), 0.2, dtype=np.float32), self.blocksize, None, None)
+            time.sleep(0.005)
+        # ...and then nothing, like an unplugged USB mic.
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestMicrophoneRecovery(unittest.TestCase):
+    """P1-1: a microphone that fails or dies is reopened, and says so."""
+
+    def run_capture(self, plans, until):
+        import queue
+        import time
+        import types
+        import unittest.mock
+
+        from teto_relay import capture
+        from teto_relay.config import Config
+
+        opened = []
+
+        def input_stream(**kwargs):
+            plan = plans[min(len(opened), len(plans) - 1)]
+            opened.append(plan)
+            return _FakeInputStream(plan, **kwargs)
+
+        fake_sd = types.SimpleNamespace(InputStream=input_stream)
+        cfg = Config(capture_mode="vad")
+        pushed = []
+
+        class Recorder:
+            def push(self, frame):
+                pushed.append(frame)
+
+            def flush(self):
+                return None
+
+        mic = capture.MicCapture(cfg, queue.Queue(), chunker=Recorder())
+        mic.STALL_SECONDS, mic.FIRST_RETRY_SECONDS, mic.MAX_RETRY_SECONDS = 0.3, 0.05, 0.1
+        with unittest.mock.patch.object(capture, "sd", lambda: fake_sd):
+            mic.start()
+            deadline = time.monotonic() + 10
+            while not until(opened, pushed, mic) and time.monotonic() < deadline:
+                time.sleep(0.02)
+            states = mic.state
+            error = mic.last_error
+            mic.stop()
+            mic.join(timeout=5)
+        self.assertFalse(mic.is_alive(), "capture thread did not stop")
+        return opened, pushed, states, error
+
+    def test_a_mic_that_will_not_open_is_retried_until_it_does(self):
+        opened, pushed, _, _ = self.run_capture(
+            ["fail", "fail", 50], until=lambda o, p, m: len(p) >= 50
+        )
+        self.assertEqual(opened[:3], ["fail", "fail", 50])
+        self.assertGreaterEqual(len(pushed), 50)
+
+    def test_a_mic_that_goes_quiet_is_reopened(self):
+        opened, pushed, _, _ = self.run_capture(
+            [20, 20], until=lambda o, p, m: len(o) >= 2 and len(p) >= 40
+        )
+        self.assertGreaterEqual(len(opened), 2)
+        self.assertGreaterEqual(len(pushed), 40)
+
+    def test_the_relay_reports_a_missing_microphone(self):
+        import types
+
+        from teto_relay.config import Config
+
+        relay = _bare_relay(Config())
+        relay._capture = types.SimpleNamespace(state="retrying", last_error="PaErrorCode -9985",
+                                               paused=False)
+        relay.renderer = types.SimpleNamespace(name="openutau")
+        health = relay.health()
+        self.assertEqual(health["microphone"], "retrying")
+        self.assertTrue(any("PaErrorCode" in p for p in health["problems"]))
+
+    def test_state_says_what_is_wrong_while_retrying(self):
+        _, _, state, error = self.run_capture(
+            ["fail"], until=lambda o, p, m: len(o) >= 2 and m.state == "retrying"
+        )
+        self.assertEqual(state, "retrying")
+        self.assertIn("PaErrorCode", error)
+
+
 if __name__ == "__main__":
     unittest.main()

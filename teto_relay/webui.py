@@ -1099,6 +1099,7 @@ class Controller:
                 else "words"
             ) if relay else "",
             "paused": bool(relay and relay.paused),
+            "health": relay.health() if relay else {"microphone": "stopped", "problems": []},
             "log": list(self.buffer.lines)[-60:],
         }
 
