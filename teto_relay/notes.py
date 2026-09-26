@@ -37,6 +37,9 @@ class Note:
     # May touch the previous note (one continuous phrase). Only the `legato`
     # option sets it; otherwise every note keeps a gap before it.
     legato: bool = False
+    # Vibrato as OpenUtau describes it (length/in/out in percent, period in
+    # ms, depth in cents); None is none. Only the sung style sets it.
+    vibrato: dict | None = None
 
     @property
     def duration(self) -> float:
@@ -91,7 +94,9 @@ def required_seconds(lyric: str, cfg) -> float:
     return max(cfg.min_note_seconds, syllables(lyric) * cfg.seconds_per_syllable)
 
 
-def _dedupe_spans(words: list[Word], cfg) -> list[tuple[Word, tuple[float, float]]]:
+def _dedupe_spans(
+    words: list[Word], cfg, legato: list[bool] | None = None
+) -> list[tuple[Word, tuple[float, float]]]:
     """Space the words out so each note can be sung, keeping the spoken spans.
 
     Two rules, which sometimes conflict:
@@ -106,16 +111,21 @@ def _dedupe_spans(words: list[Word], cfg) -> list[tuple[Word, tuple[float, float
     Each entry is returned with the *original* spoken span alongside the
     adjusted note, because pitch must be measured over what was actually said.
     Measuring over a stretched note samples the following word's audio too.
+
+    `legato[i]` lets note i follow the previous one with no gap (the `legato`
+    option, for the morae of one word).
     """
     # Callers pass words already sorted by start, and must - anything running
     # alongside them (phonetic hints) is indexed positionally.
-    ordered = [w for w in words if w.text]
+    flags = legato if legato is not None else [False] * len(words)
+    ordered = [(w, flag) for w, flag in zip(words, flags) if w.text]
     out: list[tuple[Word, tuple[float, float]]] = []
-    gap = cfg.note_gap_ms / 1000.0
+    default_gap = cfg.note_gap_ms / 1000.0
 
-    for w in ordered:
+    for w, joined in ordered:
         spoken = (w.start, w.end)
         start = w.start
+        gap = 0.0 if joined else default_gap
         if out and start < out[-1][0].end + gap:
             start = out[-1][0].end + gap
         end = max(w.end, start + max(required_seconds(w.text, cfg), MIN_NOTE_SECONDS))
@@ -133,11 +143,13 @@ def build_notes(
     baseline: float | None = None,
     japanese_lyrics: bool = False,
     mora_floor: float | None = None,
+    singing_state: dict | None = None,
 ) -> list[Note]:
     """Combine words and the F0 track into notes ready for the ustx writer.
 
     `mora_floor` is the shortest note the voicebank can sing (see
     `voicebank.mora_floor`); it falls back to the configured minimum.
+    `singing_state` carries the sung style's key between phrases.
     """
     # Exact phonemes beat a respelling, so check for a hint first: "kasane" is
     # k A s A n E rather than an approximation built from other English words.
@@ -150,6 +162,8 @@ def build_notes(
     source = translit.source_language(cfg)
     respelled: list[Word] = []
     word_hints: list[str | None] = []
+    joined: list[bool] = []  # legato: follows the previous note with no gap
+    use_legato = bool(getattr(cfg, "legato", False))
     ordered = sorted((w for w in words if w.text), key=lambda x: x.start)
     floor = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
     # Where the last word may sing to. The F0 track spans the whole chunk, so
@@ -172,6 +186,7 @@ def build_notes(
                 log.info("%r is not in the dictionary; leaving it as-is", w.text)
                 respelled.append(w)
                 word_hints.append(None)
+                joined.append(False)
                 continue
 
             morae = jp.split_morae(kana)
@@ -196,6 +211,7 @@ def build_notes(
                 start = w.start + index * step
                 respelled.append(Word(text=mora, start=start, end=start + step))
                 word_hints.append(None)
+                joined.append(use_legato and index > 0)
             continue
 
         # A non-English source on an English bank is romanised and sung from
@@ -206,6 +222,7 @@ def build_notes(
                 log.info("%s %r -> %r (%s)", source, w.text, lyric, sounds)
                 respelled.append(Word(text=lyric, start=w.start, end=w.end))
                 word_hints.append(sounds)
+                joined.append(False)
                 continue
 
         hint = pron.hint_for(w.text, hints)
@@ -213,14 +230,16 @@ def build_notes(
             log.info("Using exact phonemes for %r: %s", w.text, hint)
             respelled.append(w)
             word_hints.append(hint)
+            joined.append(False)
             continue
         lyric = pron.apply(w.text, table)
         if lyric != w.text:
             log.info("Respelling %r as %r so it can be sung", w.text, lyric)
         respelled.append(Word(text=lyric, start=w.start, end=w.end))
         word_hints.append(None)
+        joined.append(False)
 
-    adjusted = _dedupe_spans(respelled, cfg)
+    adjusted = _dedupe_spans(respelled, cfg, joined)
     if not adjusted:
         return []
 
@@ -250,7 +269,9 @@ def build_notes(
         )
 
     notes: list[Note] = []
-    for w, (spoken_start, spoken_end), detected, hint in zip(words, spans, filled, word_hints):
+    for w, (spoken_start, spoken_end), detected, hint, legato in zip(
+        words, spans, filled, word_hints, joined
+    ):
         tone = pitch_mod.clamp_tone(detected + shift, cfg)
         notes.append(
             Note(
@@ -268,8 +289,14 @@ def build_notes(
                 detected_midi=detected,
                 shift=octaves,
                 phonetic_hint=hint,
+                legato=legato,
             )
         )
+
+    if (getattr(cfg, "singing_style", "speech") or "speech").lower() == "sung":
+        from .singing import musicalize
+
+        musicalize(notes, cfg, singing_state)
 
     log.info(
         "Built %d note(s): %s",

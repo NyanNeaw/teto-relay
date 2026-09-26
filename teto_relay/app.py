@@ -110,6 +110,8 @@ class TetoRelay:
         # The speaker's usual pitch, learned as they talk. Gives one- and
         # two-word utterances something to check their octave against.
         self._voice_baseline: float | None = None
+        # The sung style's key, held between phrases (teto_relay.singing).
+        self._singing_state: dict = {}
         # The pitch this voicebank was recorded at; rendering near it keeps the
         # voice's body, which is what makes it sound sung rather than breathy.
         self._target_tone: float = float(self.cfg.target_tone or 60)
@@ -500,6 +502,7 @@ class TetoRelay:
                 notes = build_notes(
                     words, track, self.cfg, self._octave_shift, self._target_tone,
                     self._voice_baseline, self._japanese_lyrics(), self._mora_floor,
+                    self._singing_state,
                 )
                 if not notes:
                     continue

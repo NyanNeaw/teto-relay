@@ -56,6 +56,12 @@ GROUPS: dict[str, list[str]] = {
         "stable_shift", "shift_tolerance", "transpose", "max_shift",
         "fix_octave_errors", "f0_min", "f0_max",
     ],
+    # Off by default until tried on real hardware; see teto_relay/singing.py.
+    "Singing (experimental)": [
+        "singing_style", "scale", "scale_key", "sung_contour_amount",
+        "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
+        "final_hold_seconds", "legato",
+    ],
     "Expression": ["emit_contour", "contour_smooth_ms", "contour_points", "contour_range_cents"],
     "Timing": [
         "min_note_seconds", "seconds_per_syllable", "note_gap_ms",
@@ -160,11 +166,17 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "rvc_filter_radius": (0, 7, 1),
     "rvc_rms_mix_rate": (0, 1, 0.05),
     "rvc_protect": (0, 0.5, 0.01),
+    "sung_contour_amount": (0, 1, 0.05),
+    "vibrato_min_seconds": (0.1, 1.5, 0.05),
+    "vibrato_depth_cents": (0, 100, 5),
+    "vibrato_period_ms": (80, 400, 5),
+    "final_hold_seconds": (0, 1.5, 0.05),
 }
 
 # Settings whose value is a duration in seconds, shown as ms on the slider
 # readout because that is how they are discussed everywhere else.
 SECONDS = {
+    "vibrato_min_seconds", "final_hold_seconds",
     "min_note_seconds", "seconds_per_syllable", "min_mora_seconds", "max_mora_seconds",
 }
 
@@ -215,6 +227,15 @@ LABELS: dict[str, list[str]] = {
     "contour_smooth_ms": ["Intonation smoothing", "Less smoothing is more expressive, more warbly."],
     "contour_points": ["Intonation detail", ""],
     "contour_range_cents": ["Intonation range", ""],
+    "singing_style": ["Singing style", "speech follows your voice exactly; sung puts it in a key, with vibrato."],
+    "scale": ["Scale", "Sung style: which notes are allowed."],
+    "scale_key": ["Key", "Sung style: auto finds it from what you say, or pick one (C, F#, Bb...)."],
+    "sung_contour_amount": ["Keep your inflection", "Sung style: 0 holds each note flat, 1 keeps all of it."],
+    "vibrato_min_seconds": ["Vibrato from", "Sung style: notes at least this long get vibrato."],
+    "vibrato_depth_cents": ["Vibrato depth", "In cents; 100 is a semitone."],
+    "vibrato_period_ms": ["Vibrato speed", "One wobble every this many ms."],
+    "final_hold_seconds": ["Hold the last note", "Sung style: how much longer the phrase's last note lasts."],
+    "legato": ["Connect syllables", "Japanese banks: sing each word's morae joined up. Experimental."],
     "min_note_seconds": ["Shortest word", ""],
     "seconds_per_syllable": ["Time per syllable", "English banks only."],
     "note_gap_ms": ["Gap between notes", "Zero collapses the phonemizer."],
@@ -470,6 +491,9 @@ def _meta(cfg: Config) -> dict:
             "lyric_mode": ["auto", "native", "japanese"],
             "renderer_backend": ["openutau", "null"],
             "shift_mode": ["semitone", "octave"],
+            "singing_style": ["speech", "sung"],
+            "scale": ["major", "minor", "pentatonic", "chromatic"],
+            "scale_key": ["auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
             "pitch_method": ["crepe", "pyin"],
             "crepe_model": ["full", "tiny"],
             "crepe_device": ["cuda", "cpu"],

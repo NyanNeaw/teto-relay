@@ -1064,6 +1064,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
             relay.chunk_q, relay.ustx_q, relay.wav_q = queue.Queue(), queue.Queue(), queue.Queue()
             relay._stop = threading.Event()
             relay._octave_shift = relay._voice_baseline = None
+            relay._singing_state = {}
             relay._target_tone, relay._mora_floor = 61.0, 0.11
             relay.last_text = relay.last_source = relay.last_kana = ""
             relay.last_notes, relay.last_stats = [], {}
@@ -1499,6 +1500,147 @@ class TestPersistentOutput(unittest.TestCase):
         self.assertEqual(written.shape, (6000, 2))
         self.assertAlmostEqual(float(written[-1, 0]), 0.5, places=3)
         self.assertTrue(streams[0].closed)
+
+
+class TestSungStyle(unittest.TestCase):
+    """singing_style "sung": in a key, steadier, vibrato, held ending."""
+
+    def notes(self, **cfg_values):
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(auto_octave=False, **cfg_values)
+        cfg.validate()
+        words = [Word("la", 0.0, 0.2), Word("la", 0.3, 0.9), Word("la", 1.0, 1.2)]
+        # 61.4, 63.6, 66.3 in MIDI: between semitones, so snapping shows.
+        track = _flat_track()
+        import numpy as np
+
+        from teto_relay import pitch as pitch_mod
+
+        f0 = np.array(track.f0)
+        for (t0, t1), midi in zip([(0.0, 0.2), (0.3, 0.9), (1.0, 1.2)], (61.4, 63.6, 66.3)):
+            f0[(track.times >= t0) & (track.times < t1)] = float(pitch_mod.midi_to_hz(midi))
+        track.f0 = f0
+        state = {}
+        return build_notes(words, track, cfg, singing_state=state), state
+
+    def test_speech_style_is_unchanged(self):
+        notes, _ = self.notes()
+        self.assertEqual([n.tone for n in notes], [61, 64, 66])
+        self.assertTrue(all(n.vibrato is None and not n.legato for n in notes))
+
+    def test_sung_notes_are_in_the_chosen_key(self):
+        from teto_relay.singing import SCALES
+
+        notes, state = self.notes(singing_style="sung", scale_key="C", final_hold_seconds=0.0)
+        self.assertEqual(state["tonic"], 0)
+        for n in notes:
+            self.assertIn(n.tone % 12, SCALES["major"])
+        # 61.4 -> D, 63.6 -> E, 66.3 -> G (0.7 away, nearer than F at 1.3).
+        self.assertEqual([n.tone for n in notes], [62, 64, 67])
+
+    def test_vibrato_only_on_long_notes_and_the_last_note_is_held(self):
+        spoken, _ = self.notes()
+        notes, _ = self.notes(singing_style="sung", vibrato_min_seconds=0.5,
+                              final_hold_seconds=0.4)
+        self.assertIsNone(notes[0].vibrato)
+        self.assertIsNotNone(notes[1].vibrato)
+        self.assertAlmostEqual(notes[-1].duration, spoken[-1].duration + 0.4, places=6)
+        self.assertIsNotNone(notes[-1].vibrato)  # 0.6 s once held
+
+    def test_the_key_is_held_between_phrases(self):
+        from teto_relay.singing import choose_key
+
+        c_major = [60, 62, 64, 65, 67]
+        self.assertEqual(choose_key(c_major, "major"), 0)
+        # A phrase that fits G a little better still stays in C...
+        slightly_g = [67, 69, 71, 66.2]
+        self.assertEqual(choose_key(slightly_g, "major", held=0), 0)
+        # ...but one that clearly does not fit moves.
+        self.assertNotEqual(choose_key([61, 63, 66, 68, 70], "major", held=0), 0)
+
+    def test_contour_is_narrowed(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.singing import musicalize
+
+        cfg = Config(singing_style="sung", sung_contour_amount=0.5, scale_key="C")
+        note = Note("la", 0.0, 0.2, 60, contour=[(0.0, 100.0), (100.0, -60.0)],
+                    detected_midi=60.0)
+        musicalize([note], cfg, {})
+        self.assertEqual(note.contour, [(0.0, 50.0), (100.0, -30.0)])
+
+    def test_scale_key_is_validated(self):
+        from teto_relay.config import Config, ConfigError
+
+        self.assertEqual(Config.from_dict({"scale_key": "Bb"}).scale_key, "Bb")
+        with self.assertRaises(ConfigError):
+            Config.from_dict({"scale_key": "H"})
+
+    def test_vibrato_reaches_the_ustx_and_the_tone_renderer(self):
+        import tempfile
+
+        import soundfile as sf
+
+        from teto_relay.config import Config
+        from teto_relay.render.null import NullRenderer
+        from teto_relay.ustx import build_project, write_ustx
+        from teto_relay.voicebank import Voicebank
+
+        notes, _ = self.notes(singing_style="sung")
+        bank = Voicebank(key="english", name="Teto", root=Path("/x/Teto"), flavour="en-cvvc")
+        block = build_project(notes, bank, Config())["voice_parts"][0]["notes"][1]
+        self.assertEqual(block["vibrato"]["length"], 60.0)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_ustx(notes, Path(tmp) / "v.ustx", bank, Config())
+            wav = NullRenderer(Config()).render(path, Path(tmp) / "v.wav")
+            audio, _ = sf.read(wav)
+        self.assertGreater(len(audio), 0)
+
+
+class TestLegato(unittest.TestCase):
+    """legato: the morae of one word touch; words keep their gap."""
+
+    def build(self, legato):
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(auto_octave=False, legato=legato)
+        return build_notes([Word("hello", 0.0, 0.6), Word("teto", 0.8, 1.4)],
+                           _flat_track(), cfg, japanese_lyrics=True)
+
+    def test_off_by_default_every_note_has_a_gap(self):
+        notes = self.build(False)
+        for a, b in zip(notes, notes[1:]):
+            self.assertLess(a.end, b.start)
+
+    def test_on_morae_of_a_word_touch(self):
+        notes = self.build(True)
+        firsts = [n for n in notes if not n.legato]
+        self.assertEqual(len(firsts), 2)  # one note per word starts a phrase
+        for a, b in zip(notes, notes[1:]):
+            if b.legato:
+                self.assertAlmostEqual(a.end, b.start)
+            else:
+                self.assertLess(a.end, b.start)
+
+    def test_touching_survives_into_the_ustx(self):
+        from teto_relay.config import Config
+        from teto_relay.ustx import build_project
+        from teto_relay.voicebank import Voicebank
+
+        notes = self.build(True)
+        bank = Voicebank(key="tandoku", name="Teto", root=Path("/x/Teto"), flavour="ja-cv")
+        blocks = build_project(notes, bank, Config())["voice_parts"][0]["notes"]
+        for note, a, b in zip(notes[1:], blocks, blocks[1:]):
+            end = a["position"] + a["duration"]
+            if note.legato:
+                self.assertEqual(b["position"], end)
+            else:
+                self.assertGreater(b["position"], end)
 
 
 if __name__ == "__main__":

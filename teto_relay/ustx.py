@@ -44,6 +44,15 @@ def _pitch_block(note: Note, cfg) -> dict:
     return {"data": data, "snap_first": True}
 
 
+def _vibrato_block(note: Note) -> dict:
+    """OpenUtau's vibrato fields. Length 0 (the default) means no vibrato."""
+    block = {"length": 0, "period": 175, "depth": 25, "in": 10, "out": 10,
+             "shift": 0, "drift": 0, "vol_link": 0}
+    if note.vibrato:
+        block.update({k: v for k, v in note.vibrato.items() if k in block})
+    return block
+
+
 def _note_block(note: Note, part_start: float, cfg) -> dict:
     position = cfg.seconds_to_ticks(note.start - part_start)
     duration = max(1, cfg.seconds_to_ticks(note.duration))
@@ -53,16 +62,7 @@ def _note_block(note: Note, part_start: float, cfg) -> dict:
         "tone": int(note.tone),
         "lyric": note.lyric,
         "pitch": _pitch_block(note, cfg),
-        "vibrato": {
-            "length": 0,
-            "period": 175,
-            "depth": 25,
-            "in": 10,
-            "out": 10,
-            "shift": 0,
-            "drift": 0,
-            "vol_link": 0,
-        },
+        "vibrato": _vibrato_block(note),
         "phoneme_expressions": [],
         "phoneme_overrides": [],
     }

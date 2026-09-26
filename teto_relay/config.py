@@ -191,6 +191,26 @@ class Config:
     auto_octave: bool = True
     transpose: int = 0  # extra semitones applied after the octave shift
 
+    # --------------------------------------------- singing (experimental)
+    # All off by default: the current pipeline stays the default until these
+    # have been listened to on real hardware. See teto_relay/singing.py.
+    #
+    # "speech" - notes follow your spoken pitch exactly (the original sound).
+    # "sung"   - notes snap to a key, hold steadier, long ones get vibrato,
+    #            and the last one is held.
+    singing_style: str = "speech"
+    scale: str = "major"  # major | minor | pentatonic | chromatic
+    scale_key: str = "auto"  # "auto", or a note name such as "C", "F#", "Bb"
+    sung_contour_amount: float = 0.35  # how much spoken inflection survives
+    vibrato_min_seconds: float = 0.35  # notes this long or longer get vibrato
+    vibrato_depth_cents: float = 25.0
+    vibrato_period_ms: float = 175.0
+    final_hold_seconds: float = 0.3  # how much longer the last note is held
+    # Morae of one word are sung as one connected phrase (their notes touch)
+    # instead of each with its own gap - smoother, less word-by-word. Touching
+    # notes collapsed the phonemizer in early tests, so it is off until tried.
+    legato: bool = False
+
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
     # so all three banks are found regardless of their differing layouts.
@@ -397,6 +417,12 @@ class Config:
             )
         if not str(self.ptt_key or "").strip():
             problems.append("ptt_key is empty; set it to a key such as f8.")
+        try:
+            from .singing import key_from_config
+
+            key_from_config(self.scale_key)
+        except ValueError as exc:
+            problems.append(f"{exc}.")
         return problems
 
     def save(self, path: Path | None = None) -> Path:
@@ -420,6 +446,8 @@ CHOICES: dict[str, set[str]] = {
     "pitch_method": {"crepe", "pyin"},
     "crepe_model": {"full", "tiny"},
     "whisper_device": {"cpu", "cuda", "auto"},
+    "singing_style": {"speech", "sung"},
+    "scale": {"major", "minor", "pentatonic", "chromatic"},
     "whisper_compute_type": {
         "default", "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
         "int16", "float16", "bfloat16", "float32",
@@ -465,6 +493,11 @@ RANGES: dict[str, tuple[float, float]] = {
     "playback_gain": (0.0, 10.0),
     "keep_files": (0, 100_000),
     "render_timeout_seconds": (1.0, 600.0),
+    "sung_contour_amount": (0.0, 1.0),
+    "vibrato_min_seconds": (0.05, 10.0),
+    "vibrato_depth_cents": (0.0, 200.0),
+    "vibrato_period_ms": (40.0, 1000.0),
+    "final_hold_seconds": (0.0, 5.0),
     "queue_size": (1, 64),
 }
 

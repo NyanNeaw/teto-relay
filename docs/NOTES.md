@@ -642,3 +642,16 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
     writes each phrase to it in 1024-frame blocks, instead of `sd.play`
     opening a new stream for every phrase. Tested with a fake stream only.
     Whether it helps shows up in the `output` stage of the latency line.
+- **Singing options, off by default** (see ROADMAP.md for the analysis behind
+  them). `singing_style: "sung"` (`teto_relay/singing.py`) snaps notes to a
+  scale and a key. The key is found per phrase as the one needing the smallest
+  total nudge, and held between phrases unless another fits clearly better
+  (by more than 1.5 semitones in total). It also scales the spoken contour
+  down (`sung_contour_amount`), puts vibrato on notes of at least
+  `vibrato_min_seconds` (written to the `.ustx` `vibrato` block and set on
+  OpenUtau's `UNote.vibrato`), and holds the last note for
+  `final_hold_seconds`. `legato` lets the morae of one word touch while words
+  keep their gap. The tone renderer (`backend null`) renders the vibrato too,
+  so it can be heard without OpenUtau. Unit tested at the note and `.ustx`
+  level. How OpenUtau renders the vibrato, and whether touching morae still
+  collapse the hosted phonemizer, are untested.

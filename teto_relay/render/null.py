@@ -83,6 +83,7 @@ class NullRenderer:
         else:
             cents = np.zeros(length)
 
+        cents = cents + self._vibrato(note.get("vibrato") or {}, t)
         freq = midi_to_hz(base_midi + cents / 100.0)
         # Integrate frequency to phase so the pitch glides instead of stepping.
         phase = 2 * np.pi * np.cumsum(np.asarray(freq, dtype=float)) / self.sample_rate
@@ -92,6 +93,23 @@ class NullRenderer:
             wave += amp * np.sin(phase * mult)
 
         return wave * self._envelope(length)
+
+    def _vibrato(self, vib: dict, t: np.ndarray) -> np.ndarray:
+        """Cents of vibrato over the note, the way OpenUtau lays it out:
+        the last `length` percent of the note, faded in and out."""
+        length_pct = float(vib.get("length", 0) or 0)
+        if length_pct <= 0 or t.size == 0:
+            return np.zeros_like(t)
+        duration = t[-1] if t[-1] > 0 else 1.0
+        start = duration * (1 - length_pct / 100.0)
+        span = max(duration - start, 1e-6)
+        local = np.clip((t - start) / span, 0.0, 1.0)
+        fade_in = max(float(vib.get("in", 0)) / 100.0, 1e-6)
+        fade_out = max(float(vib.get("out", 0)) / 100.0, 1e-6)
+        envelope = np.minimum(np.minimum(local / fade_in, (1 - local) / fade_out), 1.0)
+        envelope[t < start] = 0.0
+        period = max(float(vib.get("period", 175)) / 1000.0, 1e-3)
+        return float(vib.get("depth", 0)) * envelope * np.sin(2 * np.pi * (t - start) / period)
 
     def _envelope(self, length: int) -> np.ndarray:
         """Short raised-cosine fades so notes do not click."""

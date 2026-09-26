@@ -359,6 +359,7 @@ class OpenUtauRenderer:
             )
             note.lyric = str(note_doc["lyric"])
             self._apply_pitch(note, note_doc)
+            self._apply_vibrato(note, note_doc)
             part.notes.Add(note)
             self._hints.append(note_doc.get("phonetic_hint") or None)
 
@@ -781,6 +782,28 @@ class OpenUtauRenderer:
 
         _wait_for_dictionary(phonemizer)
         return phonemizer
+
+    def _apply_vibrato(self, note, note_doc: dict) -> None:
+        """Copy the sung style's vibrato onto the note. Untested on OpenUtau.
+
+        UNote.vibrato is a UVibrato whose properties match the .ustx keys;
+        `in` is a Python keyword, hence setattr. A value that will not set is
+        skipped - the note is still sung, just without that part of the
+        vibrato.
+        """
+        vib = note_doc.get("vibrato") or {}
+        if not float(vib.get("length", 0) or 0):
+            return
+        target = getattr(note, "vibrato", None)
+        if target is None:
+            return
+        for key, attr in (("length", "length"), ("period", "period"), ("depth", "depth"),
+                          ("in", "in"), ("out", "out"), ("shift", "shift"), ("drift", "drift")):
+            if key in vib:
+                try:
+                    setattr(target, attr, float(vib[key]))
+                except Exception:  # noqa: BLE001
+                    log.debug("could not set vibrato %s", attr, exc_info=True)
 
     def _apply_pitch(self, note, note_doc: dict) -> None:
         """Copy our detected contour onto the note's pitch envelope."""
