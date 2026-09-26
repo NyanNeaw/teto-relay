@@ -78,7 +78,22 @@ def _wait_for_dictionary(phonemizer, timeout: float = 60.0) -> bool:
     return False
 
 
+_SETTERS: dict[tuple[str, str], object] = {}
+
+
 def _int64_field_setter(declaring_type, field_name: str):
+    """A compiled setter for an Int64 field, built once per field and reused.
+
+    Compiling an expression tree costs milliseconds, and it used to happen on
+    every utterance - twice more for each retried word.
+    """
+    key = (str(declaring_type.FullName), field_name)
+    if key not in _SETTERS:
+        _SETTERS[key] = _compile_int64_field_setter(declaring_type, field_name)
+    return _SETTERS[key]
+
+
+def _compile_int64_field_setter(declaring_type, field_name: str):
     """Compile a typed setter for an Int64 field.
 
     pythonnet converts every .NET primitive back into a Python int, so there is
@@ -404,11 +419,17 @@ class OpenUtauRenderer:
         from OpenUtau.Api import Phonemizer
 
         flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
-        asm = Assembly.LoadFrom(str(Path(self.openutau_dir) / "OpenUtau.Core.dll"))
-        request_type = asm.GetType("OpenUtau.Api.PhonemizerRequest")
-        runner_type = asm.GetType("OpenUtau.Api.PhonemizerRunner")
-        note_type = clr.GetClrType(Phonemizer).GetNestedType("Note")
+        # The internal types are looked up once per renderer, not per utterance.
+        if getattr(self, "_phonemizer_api", None) is None:
+            asm = Assembly.LoadFrom(str(Path(self.openutau_dir) / "OpenUtau.Core.dll"))
+            self._phonemizer_api = (
+                asm.GetType("OpenUtau.Api.PhonemizerRequest"),
+                asm.GetType("OpenUtau.Api.PhonemizerRunner"),
+                clr.GetClrType(Phonemizer).GetNestedType("Note"),
+            )
+        request_type, runner_type, note_type = self._phonemizer_api
         if None in (request_type, runner_type, note_type):
+            self._phonemizer_api = None
             raise RenderError("could not reach OpenUtau's internal phonemizer API")
 
         notes = list(part.notes)
@@ -687,7 +708,9 @@ class OpenUtauRenderer:
             _has_response(part),
         )
 
-        dotnet.drain_ui()
+        # Drained completely: a fixed limit let the queue grow by whatever
+        # was left over on every utterance.
+        dotnet.drain_ui(limit=100_000)
         try:
             # SkipPhonemizer matters: a plain Validate re-runs the phonemizer,
             # which bumps the part's timestamp and discards the response we

@@ -593,3 +593,18 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   `__pycache__`, `site-packages` or OpenUtau's own `Cache`/`Dictionaries`/
   `Plugins`. A bank with no `character.txt`, buried deeper than 3 folders,
   is no longer found; move it up or point `voicebank_root` nearer to it.
+- **The OpenUtau renderer stops repeating itself.** Each utterance re-ran
+  `Assembly.LoadFrom`, three reflection lookups and one or more
+  `System.Linq.Expressions` compiles for the `timestamp` setter (one more per
+  retried word). These are now done once per renderer or per field. The
+  UI-callback queue used to be drained 256 items at a time, so anything past
+  that stayed queued and piled up; it is now drained completely. Untested
+  against OpenUtau, and the saving per utterance hasn't been measured; the
+  `phonemize` stage in the latency line will show it.
+- **The panel page lives in `teto_relay/web/index.html`.** It shows a banner
+  for current problems, has a Check setup button (the doctor), and a
+  release-to-sound meter. `tools/panel_smoke.mjs` drives it in headless
+  Chromium. On its first run it found that a dropdown whose saved value wasn't
+  among its choices showed the first choice instead, so Save silently changed
+  the setting; the default speech model `base.en` wasn't in the list. It also
+  found the avatar being re-requested every second when no bank was installed.

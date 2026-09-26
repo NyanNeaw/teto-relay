@@ -580,6 +580,26 @@ def _bare_openutau(cfg, tasks):
     return renderer
 
 
+class TestOpenUtauWorkIsCached(unittest.TestCase):
+    """P1-11: the typed setter is compiled once per field, not per utterance."""
+
+    def test_setter_is_compiled_once(self):
+        import types
+        import unittest.mock
+
+        from teto_relay.render import openutau
+
+        compiled = []
+        fake_type = types.SimpleNamespace(FullName="OpenUtau.Api.PhonemizerRequest")
+        with unittest.mock.patch.object(openutau, "_SETTERS", {}), \
+                unittest.mock.patch.object(openutau, "_compile_int64_field_setter",
+                                           side_effect=lambda t, f: compiled.append(f) or object()):
+            first = openutau._int64_field_setter(fake_type, "timestamp")
+            second = openutau._int64_field_setter(fake_type, "timestamp")
+        self.assertIs(first, second)
+        self.assertEqual(compiled, ["timestamp"])
+
+
 class TestRenderTimeout(unittest.TestCase):
     """P0-6: a stalled synthesis engine costs one utterance, not the relay."""
 
