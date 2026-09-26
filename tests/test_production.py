@@ -1442,5 +1442,64 @@ class TestTickSpacing(unittest.TestCase):
         self.assertEqual(b["position"], a["position"] + a["duration"])
 
 
+class TestPersistentOutput(unittest.TestCase):
+    """P2-12: persistent_output keeps one stream for many phrases."""
+
+    def test_one_stream_for_several_files(self):
+        import queue
+        import tempfile
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay import playback
+        from teto_relay.config import Config
+
+        streams = []
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                self.kwargs, self.written, self.closed = kwargs, [], False
+                streams.append(self)
+
+            def start(self):
+                pass
+
+            def write(self, block):
+                self.written.append(block.copy())
+
+            def stop(self):
+                pass
+
+            def close(self):
+                self.closed = True
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, stop=lambda: None,
+                                        query_devices=lambda *a: {"default_samplerate": 44100,
+                                                                  "max_output_channels": 2})
+        with tempfile.TemporaryDirectory() as tmp:
+            files = []
+            for i in range(2):
+                path = Path(tmp) / f"relay_{i}.wav"
+                sf.write(path, np.full(3000, 0.25 * (i + 1), dtype=np.float32), 44100)
+                files.append(path)
+            q = queue.Queue()
+            with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+                player = playback.Player(Config(persistent_output=True), q, device=3)
+                player.start()
+                for path in files:
+                    q.put(path)
+                q.put(None)
+                player.join(timeout=10)
+        self.assertEqual(len(streams), 1)
+        self.assertEqual(streams[0].kwargs["device"], 3)
+        written = np.concatenate(streams[0].written)
+        self.assertEqual(written.shape, (6000, 2))
+        self.assertAlmostEqual(float(written[-1, 0]), 0.5, places=3)
+        self.assertTrue(streams[0].closed)
+
+
 if __name__ == "__main__":
     unittest.main()

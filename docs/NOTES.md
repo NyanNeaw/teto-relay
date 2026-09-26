@@ -627,3 +627,18 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   whisper's timings for the *whole* utterance. Tokens are now normalised
   ("café" → "cafe"). A word with nothing alignable (kana, kanji) keeps
   whisper's timing, and the rest are aligned as usual.
+- **Smaller fixes (P2):**
+  - Push-to-talk hands finished phrases to the capture thread through a queue.
+    A single slot lost a phrase on a quick release/press/release.
+  - `pronunciations.json` is parsed once until it changes, instead of twice
+    per utterance.
+  - The measured bank pitch is cached per folder rather than per short key.
+  - Voicebank zips are checked for their unpacked size (≤ 4 GB, and it must
+    fit on disk) before anything is extracted.
+  - The `.ustx` writer keeps at least one tick between notes that had a gap in
+    seconds, because rounding could make them touch or overlap. Notes that
+    touch in seconds, or are marked `legato`, may touch.
+  - `persistent_output` (off by default) keeps one output stream open and
+    writes each phrase to it in 1024-frame blocks, instead of `sd.play`
+    opening a new stream for every phrase. Tested with a fake stream only.
+    Whether it helps shows up in the `output` stage of the latency line.

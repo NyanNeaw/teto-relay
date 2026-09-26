@@ -94,10 +94,18 @@ class Player(threading.Thread):
         self.target_rate, self.target_channels = _device_format(device)
         self._stopping = threading.Event()
         self._playing = threading.Event()
+        # persistent_output: the open stream and the format it was opened for.
+        self._stream = None
+        self._stream_format: tuple[int, int] | None = None
+
+    #: Frames written per call on the persistent stream; small enough that
+    #: stop() is answered within a few tens of milliseconds.
+    BLOCK = 1024
 
     def stop(self) -> None:
         self._stopping.set()
-        sd().stop()
+        if not getattr(self.cfg, "persistent_output", False):
+            sd().stop()
 
     @property
     def busy(self) -> bool:
@@ -131,6 +139,8 @@ class Player(threading.Thread):
                 self._play_file(wav_path, item if timeline is not None else None)
             except Exception:
                 log.exception("failed to play %s", wav_path)
+                self._close_stream()  # a broken stream is reopened next time
+        self._close_stream()
         log.info("Playback thread stopped")
 
     def _report_start(self, job, data, sample_rate: int) -> None:
@@ -163,6 +173,11 @@ class Player(threading.Thread):
         if sample_rate != original_rate:
             log.debug("resampled %d Hz -> %d Hz for the output device", original_rate, sample_rate)
 
+        if getattr(self.cfg, "persistent_output", False):
+            self._write_persistent(data, sample_rate, job)
+            log.info("Played %s (%.2fs)", path.name, len(data) / sample_rate)
+            return
+
         self._playing.set()
         try:
             sd().play(data, samplerate=sample_rate, device=self.device, blocking=False)
@@ -177,6 +192,45 @@ class Player(threading.Thread):
         finally:
             self._playing.clear()
         log.info("Played %s (%.2fs)", path.name, len(data) / sample_rate)
+
+
+    def _open_stream(self, sample_rate: int, channels: int):
+        wanted = (sample_rate, channels)
+        if self._stream is not None and self._stream_format == wanted:
+            return self._stream
+        self._close_stream()
+        stream = sd().OutputStream(
+            samplerate=sample_rate, channels=channels, dtype="float32", device=self.device
+        )
+        stream.start()
+        self._stream, self._stream_format = stream, wanted
+        log.info("Output stream open (%d Hz, %d ch) and kept open", sample_rate, channels)
+        return stream
+
+    def _close_stream(self) -> None:
+        stream, self._stream, self._stream_format = self._stream, None, None
+        if stream is None:
+            return
+        try:
+            stream.stop()
+            stream.close()
+        except Exception:  # noqa: BLE001
+            log.debug("closing the output stream failed", exc_info=True)
+
+    def _write_persistent(self, data: np.ndarray, sample_rate: int, job) -> None:
+        """Play through the long-lived stream, a block at a time."""
+        self._playing.set()
+        try:
+            stream = self._open_stream(sample_rate, data.shape[1])
+            data = np.ascontiguousarray(data, dtype=np.float32)
+            for start in range(0, len(data), self.BLOCK):
+                if self._stopping.is_set():
+                    break
+                stream.write(data[start : start + self.BLOCK])
+                if start == 0:
+                    self._report_start(job, data, sample_rate)
+        finally:
+            self._playing.clear()
 
 
 def play_once(path: Path, device: int | None, gain: float = 1.0) -> None:

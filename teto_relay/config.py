@@ -259,6 +259,11 @@ class Config:
 
     # ----------------------------------------------------- stage 6: playback
     playback_gain: float = 1.0
+    # Keep one output stream open for the whole session instead of opening a
+    # new one for every phrase. Opening a WASAPI stream takes time on every
+    # utterance; the `output` stage of the latency line shows how much on your
+    # PC. Off until it has been tried on real hardware.
+    persistent_output: bool = False
 
     # -------------------------------------------------------------- runtime
     out_dir: str = field(default_factory=lambda: str(paths.data_dir() / "out"))
