@@ -268,7 +268,7 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
 
 <div id="app">
 <header class="bar pane">
-  <span class="mark"><i></i>Teto Relay</span>
+  <span class="mark" id="mark"><i></i>Teto Relay</span>
   <div class="tabs" role="tablist" aria-label="Engine">
     <button role="tab" id="tab-utau" aria-selected="true">UTAU</button>
     <button role="tab" id="tab-voice" aria-selected="false">Voice</button>
@@ -779,6 +779,7 @@ async function poll(){
   try{
     const d=await (await fetch('api/status')).json();
     app().classList.toggle('live',d.running);
+    if(d.version) $('mark').title='Teto Relay '+d.version;
     const btn=$('toggle');
     btn.dataset.state=d.running?'running':'stopped';
     btn.textContent=d.running?'Stop':'Start';

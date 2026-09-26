@@ -4,7 +4,7 @@ import os as _os
 
 from . import paths as _paths
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Model caches default to the user profile on C:, which on this machine has
 # under 2 GB free - whisper, torch and the 1.2 GB aligner would fill it. These

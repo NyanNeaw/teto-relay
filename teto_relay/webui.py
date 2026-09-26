@@ -18,6 +18,7 @@ from dataclasses import fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from . import __version__
 from .config import Config, ConfigError, coerce
 from .errors import TetoRelayError, describe
 
@@ -325,6 +326,7 @@ class Controller:
     def status(self) -> dict:
         relay = self.relay
         return {
+            "version": __version__,
             "running": self.running,
             "last": getattr(relay, "last_text", "") if relay else "",
             "heard": getattr(relay, "last_source", "") if relay else "",
