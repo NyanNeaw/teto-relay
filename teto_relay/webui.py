@@ -66,6 +66,51 @@ GROUPS: dict[str, list[str]] = {
 
 HIDE = {"out_dir", "log_file", "openutau_dir", "voicebank_root", "queue_size", "keep_files"}
 
+# The panel is a local web server, and any page open in the same browser can
+# send requests to it. Without these checks a random website could rewrite the
+# config (paths included), start the relay, or upload a .pth - which is opened
+# with torch, i.e. unpickled. Two independent guards:
+#
+# * Host must be this machine. That defeats DNS rebinding, where evil.example
+#   is made to resolve to 127.0.0.1 so the browser treats the panel as
+#   same-origin with the attacker's page.
+# * Every request that changes something must carry TOKEN_HEADER. A page on
+#   another origin cannot add a custom header without a CORS preflight, and
+#   this server never answers one, so the browser refuses to send it.
+TOKEN_HEADER = "X-Teto-Relay"
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def host_allowed(host_header: str | None, port: int) -> bool:
+    """Whether a Host header names this machine on the panel's port."""
+    if not host_header:
+        return False
+    host = host_header.strip().lower()
+    if host.startswith("["):  # [::1]:8765
+        name, _, rest = host.partition("]")
+        name += "]"
+        port_part = rest[1:] if rest.startswith(":") else ""
+    else:
+        name, _, port_part = host.partition(":")
+    if name not in LOCAL_HOSTS:
+        return False
+    return not port_part or port_part == str(port)
+
+
+def origin_allowed(origin: str | None, port: int) -> bool:
+    """A missing Origin is fine (same-origin GETs omit it); a foreign one is not."""
+    if not origin:
+        return True
+    from urllib.parse import urlparse
+
+    parsed = urlparse(origin)
+    if parsed.scheme != "http" or not parsed.hostname:
+        return False
+    host = parsed.hostname
+    if ":" in host:  # urlparse strips the brackets from IPv6
+        host = f"[{host}]"
+    return host in LOCAL_HOSTS and (parsed.port or 80) == port
+
 # Settings the pipeline reads once, when it builds a model or opens a device.
 # Everything else is read per utterance, so changing it applies immediately -
 # `language`, for one, is passed to whisper on every transcribe call. Only
@@ -539,6 +584,11 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
 <div class="toast" id="toast"></div>
 
 <script>
+/* Every request carries this header. A page on another site cannot add a
+   custom header to a request here without a CORS preflight, which this server
+   never approves - that is what stops a website from driving the panel. */
+const _fetch=window.fetch.bind(window);
+window.fetch=(url,opts={})=>_fetch(url,{...opts,headers:{...(opts.headers||{}),'X-Teto-Relay':'1'}});
 let cfg={}, meta={}, lastKey='';
 const $=id=>document.getElementById(id);
 const app=()=>$('app');
@@ -1202,7 +1252,26 @@ def make_handler(controller: Controller):
         def _json(self, obj, status: int = 200) -> None:
             self._send(json.dumps(obj).encode("utf-8"), "application/json", status)
 
+        def _refuse_foreign(self, changes_state: bool) -> bool:
+            """Answer 403 and return True if the request is not from the panel."""
+            port = self.server.server_address[1]
+            ok = host_allowed(self.headers.get("Host"), port) and origin_allowed(
+                self.headers.get("Origin"), port
+            )
+            if ok and changes_state:
+                ok = self.headers.get(TOKEN_HEADER) == "1"
+            if not ok:
+                log.warning(
+                    "refused a %s %s from outside the control panel (Host=%r, Origin=%r)",
+                    self.command, self.path.split("?")[0],
+                    self.headers.get("Host"), self.headers.get("Origin"),
+                )
+                self._json({"error": "This request did not come from the Teto Relay panel."}, 403)
+            return not ok
+
         def do_GET(self):
+            if self._refuse_foreign(changes_state=False):
+                return
             route = self.path.split("?")[0].strip("/")
             if route in ("", "index.html"):
                 self._send(PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -1225,6 +1294,8 @@ def make_handler(controller: Controller):
                 self._json({"error": "not found"}, 404)
 
         def do_POST(self):
+            if self._refuse_foreign(changes_state=True):
+                return
             route = self.path.split("?")[0].strip("/")
             if route == "api/start":
                 try:
@@ -1300,7 +1371,10 @@ def make_handler(controller: Controller):
                     valid = {f.name for f in fields(cfg)}
                     changed = []
                     for key, value in incoming.items():
-                        if key in valid and value is not None:
+                        # Paths and internals are not the panel's to change:
+                        # they are hidden from the form, so a request that sets
+                        # them did not come from it.
+                        if key in valid and key not in HIDE and value is not None:
                             setattr(cfg, key, value)
                             if getattr(controller.cfg, key, None) != value:
                                 changed.append(key)

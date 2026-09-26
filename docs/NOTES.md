@@ -466,3 +466,24 @@ phonemes with no sample, or the specific words missing from the dictionary.
   would flatten the melody against the range limit.
 - **The renderer falls back to tones** if the synthesis engine fails to start,
   so a bad install degrades the relay instead of killing it.
+
+## Productionization log
+
+Findings and decisions from the `productionize` branch. The prioritised list is
+in [ROADMAP.md](../ROADMAP.md); this section records *why*.
+
+- **The control panel had to stop trusting the browser.** It listens on
+  localhost, but any page open in the same browser can send it requests. A
+  cross-site POST could rewrite any setting, start the relay, or upload a
+  `.pth`, and uploads were checked with `torch.load(weights_only=False)`, which
+  unpickles them and so runs whatever code the file names. There are now two
+  guards. The `Host` header must name this machine, which defeats DNS rebinding.
+  Every state-changing request must carry an `X-Teto-Relay` header, which a
+  foreign page cannot add without a CORS preflight, and the server never answers
+  one. Paths (`log_file`, `openutau_dir`, ...) can no longer be set through the
+  API at all. Uploaded models are opened with `weights_only=True`, which reads
+  every genuine RVC checkpoint (tensors, numbers, strings) and refuses anything
+  that would need to execute code.
+- **`sounddevice` is imported on first use.** At module level it loads
+  PortAudio, and without that library the whole app failed to import with a
+  bare `OSError`.

@@ -120,13 +120,30 @@ def install_rvc_model(data: bytes, filename: str, folder: Path) -> dict:
 
     # An RVC checkpoint carries its own description. Reading it both proves the
     # file is what it claims and tells the panel what it is.
+    # weights_only: a .pth is a pickle, and unpickling runs whatever code the
+    # file names. An RVC checkpoint is only tensors, numbers and strings, so
+    # the restricted loader reads every genuine one - and refuses anything
+    # that would need to execute code to load.
     try:
         import torch
-
-        checkpoint = torch.load(str(target), map_location="cpu", weights_only=False)
+    except ImportError as exc:
+        target.unlink(missing_ok=True)
+        raise ValueError(
+            "Checking a voice model needs PyTorch, which is not installed. "
+            "Install the voice-conversion extras first (see README)."
+        ) from exc
+    try:
+        checkpoint = torch.load(str(target), map_location="cpu", weights_only=True)
     except Exception as exc:  # noqa: BLE001 - the message is for the user
         target.unlink(missing_ok=True)
-        raise ValueError(f"That .pth could not be opened: {exc}") from exc
+        raise ValueError(
+            "That .pth could not be opened as a plain model file, so it was not "
+            f"kept ({type(exc).__name__}). RVC voice models load this way; a file "
+            "that needs more than that is either not an RVC model or not safe to open."
+        ) from exc
+    if not isinstance(checkpoint, dict):
+        target.unlink(missing_ok=True)
+        raise ValueError("That .pth is not an RVC voice model.")
 
     missing = [k for k in ("weight", "config", "sr") if k not in checkpoint]
     if missing:
