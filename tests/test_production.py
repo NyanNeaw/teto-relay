@@ -162,6 +162,14 @@ class TestControlPanelIsNotDrivableFromOtherSites(unittest.TestCase):
             self.assertEqual(self.saved(s)["transpose"], 2)
             self.assertEqual(s.controller.cfg.transpose, 2)
 
+    def test_the_page_is_served_from_its_own_file(self):
+        with _PanelServer() as s:
+            status, body = s.request("GET", "/")
+        self.assertEqual(status, 200)
+        self.assertIn(b"<!doctype html>", body)
+        self.assertIn(b"X-Teto-Relay", body)
+        self.assertEqual(body, (ROOT / "teto_relay" / "web" / "index.html").read_bytes())
+
     def test_host_and_origin_rules(self):
         from teto_relay.webui import host_allowed, origin_allowed
 
