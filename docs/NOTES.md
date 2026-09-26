@@ -512,3 +512,13 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   `chdir`s into its own folder later.
 - **Voice mode no longer needs a voicebank.** It never sings through one, but
   it refused to start without one.
+- **Housekeeping can't kill a worker any more.** `_trim_output` runs in each
+  worker's `finally:`, and a file vanishing between the directory listing and
+  its `stat()` raised out of the loop and ended the render thread for good.
+  It now swallows its own errors. It also counts utterances (a `.ustx` + `.wav`
+  pair) rather than files, and never trims below what is still queued.
+- **A stalled render gives up after `render_timeout_seconds` (30 s).** The
+  synthesis task was awaited with `task.Result`, which has no limit. It is now
+  `task.Wait(timeout)`, then the cancellation token, then a `RenderError`, which
+  costs one utterance instead of silently blocking every later one. Untested
+  against a real stall; the timeout path is unit tested with a fake task.

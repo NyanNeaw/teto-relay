@@ -444,5 +444,142 @@ class TestVoicebankErrors(unittest.TestCase):
             self.assertIs(select_or_default([bank], "english"), bank)
 
 
+def _bare_relay(cfg):
+    """A TetoRelay with only a config: no voicebank, models or devices."""
+    from teto_relay.app import TetoRelay
+
+    relay = object.__new__(TetoRelay)
+    relay.cfg = cfg
+    return relay
+
+
+class TestOutputTrimming(unittest.TestCase):
+    """P0-7 / P2-13: trimming out/ must never kill the worker thread."""
+
+    def make(self, folder: Path, stems: list[str]):
+        import os
+        import time
+
+        now = time.time()
+        for i, stem in enumerate(stems):
+            for suffix in (".ustx", ".wav"):
+                path = folder / f"{stem}{suffix}"
+                path.write_bytes(b"x")
+                os.utime(path, (now + i, now + i))
+
+    def test_keeps_whole_utterances_newest_first(self):
+        import tempfile
+
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(out_dir=tmp, keep_files=12, queue_size=1)
+            self.make(Path(tmp), [f"relay_{i:02d}" for i in range(20)])
+            _bare_relay(cfg)._trim_output()
+            left = sorted(p.name for p in Path(tmp).iterdir())
+            self.assertEqual(len(left), 24)  # 12 utterances x (.ustx + .wav)
+            self.assertIn("relay_19.wav", left)
+            self.assertNotIn("relay_07.wav", left)
+
+    def test_never_trims_below_what_is_still_queued(self):
+        import tempfile
+
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(out_dir=tmp, keep_files=1, queue_size=4)
+            self.make(Path(tmp), [f"relay_{i:02d}" for i in range(20)])
+            _bare_relay(cfg)._trim_output()
+            self.assertEqual(len(list(Path(tmp).iterdir())), 2 * (2 * 4 + 2))
+
+    def test_a_file_vanishing_mid_trim_is_not_an_error(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = Config(out_dir=tmp, keep_files=1, queue_size=1)
+            self.make(Path(tmp), [f"relay_{i:02d}" for i in range(10)])
+            real_stat = Path.stat
+
+            def flaky_stat(path, *args, **kwargs):
+                if path.name == "relay_03.wav":
+                    raise FileNotFoundError(path)
+                return real_stat(path, *args, **kwargs)
+
+            with unittest.mock.patch.object(Path, "stat", flaky_stat):
+                _bare_relay(cfg)._trim_output()  # must not raise
+
+    def test_an_unreadable_folder_is_not_an_error(self):
+        import unittest.mock
+
+        from teto_relay.config import Config
+
+        relay = _bare_relay(Config(keep_files=5))
+        with unittest.mock.patch.object(Path, "glob", side_effect=PermissionError("denied")):
+            relay._trim_output()  # must not raise
+
+
+class _FakeTask:
+    def __init__(self, finishes: bool, samples=None, position=0.0, leading=0.0):
+        import types
+
+        self.finishes = finishes
+        self.waited_ms = None
+        self.Result = types.SimpleNamespace(samples=samples, positionMs=position, leadingMs=leading)
+
+    def Wait(self, ms):
+        self.waited_ms = ms
+        return self.finishes
+
+
+class _FakeCancellation:
+    cancelled = False
+
+    def Cancel(self):
+        self.cancelled = True
+
+
+def _bare_openutau(cfg, tasks):
+    """An OpenUtauRenderer with the .NET engine replaced by fakes."""
+    import types
+
+    from teto_relay.render.openutau import OpenUtauRenderer
+
+    renderer = object.__new__(OpenUtauRenderer)
+    renderer.cfg = cfg
+    queue = list(tasks)
+    renderer.renderer = types.SimpleNamespace(Render=lambda *a: queue.pop(0))
+    renderer._progress = lambda: None
+    return renderer
+
+
+class TestRenderTimeout(unittest.TestCase):
+    """P0-6: a stalled synthesis engine costs one utterance, not the relay."""
+
+    def test_a_stalled_phrase_is_cancelled_and_reported(self):
+        from teto_relay.config import Config
+        from teto_relay.render.base import RenderError
+
+        stalled = _FakeTask(finishes=False)
+        cancel = _FakeCancellation()
+        renderer = _bare_openutau(Config(render_timeout_seconds=2.5), [stalled])
+        with self.assertRaises(RenderError) as caught:
+            renderer._synthesise(["phrase"], cancel)
+        self.assertEqual(stalled.waited_ms, 2500)
+        self.assertTrue(cancel.cancelled)
+        self.assertIn("restart", str(caught.exception))
+
+    def test_finished_phrases_are_collected(self):
+        from teto_relay.config import Config
+
+        tasks = [_FakeTask(True, [0.1, 0.2], position=500, leading=40),
+                 _FakeTask(True, [0.3], position=900, leading=10)]
+        renderer = _bare_openutau(Config(), tasks)
+        segments = renderer._synthesise(["a", "b"], _FakeCancellation())
+        self.assertEqual([offset for offset, _ in segments], [460.0, 890.0])
+
+
 if __name__ == "__main__":
     unittest.main()

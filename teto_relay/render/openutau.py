@@ -787,15 +787,7 @@ class OpenUtauRenderer:
         if not phrases:
             raise RenderError(f"{ustx_path.name} produced no render phrases (phonemizer returned nothing)")
 
-        cancellation = CancellationTokenSource()
-        segments: list[tuple[float, np.ndarray]] = []
-        for phrase in phrases:
-            task = self.renderer.Render(phrase, self._progress(), 0, cancellation, False)
-            result = task.Result  # blocking; we are already on a worker thread
-            samples = np.fromiter(result.samples, dtype=np.float32) if result.samples is not None else np.empty(0)
-            if samples.size:
-                segments.append((float(result.positionMs) - float(result.leadingMs), samples))
-
+        segments = self._synthesise(phrases, CancellationTokenSource())
         if not segments:
             raise RenderError(f"{ustx_path.name} rendered no audio")
 
@@ -805,6 +797,35 @@ class OpenUtauRenderer:
         sf.write(out_wav, mixed, WORLDLINE_SAMPLE_RATE)
         log.info("Rendered %s (%.2fs, %d phrase(s))", out_wav.name, len(mixed) / WORLDLINE_SAMPLE_RATE, len(phrases))
         return out_wav
+
+    def _synthesise(self, phrases, cancellation) -> list[tuple[float, np.ndarray]]:
+        """Render each phrase, giving up on the utterance if one stalls.
+
+        `task.Result` blocks with no limit, so a stuck engine used to hold the
+        render thread forever: every later utterance was dropped at the queue
+        and the panel still said "running". Waiting with a timeout turns that
+        into one failed utterance and a log line that says what happened.
+        """
+        timeout = float(self.cfg.render_timeout_seconds)
+        segments: list[tuple[float, np.ndarray]] = []
+        for phrase in phrases:
+            task = self.renderer.Render(phrase, self._progress(), 0, cancellation, False)
+            if not task.Wait(int(timeout * 1000)):
+                cancellation.Cancel()
+                raise RenderError(
+                    f"The synthesis engine did not finish a phrase within {timeout:.0f}s, "
+                    "so this utterance was skipped. If it keeps happening, restart the "
+                    "relay; raise render_timeout_seconds if your PC is just slow."
+                )
+            result = task.Result
+            samples = (
+                np.fromiter(result.samples, dtype=np.float32)
+                if result.samples is not None
+                else np.empty(0, dtype=np.float32)
+            )
+            if samples.size:
+                segments.append((float(result.positionMs) - float(result.leadingMs), samples))
+        return segments
 
     def _progress(self):
         from OpenUtau.Core.Render import Progress

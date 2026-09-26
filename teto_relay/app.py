@@ -588,16 +588,39 @@ class TetoRelay:
                 self._trim_output()
 
     def _trim_output(self) -> None:
-        """Keep out/ from growing without bound."""
-        keep = self.cfg.keep_files
-        if keep <= 0:
-            return
-        files = sorted(self.cfg.out_path.glob("relay_*.*"), key=lambda p: p.stat().st_mtime, reverse=True)
-        for stale in files[keep:]:
-            try:
-                stale.unlink()
-            except OSError:
-                pass
+        """Keep out/ from growing without bound. Never raises.
+
+        It runs in the workers' `finally:` blocks, so an exception here would
+        escape the loop and end the thread - which is what happened when a file
+        vanished between listing the folder and reading its timestamp. The
+        relay then never produced audio again, with nothing on screen to say so.
+
+        `keep_files` counts utterances, not files: each one leaves a .ustx and
+        a .wav, so counting files kept only half as many as asked. Utterances
+        still queued for rendering or playback are always kept.
+        """
+        try:
+            keep = self.cfg.keep_files
+            if keep <= 0:
+                return
+            keep = max(keep, 2 * self.cfg.queue_size + 2)
+            newest: dict[str, float] = {}
+            files: dict[str, list[Path]] = {}
+            for path in self.cfg.out_path.glob("relay_*.*"):
+                try:
+                    mtime = path.stat().st_mtime
+                except OSError:
+                    continue  # already gone
+                files.setdefault(path.stem, []).append(path)
+                newest[path.stem] = max(mtime, newest.get(path.stem, 0.0))
+            for stem in sorted(newest, key=newest.get, reverse=True)[keep:]:
+                for stale in files[stem]:
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+        except Exception:  # noqa: BLE001 - housekeeping must not stop the relay
+            log.debug("could not trim %s", self.cfg.out_dir, exc_info=True)
 
 
 def run(cfg: Config | None = None) -> None:

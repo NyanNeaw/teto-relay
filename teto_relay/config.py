@@ -219,6 +219,10 @@ class Config:
     # Kept as a switch because it was needed before the async dictionary wait
     # existed, and is a suspect for the intermittent "error" phoneme.
     explicit_phonemizer_setup: bool = False
+    # How long one phrase may take to synthesise before the utterance is
+    # abandoned. WORLDLINE normally needs a fraction of a second; without a
+    # limit a stalled engine blocked the render thread forever, silently.
+    render_timeout_seconds: float = 30.0
     # Left empty, common install locations are searched (teto_relay.locate).
     openutau_dir: str = ""
 
@@ -449,6 +453,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "resolution": (15, 3840),
     "playback_gain": (0.0, 10.0),
     "keep_files": (0, 100_000),
+    "render_timeout_seconds": (1.0, 600.0),
     "queue_size": (1, 64),
 }
 
