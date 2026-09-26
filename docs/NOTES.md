@@ -3,8 +3,7 @@
 The long version. This is the engineering record of *why* each part of Teto
 Relay works the way it does: measurements, dead ends, and the OpenUtau hosting
 quirks that cost real debugging time. For setup and everyday use, see the
-[README](../README.md). For current status and next steps, see
-[HANDOFF.md](../HANDOFF.md).
+[README](../README.md).
 
 ## How well does it actually work?
 

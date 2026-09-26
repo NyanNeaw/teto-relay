@@ -180,8 +180,5 @@ pronunciations.json  fixes for words Teto says wrong
 
 ## Want the details?
 
-- **[HANDOFF.md](HANDOFF.md)** covers the current status, recommended
-  settings, known issues and next steps.
-- **[docs/NOTES.md](docs/NOTES.md)** covers the design notes: why each choice
-  was made, benchmarks, and the tricks needed to run OpenUtau's engine without
-  its app.
+[docs/NOTES.md](docs/NOTES.md) has the design notes: why each choice was made,
+benchmarks, and the tricks needed to run OpenUtau's engine without its app.
