@@ -74,6 +74,33 @@ def check_packages() -> list[Check]:
     return out
 
 
+def check_dictionaries() -> list[Check]:
+    """Actually use the pronunciation dictionaries, not just find the packages.
+
+    A package can import and still lack its data files (a broken install, or a
+    packaged build that left them out), and then every word in Japanese mode
+    is quietly sung as silence.
+    """
+    from . import japanese, translit
+
+    out = []
+    try:
+        ok = japanese.english_to_kana("hello") is not None
+    except Exception:  # noqa: BLE001
+        ok = False
+    out.append(Check(OK, "English dictionary", "cmudict works") if ok else Check(
+        FAIL, "English dictionary", "cmudict could not look up a word - Japanese mode will be silent",
+        f"Run: {PIP}"))
+    try:
+        ok = translit.japanese_to_kana("会議") == "かいぎ"
+    except Exception:  # noqa: BLE001
+        ok = False
+    out.append(Check(OK, "Japanese reading", "pykakasi works") if ok else Check(
+        WARN, "Japanese reading", "pykakasi could not read kanji - Japanese speech will be garbled",
+        f"Run: {PIP}"))
+    return out
+
+
 def check_gpu(cfg) -> list[Check]:
     out = []
     torch_ok = _has("torch")
@@ -255,7 +282,7 @@ def check_storage() -> list[Check]:
 
 
 def run_checks(cfg) -> list[Check]:
-    checks = [check_python(), *check_packages(), *check_storage()]
+    checks = [check_python(), *check_packages(), *check_storage(), *check_dictionaries()]
     for group in (check_audio, check_voicebanks, check_openutau, check_gpu, check_voice_mode):
         try:
             checks += group(cfg)

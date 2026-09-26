@@ -607,6 +607,12 @@ def make_handler(controller: Controller):
             elif route == "api/stop":
                 controller.stop()
                 self._json({"ok": True})
+            elif route == "api/quit":
+                # The packaged app has no console to Ctrl+C, so the page is
+                # where it is closed. serve() stops the relay on the way out.
+                log.info("Quit requested from the control panel")
+                self._json({"ok": True})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
             elif route in ("api/install/voicebank", "api/install/rvc"):
                 # Raw body with the filename in the query: multipart parsing is
                 # not worth pulling in for a one-field form we also write.

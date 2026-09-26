@@ -324,6 +324,7 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
       <span class="spacer"></span>
       <button class="ghost" id="doctor" title="Check OpenUtau, .NET, devices, voicebanks and GPU">Check setup</button>
       <button class="ghost" id="save">Save settings</button>
+      <button class="ghost" id="quit" title="Stop Teto Relay and close the control panel">Quit</button>
     </div>
     <div class="adv pane" id="adv">
       <div class="group" id="checkgroup" hidden>
@@ -765,6 +766,11 @@ function renderAlert(h){
   }
   box.hidden=!(h.problems||[]).length;
 }
+$('quit').onclick=async()=>{
+  if(!confirm('Quit Teto Relay?')) return;
+  try{await fetch('api/quit',{method:'POST'});}catch(e){}
+  document.body.textContent='Teto Relay has stopped. You can close this tab.';
+};
 $('doctor').onclick=async()=>{
   const out=$('checks'); $('checkgroup').hidden=false; out.textContent='Checking...';
   app().classList.add('open');

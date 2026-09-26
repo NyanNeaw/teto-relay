@@ -743,6 +743,38 @@ class TestPanelStartup(unittest.TestCase):
         finally:
             blocker.close()
 
+    def test_quit_from_the_panel_stops_the_server(self):
+        import http.client
+        import threading
+
+        from teto_relay.config import Config
+        from teto_relay.webui import serve
+
+        with _TempHome():
+            import socket
+
+            probe = socket.socket()
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+            probe.close()
+            result = {}
+            server = threading.Thread(
+                target=lambda: result.setdefault("code", serve(Config(), port=port, open_browser=False)),
+                daemon=True,
+            )
+            server.start()
+            for _ in range(100):
+                try:
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                    conn.request("POST", "/api/quit", headers={"X-Teto-Relay": "1"})
+                    self.assertEqual(conn.getresponse().status, 200)
+                    break
+                except OSError:
+                    threading.Event().wait(0.05)
+            server.join(timeout=10)
+        self.assertFalse(server.is_alive())
+        self.assertEqual(result.get("code"), 0)
+
     def test_second_launch_finds_the_running_panel(self):
         from teto_relay.webui import serve
 

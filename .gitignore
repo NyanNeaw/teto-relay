@@ -1,6 +1,7 @@
 # Virtualenvs - multi-GB, rebuilt from requirements.txt
 .venv/
 .venv-rvc/
+.venv-build/
 
 # Model caches: torch, HuggingFace, the 1.2 GB aligner, pip wheels.
 # Redirected here by teto_relay/__init__.py to keep them off C:.
@@ -31,3 +32,8 @@ __pycache__/
 
 # pip --report output, not source
 _main_report.json
+
+# Packaging output (packaging/build.ps1)
+build/
+dist/
+panel_smoke.png
