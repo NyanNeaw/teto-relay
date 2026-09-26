@@ -160,7 +160,11 @@ def build_notes(
             # multi-mora lyric as one unknown phoneme. So each word expands into
             # several notes, sharing out the time it was spoken over.
             # Hints and respellings are English-specific and do not apply.
-            kana = translit.to_kana(w.text, source)
+            # Converted word by word: a lyric can hold several ("i am" from
+            # "I'm", "twenty one" from "21"), and looked up as one string it
+            # was never in the dictionary and came out as romanised letters.
+            parts = [translit.to_kana(part, source) for part in w.text.split()]
+            kana = "".join(p for p in parts if p)
             if not kana:
                 log.info("%r is not in the dictionary; leaving it as-is", w.text)
                 respelled.append(w)

@@ -23,6 +23,8 @@ _CJK_PUNCTUATION = "。、！？：；「」『』（）〈〉《》〔〕・…
 _STRIP = str.maketrans("", "", string.punctuation + _CJK_PUNCTUATION)
 # Everything except the apostrophe, which carries meaning inside a word.
 _STRIP_OUTER = string.punctuation.replace("'", "") + _CJK_PUNCTUATION
+# Around a number, "$" and "%" are part of what is said ("$5", "50%").
+_STRIP_OUTER_NUMBER = _STRIP_OUTER.replace("$", "").replace("%", "")
 
 # Contractions must be expanded before the apostrophe is stripped. "I'm"
 # reduced to "im" is read as "eem"; expanded to "i am" it sings correctly.
@@ -88,6 +90,15 @@ def clean_lyric(text: str) -> str:
     it first leaves the phonemizer singing "eem".
     """
     word = text.strip().lower().replace("’", "'")  # curly apostrophe
+
+    # Digits have no pronunciation in either dictionary and were sung as
+    # silence. Spelled out before punctuation is stripped, because "5:30" and
+    # "3.5" need their separators to be read correctly.
+    if any(ch.isdigit() for ch in word):
+        from .numbers import spell
+
+        word = spell(word.strip(_STRIP_OUTER_NUMBER))
+
     word = word.strip(_STRIP_OUTER)  # drop surrounding punctuation, keep the apostrophe
 
     expanded = CONTRACTIONS.get(word)

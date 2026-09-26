@@ -1174,5 +1174,55 @@ class TestVoicebankDiscoveryIsBounded(unittest.TestCase):
         self.assertEqual(found, [root / "a" / "b" / "c"])
 
 
+def _flat_track(hz: float = 220.0, seconds: float = 3.0):
+    import numpy as np
+
+    from teto_relay import pitch as pitch_mod
+
+    n = int(seconds * 100)
+    return pitch_mod.F0Track(times=np.arange(n) / 100.0, f0=np.full(n, hz),
+                             voiced=np.ones(n, dtype=bool), sample_rate=16000)
+
+
+class TestNumbersAreSung(unittest.TestCase):
+    """P2-1: digits used to be sung as silence."""
+
+    def test_spelling(self):
+        from teto_relay.numbers import spell
+
+        cases = {
+            "2": "two", "21": "twenty one", "105": "one hundred five", "1,000": "one thousand",
+            "1234567": "one million two hundred thirty four thousand five hundred sixty seven",
+            "1999": "nineteen ninety nine", "2024": "twenty twenty four", "2005": "two thousand five",
+            "5:30": "five thirty", "5:05": "five oh five", "3:00": "three o clock",
+            "1st": "first", "22nd": "twenty second", "12th": "twelfth", "40th": "fortieth",
+            "3.5": "three point five", "50%": "fifty percent", "$5": "five dollars",
+            "007": "zero zero seven", "mp3": "mp three", "hello": "hello",
+        }
+        for token, expected in cases.items():
+            self.assertEqual(spell(token), expected, token)
+
+    def test_transcribed_numbers_become_words(self):
+        from teto_relay.stt import clean_lyric
+
+        self.assertEqual(clean_lyric(" 21,"), "twenty one")
+        self.assertEqual(clean_lyric("5:30."), "five thirty")
+        self.assertEqual(clean_lyric("$5"), "five dollars")
+        self.assertEqual(clean_lyric("Hello,"), "hello")  # unchanged path
+
+    def test_multi_word_lyrics_are_converted_word_by_word_in_japanese_mode(self):
+        # "I'm" -> "i am" used to be looked up as one string, missed, and
+        # romanised letter by letter.
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(auto_octave=False)
+        notes = build_notes([Word("i am", 0.0, 0.6), Word("twenty one", 0.8, 1.6)],
+                            _flat_track(), cfg, japanese_lyrics=True)
+        lyrics = "".join(n.lyric for n in notes)
+        self.assertEqual(lyrics, "あいあむとうえんちいわん")
+
+
 if __name__ == "__main__":
     unittest.main()

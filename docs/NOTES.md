@@ -608,3 +608,13 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   among its choices showed the first choice instead, so Save silently changed
   the setting; the default speech model `base.en` wasn't in the list. It also
   found the avatar being re-requested every second when no bank was installed.
+- **Numbers are spelled out** (`teto_relay/numbers.py`). Whisper writes
+  digits, and neither dictionary can pronounce `2`, so every number was sung
+  as silence. `clean_lyric` now spells them the way they are said: counts, a
+  four-digit number on its own as a year, `5:30` as "five thirty", ordinals,
+  decimals, `%` and `$`. English only.
+- **Multi-word lyrics are converted word by word in Japanese mode.** An
+  expanded contraction ("I'm" → "i am") or a spelled number stays one lyric,
+  and it was looked up in cmudict as one string, missed, and romanised letter
+  by letter (`iam` → い あ む by spelling). Each word is now converted on its
+  own and the kana joined.
