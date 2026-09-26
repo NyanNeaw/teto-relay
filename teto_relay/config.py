@@ -224,6 +224,11 @@ class Config:
     # abandoned. WORLDLINE normally needs a fraction of a second; without a
     # limit a stalled engine blocked the render thread forever, silently.
     render_timeout_seconds: float = 30.0
+    # Start the rendered audio at the first sound instead of at the start of
+    # the recording. The part begins where the first word was said - pre-roll
+    # plus your reaction time after pressing the key, typically 0.2-0.5 s - and
+    # that silence used to be played into VB-Cable as pure extra latency.
+    trim_leading_silence: bool = True
     # Left empty, common install locations are searched (teto_relay.locate).
     openutau_dir: str = ""
 

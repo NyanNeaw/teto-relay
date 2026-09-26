@@ -778,6 +778,7 @@ class OpenUtauRenderer:
     def render(self, ustx_path: Path, out_wav: Path) -> Path:
         from System.Threading import CancellationTokenSource
 
+        began = time.monotonic()
         doc = load_ustx(ustx_path)
         project, track, part = self._build_project(doc)
 
@@ -787,6 +788,7 @@ class OpenUtauRenderer:
         if not phrases:
             raise RenderError(f"{ustx_path.name} produced no render phrases (phonemizer returned nothing)")
 
+        phonemized = time.monotonic()
         segments = self._synthesise(phrases, CancellationTokenSource())
         if not segments:
             raise RenderError(f"{ustx_path.name} rendered no audio")
@@ -795,6 +797,11 @@ class OpenUtauRenderer:
         out_wav = Path(out_wav)
         out_wav.parent.mkdir(parents=True, exist_ok=True)
         sf.write(out_wav, mixed, WORLDLINE_SAMPLE_RATE)
+        # Read by the pipeline's latency timeline (teto_relay.latency).
+        self.last_timings = {
+            "phonemize": phonemized - began,
+            "synth": time.monotonic() - phonemized,
+        }
         log.info("Rendered %s (%.2fs, %d phrase(s))", out_wav.name, len(mixed) / WORLDLINE_SAMPLE_RATE, len(phrases))
         return out_wav
 
@@ -833,13 +840,29 @@ class OpenUtauRenderer:
         return Progress(0)
 
     def _mix(self, segments: list[tuple[float, np.ndarray]]) -> np.ndarray:
-        """Lay each phrase at its own offset and sum."""
-        total = max(
-            int(offset_ms / 1000.0 * WORLDLINE_SAMPLE_RATE) + len(samples) for offset_ms, samples in segments
-        )
+        """Lay each phrase at its own offset and sum.
+
+        Offsets are absolute project times, and the part starts where the first
+        word was said inside the recording, so laying them out from zero put
+        that much silence at the head of every file. With
+        `trim_leading_silence` the earliest phrase starts the audio instead.
+
+        Either way all phrases move together. The old code clamped only a
+        negative offset (a first phoneme whose preutterance reaches before the
+        part) to zero, which shifted that phrase against all the others.
+        """
+        earliest = min(offset for offset, _ in segments)
+        if getattr(self.cfg, "trim_leading_silence", True):
+            base = earliest
+        else:
+            base = min(0.0, earliest)
+        placed = [
+            (int(round((offset - base) / 1000.0 * WORLDLINE_SAMPLE_RATE)), samples)
+            for offset, samples in segments
+        ]
+        total = max(start + len(samples) for start, samples in placed)
         buffer = np.zeros(max(total, 1), dtype=np.float64)
-        for offset_ms, samples in segments:
-            start = max(0, int(offset_ms / 1000.0 * WORLDLINE_SAMPLE_RATE))
+        for start, samples in placed:
             end = start + len(samples)
             if end > len(buffer):
                 buffer = np.pad(buffer, (0, end - len(buffer)))

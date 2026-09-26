@@ -562,3 +562,25 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   data folder, plus a Windows notification. The start/failure logic lives in
   `TrayApp`, apart from pystray, so it is unit tested. The pystray menu itself
   is untested here (no desktop).
+- **Latency is measured stage by stage** (`teto_relay/latency.py`). Each
+  utterance carries a `Timeline` from key release to first sound:
+  `wait_analyse`, `asr`, `align`, `pitch`, `notes`, `ustx` (or `convert` in
+  voice mode), `wait_render`, `render` (split into `phonemize` and `synth`),
+  `wait_output`, `output` (reading, resampling, opening the stream) and
+  `lead_silence`, the silence at the head of the audio, which is latency too.
+  One `Latency ...` line is logged when playback starts, and a row is appended
+  to `latency.csv` in the data folder. The panel gets it as
+  `stats.latency`. An end-to-end test runs a real utterance through
+  pyin → notes → `.ustx` → tone renderer → player (fake sounddevice) and checks
+  every stage is reported. That test caught `Player._started` being silently
+  shadowed by `threading.Thread`'s own `_started` event.
+- **Rendered audio starts at the first sound** (`trim_leading_silence`, on by
+  default). `_mix` laid phrases out at their absolute project time, and the
+  part starts where the first word was said inside the recording (200 ms
+  pre-roll plus your reaction time), so every WAV began with 0.2–0.5 s of
+  silence that went straight into VB-Cable. All phrases are now shifted
+  together so the earliest starts at zero. The old code also clamped a negative
+  first offset to zero on its own, which moved that phrase against the others.
+  Whether WORLDLINE's `positionMs` is absolute (as I read OpenUtau's source) is
+  untested here. If it turns out to be relative, the change is a no-op, and the
+  `lead_silence` stage in the latency line will show which it is.

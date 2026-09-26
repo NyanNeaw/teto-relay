@@ -897,5 +897,171 @@ class TestTray(unittest.TestCase):
             self.assertEqual(tray._icon_image(state).size, (64, 64))
 
 
+class TestLatencyTimeline(unittest.TestCase):
+    """P1-6: per-stage timings add up to release->sound."""
+
+    def test_laps_waits_and_totals(self):
+        from teto_relay.latency import Timeline
+
+        t = Timeline(released_at=100.0)
+        t.add("speech", 1.5)
+        t.lap("wait_analyse", 100.1)
+        t.lap("asr", 100.9)
+        t.restart(101.0)
+        t.lap("wait_render", 101.2)
+        t.lap("render", 101.7)
+        t.add("phonemize", 0.1)  # nested inside render, not added again
+        t.add("synth", 0.4)
+        self.assertAlmostEqual(t.stages["asr"], 0.8)
+        self.assertAlmostEqual(t.total, 0.1 + 0.8 + 0.2 + 0.5)
+        self.assertIn("release->sound", t.summary())
+        self.assertIn("phonemize 0.10s", t.summary())
+
+    def test_csv_has_one_header_and_a_row_per_utterance(self):
+        import csv
+
+        from teto_relay.latency import STAGES, Timeline, append_csv
+
+        with _TempHome() as home:
+            path = home / "latency.csv"
+            for _ in range(2):
+                t = Timeline(released_at=0.0)
+                t.add("asr", 0.5)
+                append_csv(path, t, "hello")
+            rows = list(csv.reader(path.open(encoding="utf-8")))
+        self.assertEqual(rows[0], ["time", "total", *STAGES, "text"])
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[1][rows[0].index("asr")], "0.500")
+
+    def test_leading_silence(self):
+        import numpy as np
+
+        from teto_relay.latency import leading_silence
+
+        audio = np.concatenate([np.zeros(4410), np.full(100, 0.5)])
+        self.assertAlmostEqual(leading_silence(audio, 44100), 0.1, places=3)
+        self.assertAlmostEqual(leading_silence(np.zeros((10, 2)), 10), 1.0)
+
+
+class TestRenderedAudioStartsAtTheFirstSound(unittest.TestCase):
+    """P1-7: the mix must not begin with the part's offset as silence."""
+
+    def mix(self, segments, trim=True):
+        from teto_relay.config import Config
+
+        renderer = _bare_openutau(Config(trim_leading_silence=trim), [])
+        return renderer._mix(segments)
+
+    def test_leading_silence_is_trimmed_and_spacing_kept(self):
+        import numpy as np
+
+        from teto_relay.render.openutau import WORLDLINE_SAMPLE_RATE as SR
+
+        a, b = np.full(441, 0.5, dtype=np.float32), np.full(441, 0.25, dtype=np.float32)
+        out = self.mix([(400.0, a), (600.0, b)])
+        self.assertEqual(out[0], 0.5)  # sound from the very first sample
+        gap_start = int(0.2 * SR)
+        self.assertAlmostEqual(float(out[gap_start]), 0.25, places=6)
+        self.assertEqual(len(out), gap_start + 441)
+
+    def test_without_trimming_the_old_layout_is_kept(self):
+        import numpy as np
+
+        from teto_relay.render.openutau import WORLDLINE_SAMPLE_RATE as SR
+
+        out = self.mix([(400.0, np.full(10, 0.5, dtype=np.float32))], trim=False)
+        self.assertEqual(float(out[int(0.4 * SR) - 1]), 0.0)
+        self.assertEqual(float(out[int(0.4 * SR)]), 0.5)
+
+    def test_a_negative_offset_moves_every_phrase_together(self):
+        import numpy as np
+
+        from teto_relay.render.openutau import WORLDLINE_SAMPLE_RATE as SR
+
+        a, b = np.full(10, 0.5, dtype=np.float32), np.full(10, 0.25, dtype=np.float32)
+        out = self.mix([(-50.0, a), (100.0, b)], trim=False)
+        # b must stay 150 ms after a, not 100 ms (the old clamp).
+        self.assertAlmostEqual(float(out[int(round(0.15 * SR))]), 0.25, places=6)
+
+
+class TestPipelineEndToEnd(unittest.TestCase):
+    """The whole utterance path with only the hardware and models faked:
+    chunk -> (fake) whisper -> pyin -> notes -> .ustx -> tone renderer ->
+    player (fake sounddevice) -> latency line and CSV row."""
+
+    def test_an_utterance_reaches_the_speaker_with_a_latency_report(self):
+        import queue
+        import threading
+        import time
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import playback
+        from teto_relay.capture import Chunk
+        from teto_relay.config import Config
+        from teto_relay.render.null import NullRenderer
+        from teto_relay.stt import Word
+        from teto_relay.voicebank import Voicebank
+
+        with _TempHome() as home:
+            cfg = Config(pitch_method="pyin", use_alignment=False, renderer_backend="null")
+            cfg.validate()
+            relay = _bare_relay(cfg)
+            relay.bank = Voicebank(key="english", name="Teto", root=home / "bank", flavour="en-cvvc")
+            relay.transcriber = types.SimpleNamespace(
+                transcribe=lambda audio, rate: [Word("hello", 0.1, 0.5), Word("there", 0.6, 1.0)]
+            )
+            relay.renderer = NullRenderer(cfg)
+            relay.converter = None
+            relay.engine = "utau"
+            relay.chunk_q, relay.ustx_q, relay.wav_q = queue.Queue(), queue.Queue(), queue.Queue()
+            relay._stop = threading.Event()
+            relay._octave_shift = relay._voice_baseline = None
+            relay._target_tone, relay._mora_floor = 61.0, 0.11
+            relay.last_text = relay.last_source = relay.last_kana = ""
+            relay.last_notes, relay.last_stats = [], {}
+
+            played = threading.Event()
+            fake_sd = types.SimpleNamespace(
+                play=lambda *a, **k: None, stop=lambda: None, get_stream=lambda: None,
+                query_devices=lambda *a: {"default_samplerate": 48000, "max_output_channels": 2},
+            )
+            reports = []
+
+            def on_playback(job):
+                relay._on_playback(job)
+                reports.append(job)
+                played.set()
+
+            with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+                player = playback.Player(cfg, relay.wav_q, None, on_playback=on_playback)
+                workers = [threading.Thread(target=relay._analyse_loop, daemon=True),
+                           threading.Thread(target=relay._render_loop, daemon=True), player]
+                for w in workers:
+                    w.start()
+                rate = cfg.sample_rate
+                t = np.arange(int(1.2 * rate)) / rate
+                audio = (0.3 * np.sin(2 * np.pi * 150 * t)).astype(np.float32)
+                relay.chunk_q.put(Chunk(audio, rate, "release", captured_at=time.monotonic()))
+                self.assertTrue(played.wait(60), "the utterance never reached playback")
+                relay._stop.set()
+                player.stop()
+                for w in workers:
+                    w.join(timeout=5)
+
+            stages = reports[0].timeline.stages
+            for stage in ("speech", "wait_analyse", "asr", "pitch", "notes", "ustx",
+                          "wait_render", "render", "wait_output", "output", "lead_silence"):
+                self.assertIn(stage, stages)
+            self.assertAlmostEqual(stages["speech"], 1.2, places=2)
+            self.assertLess(stages["lead_silence"], 0.05)
+            self.assertIn("latency", relay.last_stats)
+            rows = (home / "latency.csv").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(rows), 2)
+            self.assertIn("hello", rows[1])
+
+
 if __name__ == "__main__":
     unittest.main()

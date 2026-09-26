@@ -15,7 +15,7 @@ import logging
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -28,6 +28,8 @@ from .capture import MicCapture, calibrate_threshold, make_chunker
 from .config import Config
 from .errors import TetoRelayError
 from .hotkey import PushToTalkListener
+from .latency import Timeline, append_csv
+from . import paths
 from .notes import build_notes
 from .render import make_renderer
 from .playback import Player
@@ -49,6 +51,10 @@ class Job:
     wav_path: Path | None = None
     analyse_seconds: float = 0.0
     render_seconds: float = 0.0
+    # Where the time went, stage by stage; see teto_relay.latency.
+    timeline: Timeline = field(default_factory=Timeline)
+    # When the job was last put on a queue, so the wait can be charged.
+    queued_at: float = 0.0
 
     @property
     def age(self) -> float:
@@ -198,7 +204,7 @@ class TetoRelay:
                 log.exception("calibration failed; using the configured threshold")
 
         chunker = make_chunker(cfg, threshold)
-        self._player = Player(cfg, self.wav_q, out_dev.index)
+        self._player = Player(cfg, self.wav_q, out_dev.index, on_playback=self._on_playback)
         self._capture = MicCapture(
             cfg, self.chunk_q, in_dev.index if in_dev else None, threshold, chunker=chunker
         )
@@ -467,17 +473,13 @@ class TetoRelay:
             # Per-stage timings, so a slow utterance says which stage was slow.
             # Steady state is roughly stt 2.0s, align 0.06s, pitch 0.2s; a stage
             # an order of magnitude above that is a model loading late.
-            marks: dict[str, float] = {}
-
-            def mark(name: str, since: float) -> float:
-                now = time.monotonic()
-                marks[name] = now - since
-                return now
+            timeline = Timeline(released_at=chunk.captured_at)
+            timeline.add("speech", chunk.duration)
+            timeline.lap("wait_analyse", began)
 
             try:
-                step = began
                 words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
-                step = mark("stt", step)
+                timeline.lap("asr")
                 if not words:
                     log.info("No speech recognised in a %.2fs chunk", chunk.duration)
                     continue
@@ -485,11 +487,12 @@ class TetoRelay:
                 # Measure when each word was actually said. Whisper's timings
                 # are systematically early, and both the note length and the
                 # pitch window are taken from these spans.
-                words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg)
-                step = mark("align", step)
+                if self.cfg.use_alignment:
+                    words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg)
+                    timeline.lap("align")
 
                 track = pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
-                step = mark("pitch", step)
+                timeline.lap("pitch")
                 if not track.any_voiced:
                     log.info("No voiced frames; skipping this utterance")
                     continue
@@ -500,6 +503,7 @@ class TetoRelay:
                 )
                 if not notes:
                     continue
+                timeline.lap("notes")
                 self._octave_shift = notes[0].shift
 
                 # Learn the speaker's usual pitch so short utterances have a
@@ -531,26 +535,31 @@ class TetoRelay:
                 stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
                 path = self.cfg.out_path / f"relay_{stamp}.ustx"
                 write_ustx(notes, path, self.bank, self.cfg)
-                mark("notes+ustx", step)
+                done = timeline.lap("ustx")
 
                 job = Job(
                     captured_at=chunk.captured_at,
                     text=self.last_text,
                     ustx_path=path,
-                    analyse_seconds=time.monotonic() - began,
+                    analyse_seconds=done - began,
+                    timeline=timeline,
+                    queued_at=done,
                 )
                 log.info(
                     "Analysed %.2fs of speech in %.2fs [%s] via %s",
                     chunk.duration,
                     job.analyse_seconds,
-                    " ".join(f"{name} {secs:.2f}s" for name, secs in marks.items()),
+                    " ".join(
+                        f"{name} {timeline.stages[name]:.2f}s"
+                        for name in ("asr", "align", "pitch", "notes", "ustx")
+                        if name in timeline.stages
+                    ),
                     track.method or "unknown",
                 )
                 self.last_stats = {
                     "speech": round(chunk.duration, 2),
                     "analyse": round(job.analyse_seconds, 2),
                     "method": track.method or "unknown",
-                    **{name: round(secs, 2) for name, secs in marks.items()},
                 }
                 _drop_oldest_put(self.ustx_q, job, "ustx")
             except Exception:
@@ -569,6 +578,9 @@ class TetoRelay:
                 continue
 
             began = time.monotonic()
+            timeline = Timeline(released_at=chunk.captured_at)
+            timeline.add("speech", chunk.duration)
+            timeline.lap("wait_analyse", began)
             try:
                 audio, rate = self.converter.convert(chunk.audio, chunk.sample_rate)
                 if audio.size == 0:
@@ -581,8 +593,9 @@ class TetoRelay:
                 stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
                 path = self.cfg.out_path / f"relay_{stamp}.wav"
                 sf.write(str(path), audio, rate, subtype="PCM_16")
+                done = timeline.lap("convert")
 
-                elapsed = time.monotonic() - began
+                elapsed = done - began
                 self.last_text = f"{chunk.duration:.1f}s in your voice"
                 self.last_source = ""
                 self.last_kana = ""
@@ -597,6 +610,8 @@ class TetoRelay:
                     text=self.last_text,
                     wav_path=path,
                     analyse_seconds=elapsed,
+                    timeline=timeline,
+                    queued_at=done,
                 )
                 log.info(
                     "Converted %.2fs of speech in %.2fs (%.2fx realtime) -> %d Hz",
@@ -617,10 +632,16 @@ class TetoRelay:
                 continue
 
             began = time.monotonic()
+            job.timeline.restart(job.queued_at or began)
+            job.timeline.lap("wait_render", began)
             try:
                 job.wav_path = job.ustx_path.with_suffix(".wav")
                 self.renderer.render(job.ustx_path, job.wav_path)
-                job.render_seconds = time.monotonic() - began
+                done = job.timeline.lap("render")
+                for stage, seconds in (getattr(self.renderer, "last_timings", None) or {}).items():
+                    job.timeline.add(stage, seconds)
+                job.render_seconds = done - began
+                job.queued_at = done
                 log.info(
                     "Rendered in %.2fs - %.2fs behind the microphone at playback",
                     job.render_seconds,
@@ -634,6 +655,13 @@ class TetoRelay:
                 log.exception("render failed for %s", job.ustx_path)
             finally:
                 self._trim_output()
+
+    def _on_playback(self, job: "Job") -> None:
+        """Called by the player the moment a job's audio starts playing."""
+        timeline = job.timeline
+        log.info("Latency %s", timeline.summary())
+        self.last_stats.update(latency=timeline.as_dict(), behind=round(timeline.total, 2))
+        append_csv(paths.data_dir() / "latency.csv", timeline, job.text)
 
     def _trim_output(self) -> None:
         """Keep out/ from growing without bound. Never raises.
