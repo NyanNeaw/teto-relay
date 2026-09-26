@@ -1,7 +1,7 @@
 # Teto Relay — status and handoff
 
-Written at the end of the build session. The README covers *why* each decision
-was made; this covers **where things stand** and **what to do next**.
+Written at the end of the build session. [docs/NOTES.md](docs/NOTES.md) covers *why*
+each decision was made; this covers **where things stand** and **what to do next**.
 
 There is **no git repository** here — everything is plain files on disk under
 `D:\Claude\teto-relay`. Nothing is staged or uncommitted; what is on disk is
