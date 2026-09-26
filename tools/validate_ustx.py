@@ -38,14 +38,14 @@ def main() -> int:
         path = Path(sys.argv[1]).resolve()
         print(f"Validating existing file: {path}")
     else:
-        banks = discover(cfg.voicebank_root)
+        banks = discover(cfg.voicebank_path())
         bank = select(banks, cfg.voicebank)
         path = (cfg.out_path / "validate_sample.ustx").resolve()
         write_ustx(sample_notes(), path, bank, cfg)
         print(f"Generated {path} using bank {bank.key!r} ({bank.flavour})")
 
     print("\n--- loading through OpenUtau.Core ---")
-    dotnet.start(cfg.openutau_dir)
+    dotnet.start(cfg.openutau_path())
 
     from OpenUtau.Core.Format import Formats, Ustx  # noqa: E402
 

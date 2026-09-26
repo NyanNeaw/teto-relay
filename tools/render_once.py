@@ -46,7 +46,7 @@ def main() -> int:
     if args.backend:
         cfg.renderer_backend = args.backend
 
-    bank = select(discover(cfg.voicebank_root), cfg.voicebank)
+    bank = select(discover(cfg.voicebank_path()), cfg.voicebank)
     print(f"bank    : {bank}")
     print(f"backend : {cfg.renderer_backend}")
 

@@ -16,7 +16,7 @@ from dataclasses import fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from .config import Config
+from .config import Config, ConfigError, coerce
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,8 @@ ESSENTIALS: list[str] = [
 # Which settings to show, grouped. Anything not listed still appears, under
 # "Other", so new options are never silently hidden.
 GROUPS: dict[str, list[str]] = {
+    # Where things are. Empty means "look in the usual places".
+    "Setup": ["openutau_dir", "voicebank_root"],
     "Mode": ["mode", "renderer_backend", "lyric_mode"],
     "Capture": ["capture_mode", "ptt_key", "input_device", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
     # Speed vs accuracy lives here: device and compute type are the two biggest
@@ -64,7 +66,7 @@ GROUPS: dict[str, list[str]] = {
     "Output": ["output_device", "playback_gain"],
 }
 
-HIDE = {"out_dir", "log_file", "openutau_dir", "voicebank_root", "queue_size", "keep_files"}
+HIDE = {"out_dir", "log_file", "queue_size", "keep_files"}
 
 # The panel is a local web server, and any page open in the same browser can
 # send requests to it. Without these checks a random website could rewrite the
@@ -165,6 +167,8 @@ SECONDS = {
 # Names people recognise, and a line of help where the name is not enough.
 # Anything missing falls back to the field name with its underscores removed.
 LABELS: dict[str, list[str]] = {
+    "openutau_dir": ["OpenUtau folder", "The folder with OpenUtau.exe. Empty searches the usual places."],
+    "voicebank_root": ["Voicebank folder", "Where your UTAU voicebanks are. Empty searches the usual places."],
     "input_device": ["Microphone", "Blank uses whatever Windows is set to."],
     "output_device": ["Output", "Where Teto sings. VB-Cable sends her into other apps."],
     "ptt_key": ["Push-to-talk key", "Hold this while you speak."],
@@ -1085,7 +1089,7 @@ class Controller:
                 for lyric, tone in (getattr(relay, "last_notes", []) if relay else [])
             ],
             "stats": (getattr(relay, "last_stats", {}) if relay else {}) or {},
-            "bank": relay.bank.key if relay else self.cfg.voicebank,
+            "bank": relay.bank.key if relay and relay.bank else self.cfg.voicebank,
             "engine": (relay.engine if relay else (self.cfg.mode or "utau").lower()),
             "lyrics": (
                 "morae" if relay and relay.engine != "voice" and relay._japanese_lyrics()
@@ -1127,7 +1131,7 @@ def _bank_image(cfg: Config, key: str) -> bytes | None:
     from .voicebank import discover, select
 
     try:
-        bank = select(discover(cfg.voicebank_root), key)
+        bank = select(discover(cfg.voicebank_path()), key)
         name = _character(bank.root).get("image") or "teto.bmp"
         path = bank.root / name
         if not path.exists():
@@ -1185,7 +1189,7 @@ def _meta(cfg: Config) -> dict:
 
     details: list[dict] = []
     try:
-        for b in discover(cfg.voicebank_root):
+        for b in discover(cfg.voicebank_path()):
             character = _character(b.root)
             details.append({
                 "key": b.key,
@@ -1323,10 +1327,16 @@ def make_handler(controller: Controller):
                 try:
                     body = self.rfile.read(length)
                     if route.endswith("voicebank"):
-                        info = install_voicebank(body, name, Path(controller.cfg.voicebank_root))
+                        info = install_voicebank(body, name, controller.cfg.voicebank_path())
                         log.info("Installed voicebank %r (%d samples)", info["name"], info["samples"])
                     else:
-                        folder = Path(controller.cfg.rvc_model).parent
+                        from . import paths
+
+                        folder = (
+                            Path(controller.cfg.rvc_model).parent
+                            if controller.cfg.rvc_model
+                            else paths.data_dir() / "voices"
+                        )
                         info = install_rvc_model(body, name, folder)
                         log.info("Installed RVC %s: %s", info["kind"], info["path"])
                         # A .pth is the voice; point the config at it. An index
@@ -1367,28 +1377,43 @@ def make_handler(controller: Controller):
                 length = int(self.headers.get("Content-Length", 0))
                 try:
                     incoming = json.loads(self.rfile.read(length) or b"{}")
+                    if not isinstance(incoming, dict):
+                        raise ConfigError("Settings must be sent as a JSON object.")
                     cfg = Config.load()
                     valid = {f.name for f in fields(cfg)}
+                    # Paths and internals are not the panel's to change: they
+                    # are hidden from the form, so a request that sets them did
+                    # not come from it.
+                    updates = {
+                        key: coerce(key, value)
+                        for key, value in incoming.items()
+                        if key in valid and key not in HIDE and value is not None
+                    }
+                    for key, value in updates.items():
+                        setattr(cfg, key, value)
+                    # Checked before anything is saved or applied, so a bad
+                    # value is refused with a reason instead of crashing the
+                    # relay on its next utterance.
+                    cfg.validate("the settings you entered")
                     changed = []
-                    for key, value in incoming.items():
-                        # Paths and internals are not the panel's to change:
-                        # they are hidden from the form, so a request that sets
-                        # them did not come from it.
-                        if key in valid and key not in HIDE and value is not None:
-                            setattr(cfg, key, value)
-                            if getattr(controller.cfg, key, None) != value:
-                                changed.append(key)
-                            # The running relay holds controller.cfg itself and
-                            # reads most settings per utterance, so applying in
-                            # place takes effect now. Rebinding would not: the
-                            # relay would keep the old object, which is why
-                            # changing the language mid-run used to do nothing.
-                            setattr(controller.cfg, key, value)
+                    for key in updates:
+                        value = getattr(cfg, key)
+                        if getattr(controller.cfg, key, None) != value:
+                            changed.append(key)
+                        # The running relay holds controller.cfg itself and
+                        # reads most settings per utterance, so applying in
+                        # place takes effect now. Rebinding would not: the
+                        # relay would keep the old object, which is why
+                        # changing the language mid-run used to do nothing.
+                        setattr(controller.cfg, key, value)
                     cfg.save()
                     stale = sorted(set(changed) & LOADED_ONCE) if controller.running else []
                     self._json({"ok": True, "restart": stale})
-                except Exception as exc:  # noqa: BLE001
+                except (ConfigError, json.JSONDecodeError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("could not save settings")
+                    self._json({"ok": False, "error": str(exc)}, 500)
             else:
                 self._json({"error": "not found"}, 404)
 

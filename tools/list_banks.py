@@ -18,7 +18,7 @@ from teto_relay.voicebank import discover  # noqa: E402
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     cfg = Config.load()
-    root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(cfg.voicebank_root)
+    root = Path(sys.argv[1]) if len(sys.argv) > 1 else cfg.voicebank_path()
 
     banks = discover(root)
     if not banks:

@@ -1,17 +1,30 @@
 """Central configuration for Teto Relay.
 
 Every tunable lives here so there is exactly one place to look when the pipeline
-misbehaves. Values can be overridden by a JSON file (see `Config.load`).
+misbehaves. Values can be overridden by a JSON file (see `Config.load`), which
+the control panel writes; it lives in `paths.data_dir()`.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass, fields
+import logging
+import typing
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = PROJECT_ROOT / "config.json"
+from . import paths
+
+log = logging.getLogger(__name__)
+
+PROJECT_ROOT = paths.SOURCE_ROOT
+#: None means `paths.config_path()`, looked up when used. Tests point it at a
+#: temporary file.
+CONFIG_PATH: Path | None = None
+
+
+class ConfigError(ValueError):
+    """The configuration cannot be used. The message says what to change."""
 
 
 @dataclass
@@ -180,7 +193,9 @@ class Config:
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
     # so all three banks are found regardless of their differing layouts.
-    voicebank_root: str = r"D:\Claude"
+    # Left empty, the usual places are searched (see teto_relay.locate): the
+    # `voicebanks` folder beside the config, then OpenUtau's Singers folders.
+    voicebank_root: str = ""
     voicebank: str = "english"  # selector key; override per render
     # "native"   - sing the words as they are, through an English bank.
     # "japanese" - convert to Japanese-style pronunciation first ("i love you"
@@ -204,14 +219,17 @@ class Config:
     # Kept as a switch because it was needed before the async dictionary wait
     # existed, and is a suspect for the intermittent "error" phoneme.
     explicit_phonemizer_setup: bool = False
-    openutau_dir: str = r"D:\Work\OpenUtau"
+    # Left empty, common install locations are searched (teto_relay.locate).
+    openutau_dir: str = ""
 
     # --------------------------------------------- voice conversion (RVC)
     # Used when mode == "voice". Your audio goes in and comes out with Teto's
     # timbre, keeping your own timing, pitch and delivery - so none of the
     # transcription, note or phoneme settings above apply.
-    rvc_model: str = r"D:\Claude\Kasane%20Teto\Kasane Teto.pth"
-    rvc_index: str = r"D:\Claude\Kasane%20Teto\added_IVF1367_Flat_nprobe_1_Kasane Teto_v2.index"
+    # Installing a model from the panel fills these in; uploads are kept in
+    # the `voices` folder beside the config.
+    rvc_model: str = ""
+    rvc_index: str = ""
     rvc_device: str = "cuda:0"  # "cpu" works but is far slower
     # rmvpe is the most robust pitch extractor and the one least prone to the
     # octave errors that plagued the UTAU path.
@@ -233,8 +251,8 @@ class Config:
     playback_gain: float = 1.0
 
     # -------------------------------------------------------------- runtime
-    out_dir: str = str(PROJECT_ROOT / "out")
-    log_file: str = str(PROJECT_ROOT / "teto-relay.log")
+    out_dir: str = field(default_factory=lambda: str(paths.data_dir() / "out"))
+    log_file: str = field(default_factory=lambda: str(paths.data_dir() / "teto-relay.log"))
     keep_files: int = 50  # trim out/ to this many recent utterances
     queue_size: int = 4  # bounded; oldest is dropped when full
 
@@ -257,19 +275,258 @@ class Config:
         p.mkdir(parents=True, exist_ok=True)
         return p
 
+    def voicebank_path(self) -> Path:
+        """`voicebank_root`, or the first usual place that has a bank in it."""
+        from .locate import find_voicebank_root
+
+        return find_voicebank_root(self.voicebank_root)
+
+    def openutau_path(self) -> Path | None:
+        """`openutau_dir`, or a detected OpenUtau install; None if none is found."""
+        from .locate import find_openutau
+
+        return find_openutau(self.openutau_dir)
+
+    # ----------------------------------------------------------- loading
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
-        path = path or CONFIG_PATH
+        """Read the config file, or return defaults if there is none.
+
+        Raises ConfigError, with a message a person can act on, when the file
+        cannot be used. Keys this version does not know are logged and ignored
+        rather than refused, so a config written by a newer or older version
+        does not stop the app from starting.
+        """
+        path = Path(path or CONFIG_PATH or paths.config_path())
         if not path.exists():
             return cls()
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except OSError as exc:
+            raise ConfigError(f"Could not read {path}: {exc.strerror or exc}.") from exc
+        try:
+            data = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise ConfigError(
+                f"{path} is not valid JSON (line {exc.lineno}, column {exc.colno}: "
+                f"{exc.msg}). Fix that line, or delete the file to go back to the defaults."
+            ) from exc
+        if not isinstance(data, dict):
+            raise ConfigError(f"{path} should hold a JSON object ({{...}}), not {type(data).__name__}.")
+        return cls.from_dict(data, source=str(path))
+
+    @classmethod
+    def from_dict(cls, data: dict, source: str = "config") -> "Config":
         known = {f.name for f in fields(cls)}
-        data = json.loads(path.read_text(encoding="utf-8"))
-        unknown = set(data) - known
+        unknown = sorted(set(data) - known)
         if unknown:
-            raise ValueError(f"unknown config keys in {path}: {sorted(unknown)}")
-        return cls(**data)
+            log.warning(
+                "Ignoring settings this version does not know in %s: %s",
+                source, ", ".join(unknown),
+            )
+        values, problems = {}, []
+        for key in sorted(set(data) & known):
+            try:
+                values[key] = coerce(key, data[key])
+            except ConfigError as exc:
+                problems.append(str(exc))
+        cfg = cls(**values)
+        # Report every problem in one go, type errors and range errors alike,
+        # rather than making someone fix and restart once per mistake.
+        problems += cfg.problems()
+        if problems:
+            raise ConfigError(_problem_list(source, problems))
+        cfg.validate(source)
+        return cfg
+
+    def validate(self, source: str = "config") -> None:
+        """Check ranges, choices and relationships; raise ConfigError if any fail.
+
+        Also makes the path settings absolute.
+        """
+        problems = self.problems()
+        if problems:
+            raise ConfigError(_problem_list(source, problems))
+        # Relative paths are taken from the data folder, and made absolute
+        # now: the OpenUtau host changes the working directory later.
+        for key in ("out_dir", "log_file"):
+            setattr(self, key, str(paths.resolve(getattr(self, key))))
+        for key in ("voicebank_root", "openutau_dir", "rvc_model", "rvc_index"):
+            if getattr(self, key):
+                setattr(self, key, str(paths.resolve(getattr(self, key))))
+
+    def problems(self) -> list[str]:
+        """Everything wrong with the current values, as sentences."""
+        problems: list[str] = []
+        for key, allowed in CHOICES.items():
+            value = getattr(self, key)
+            if isinstance(value, str):
+                value = value.strip().lower()
+                setattr(self, key, value)
+            if value not in allowed:
+                problems.append(
+                    f"{key} is {value!r}; it must be one of: {', '.join(sorted(allowed))}."
+                )
+        for key, (low, high) in RANGES.items():
+            value = getattr(self, key)
+            if not low <= value <= high:
+                problems.append(f"{key} is {value}; it must be between {low} and {high}.")
+        if self.f0_min >= self.f0_max:
+            problems.append(f"f0_min ({self.f0_min}) must be below f0_max ({self.f0_max}).")
+        if self.midi_min > self.midi_max:
+            problems.append(f"midi_min ({self.midi_min}) must not be above midi_max ({self.midi_max}).")
+        if self.min_mora_seconds > self.max_mora_seconds:
+            problems.append(
+                f"min_mora_seconds ({self.min_mora_seconds}) must not be above "
+                f"max_mora_seconds ({self.max_mora_seconds})."
+            )
+        if not str(self.ptt_key or "").strip():
+            problems.append("ptt_key is empty; set it to a key such as f8.")
+        return problems
 
     def save(self, path: Path | None = None) -> Path:
-        path = path or CONFIG_PATH
-        path.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+        path = Path(path or CONFIG_PATH or paths.config_path())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Written beside the target and swapped in, so a crash mid-write
+        # cannot leave a half-written config that stops the next start.
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(path)
         return path
+
+
+# Settings with a fixed set of values. Compared case-insensitively.
+CHOICES: dict[str, set[str]] = {
+    "mode": {"utau", "voice"},
+    "capture_mode": {"ptt", "vad"},
+    "lyric_mode": {"auto", "native", "japanese"},
+    "renderer_backend": {"openutau", "null"},
+    "shift_mode": {"semitone", "octave"},
+    "pitch_method": {"crepe", "pyin"},
+    "crepe_model": {"full", "tiny"},
+    "whisper_device": {"cpu", "cuda", "auto"},
+    "whisper_compute_type": {
+        "default", "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
+        "int16", "float16", "bfloat16", "float32",
+    },
+}
+
+# Numeric settings with limits outside which the pipeline breaks or hangs.
+RANGES: dict[str, tuple[float, float]] = {
+    # Whisper, crepe and the aligner are all fed the capture rate directly.
+    "sample_rate": (16000, 16000),
+    "frame_ms": (5, 200),
+    "silence_ms": (20, 10_000),
+    "min_chunk_ms": (0, 60_000),
+    "max_chunk_ms": (500, 120_000),
+    "preroll_ms": (0, 5_000),
+    "calibrate_ms": (0, 10_000),
+    "calibrate_margin": (0.1, 100.0),
+    "rms_threshold": (0.0, 1.0),
+    "beam_size": (1, 20),
+    "no_speech_threshold": (0.0, 1.0),
+    "crepe_voiced_threshold": (0.0, 1.0),
+    "f0_min": (20.0, 2000.0),
+    "f0_max": (40.0, 4000.0),
+    "octave_snap_cents": (0.0, 1200.0),
+    "midi_min": (0, 127),
+    "midi_max": (0, 127),
+    "target_tone": (0, 127),
+    "max_shift": (0, 96),
+    "shift_tolerance": (0.0, 48.0),
+    "default_tone": (0, 127),
+    "note_gap_ms": (0, 2_000),
+    "min_note_seconds": (0.0, 10.0),
+    "seconds_per_syllable": (0.0, 10.0),
+    "min_mora_seconds": (0.0, 5.0),
+    "max_mora_seconds": (0.01, 5.0),
+    "pause_borrow": (0.0, 1.0),
+    "contour_smooth_ms": (0.0, 2_000.0),
+    "contour_points": (2, 64),
+    "contour_range_cents": (0.0, 2_400.0),
+    "transpose": (-48, 48),
+    "bpm": (20.0, 400.0),
+    "resolution": (15, 3840),
+    "playback_gain": (0.0, 10.0),
+    "keep_files": (0, 100_000),
+    "queue_size": (1, 64),
+}
+
+_TRUE = {"true", "yes", "on", "1"}
+_FALSE = {"false", "no", "off", "0"}
+
+
+def _problem_list(source: str, problems: list[str]) -> str:
+    lines = "\n".join(f"  - {p}" for p in problems)
+    return f"Settings in {source} need fixing:\n{lines}"
+
+
+def _field_types() -> dict[str, str]:
+    hints = typing.get_type_hints(Config)
+    out = {}
+    for f in fields(Config):
+        hint = hints[f.name]
+        args = set(typing.get_args(hint))
+        if hint is bool:
+            out[f.name] = "bool"
+        elif hint is int:
+            out[f.name] = "int"
+        elif hint is float:
+            out[f.name] = "float"
+        elif str in args and type(None) in args:
+            out[f.name] = "str|None"
+        else:
+            out[f.name] = "str"
+    return out
+
+
+def coerce(key: str, value):
+    """Turn a JSON (or panel) value into the type the setting needs.
+
+    Hand-edited files and form fields send "3" for 3 and "true" for true. Those
+    used to be stored as given and crash deep inside the pipeline, mid-
+    utterance, far from the setting that caused it.
+    """
+    kind = _field_types().get(key)
+    if kind is None:
+        raise ConfigError(f"{key} is not a setting.")
+    try:
+        if kind == "bool":
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, (int, float)) and value in (0, 1):
+                return bool(value)
+            text = str(value).strip().lower()
+            if text in _TRUE:
+                return True
+            if text in _FALSE:
+                return False
+            raise ValueError
+        if kind == "int":
+            if isinstance(value, bool):
+                raise ValueError
+            number = float(value)
+            if number != int(number):
+                raise ValueError
+            return int(number)
+        if kind == "float":
+            if isinstance(value, bool):
+                raise ValueError
+            number = float(value)
+            if number != number or number in (float("inf"), float("-inf")):
+                raise ValueError
+            return number
+        if kind == "str|None":
+            if value is None:
+                return None
+            text = str(value)
+            return text if text.strip() else None
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            raise ValueError
+        return str(value)
+    except (TypeError, ValueError, OverflowError):
+        expected = {"bool": "true or false", "int": "a whole number", "float": "a number",
+                    "str": "text", "str|None": "text"}[kind]
+        raise ConfigError(f"{key} is {value!r}; it must be {expected}.") from None

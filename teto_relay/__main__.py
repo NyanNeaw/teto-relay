@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_banks:
         from .voicebank import discover
 
-        for b in discover(cfg.voicebank_root):
+        for b in discover(cfg.voicebank_path()):
             print(b)
         return 0
 

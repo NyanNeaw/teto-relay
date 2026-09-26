@@ -71,14 +71,22 @@ class TetoRelay:
 
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config.load()
-        self.banks = vb_mod.discover(self.cfg.voicebank_root)
-        self.bank = vb_mod.select(self.banks, self.cfg.voicebank)
+        self.engine = (self.cfg.mode or "utau").lower()
+        root = self.cfg.voicebank_path()
+        # Voice conversion does not sing through a voicebank, so it must not
+        # refuse to start for want of one.
+        try:
+            self.banks = vb_mod.discover(root)
+            self.bank = vb_mod.select_or_default(self.banks, self.cfg.voicebank, root)
+        except vb_mod.VoicebankError:
+            if self.engine != "voice":
+                raise
+            self.banks, self.bank = [], None
 
         self.chunk_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
         self.ustx_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
         self.wav_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
 
-        self.engine = (self.cfg.mode or "utau").lower()
         self.transcriber = Transcriber(self.cfg)
         # Voice mode never synthesises notes, so the OpenUtau host - which
         # starts CoreCLR and loads a singer - is not built at all.
@@ -97,11 +105,14 @@ class TetoRelay:
         self._voice_baseline: float | None = None
         # The pitch this voicebank was recorded at; rendering near it keeps the
         # voice's body, which is what makes it sound sung rather than breathy.
-        self._target_tone: float = float(self.cfg.target_tone) or vb_mod.estimate_pitch(
-            self.bank, self.cfg
-        )
+        self._target_tone: float = float(self.cfg.target_tone or 60)
         # The shortest note this bank can sing, measured from its oto.
-        self._mora_floor: float = vb_mod.mora_floor(self.bank, self.cfg)
+        self._mora_floor: float = float(self.cfg.min_mora_seconds)
+        if self.bank is not None:
+            self._target_tone = float(self.cfg.target_tone) or vb_mod.estimate_pitch(
+                self.bank, self.cfg
+            )
+            self._mora_floor = vb_mod.mora_floor(self.bank, self.cfg)
         self.last_text = ""
         # What the control panel shows: the words as heard, their Japanese
         # reading, the notes actually sung with their tones, and the timings

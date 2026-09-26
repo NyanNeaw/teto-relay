@@ -21,7 +21,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+from . import paths
 
 _started = False
 _lock = threading.Lock()
@@ -52,8 +52,7 @@ def _runtimeconfig() -> Path:
     # builds DataPath (Cache/, Dictionaries/, Singers/) from that. Left in TEMP
     # - or worse, defaulted to the Python install - OpenUtau would scatter its
     # working directories through somebody else's folders.
-    host_dir = PROJECT_ROOT / ".openutau-host"
-    host_dir.mkdir(parents=True, exist_ok=True)
+    host_dir = paths.ensure(paths.host_dir())
     path = host_dir / "teto_relay.runtimeconfig.json"
     path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     return path
@@ -71,8 +70,8 @@ def start(openutau_dir: Path | str) -> Path:
         core = openutau_dir / "OpenUtau.Core.dll"
         if not core.exists():
             raise FileNotFoundError(
-                f"OpenUtau.Core.dll not found in {openutau_dir}. "
-                "Set openutau_dir in config.json to your OpenUtau install."
+                f"OpenUtau.Core.dll is not in {openutau_dir}. Set openutau_dir in "
+                "the control panel (Setup) to the folder that contains OpenUtau.exe."
             )
 
         os.chdir(openutau_dir)
@@ -265,7 +264,7 @@ def _redirect_paths() -> None:
     The backing fields are plain strings, which marshal through reflection
     without the boxing problem that afflicts the numeric ones.
     """
-    host_dir = PROJECT_ROOT / ".openutau-host"
+    host_dir = paths.host_dir()
     cache_dir = host_dir / "Cache"
     try:
         import clr

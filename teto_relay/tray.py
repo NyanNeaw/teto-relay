@@ -76,7 +76,7 @@ def run_tray(cfg: Config) -> int:
         pystray.MenuItem(
             b.key,
             choose_bank(b.key),
-            checked=(lambda key: (lambda item: relay.bank.key == key))(b.key),
+            checked=(lambda key: (lambda item: relay.bank is not None and relay.bank.key == key))(b.key),
             radio=True,
         )
         for b in relay.banks

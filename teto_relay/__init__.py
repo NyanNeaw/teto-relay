@@ -1,15 +1,17 @@
 """Teto Relay - real-time voice-to-UTAU pitch relay."""
 
 import os as _os
-from pathlib import Path as _Path
+
+from . import paths as _paths
 
 __version__ = "0.1.0"
 
 # Model caches default to the user profile on C:, which on this machine has
 # under 2 GB free - whisper, torch and the 1.2 GB aligner would fill it. These
 # must be set before torch or huggingface_hub are imported, so they live here
-# rather than in a shell script the app might be started without.
-_CACHE = _Path(__file__).resolve().parent.parent / ".cache"
+# rather than in a shell script the app might be started without. They go in
+# the data folder (see teto_relay.paths), beside the config.
+_CACHE = _paths.cache_dir()
 for _var, _sub in (
     ("TORCH_HOME", "torch"),
     ("HF_HOME", "hf"),

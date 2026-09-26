@@ -144,6 +144,11 @@ class VoiceConverter:
         if self._vc is not None:
             return
 
+        if not self.cfg.rvc_model:
+            raise RuntimeError(
+                "No RVC voice model is set. Install a .pth from the control panel, "
+                "or switch Engine back to 'utau'."
+            )
         model = Path(self.cfg.rvc_model)
         if not model.exists():
             raise RuntimeError(
@@ -163,7 +168,9 @@ class VoiceConverter:
 
         from rvc.modules.vc.modules import VC
 
-        cache = Path(__file__).resolve().parent.parent / ".cache"
+        from . import paths
+
+        cache = paths.cache_dir()
         vc = VC()
         vc.get_vc(str(model))
         vc.hubert_model = _content_encoder(cache, str(vc.config.device))

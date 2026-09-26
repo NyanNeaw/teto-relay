@@ -170,8 +170,17 @@ class OpenUtauRenderer:
             raise RenderError("the OpenUtau backend needs a voicebank")
         self.cfg = cfg
         self.bank = bank
+        self.openutau_dir = cfg.openutau_path()
+        if self.openutau_dir is None:
+            from ..locate import openutau_candidates
 
-        dotnet.start(cfg.openutau_dir)
+            raise RenderError(
+                "OpenUtau was not found. Set openutau_dir in the control panel "
+                "(Setup) to the folder that contains OpenUtau.exe. Searched: "
+                + "; ".join(str(p) for p in openutau_candidates())
+            )
+
+        dotnet.start(self.openutau_dir)
         self._register_singer_path(bank)
         self.singer = self._load_singer(bank)
         self.renderer = self._make_renderer(cfg.renderer)
@@ -187,7 +196,7 @@ class OpenUtauRenderer:
         Done in memory only - we never write OpenUtau's preferences file, so
         this leaves the user's install untouched.
         """
-        search_root = str(Path(self.cfg.voicebank_root).resolve())
+        search_root = str(self.cfg.voicebank_path().resolve())
         try:
             from OpenUtau.Core import Preferences
 
@@ -395,7 +404,7 @@ class OpenUtauRenderer:
         from OpenUtau.Api import Phonemizer
 
         flags = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static
-        asm = Assembly.LoadFrom(str(Path(self.cfg.openutau_dir) / "OpenUtau.Core.dll"))
+        asm = Assembly.LoadFrom(str(Path(self.openutau_dir) / "OpenUtau.Core.dll"))
         request_type = asm.GetType("OpenUtau.Api.PhonemizerRequest")
         runner_type = asm.GetType("OpenUtau.Api.PhonemizerRunner")
         note_type = clr.GetClrType(Phonemizer).GetNestedType("Note")

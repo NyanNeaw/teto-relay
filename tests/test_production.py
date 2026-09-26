@@ -135,15 +135,32 @@ class TestControlPanelIsNotDrivableFromOtherSites(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(self.saved(s)["transpose"], 3)
 
-    def test_paths_cannot_be_set_through_the_panel_api(self):
+    def test_internal_paths_cannot_be_set_through_the_panel_api(self):
+        # openutau_dir and voicebank_root are settable: a new user has to be
+        # able to point the panel at their install. Where logs and output are
+        # written is not the panel's business.
         with _PanelServer() as s:
             status, _ = s.request("POST", "/api/config",
-                                  {"log_file": "C:/Windows/evil.log", "openutau_dir": "X:/"},
+                                  {"log_file": "C:/Windows/evil.log", "out_dir": "C:/Windows"},
                                   self.TOKEN)
             self.assertEqual(status, 200)
             saved = self.saved(s)
             self.assertNotEqual(saved["log_file"], "C:/Windows/evil.log")
-            self.assertNotEqual(saved["openutau_dir"], "X:/")
+            self.assertNotEqual(saved["out_dir"], "C:/Windows")
+
+    def test_bad_values_are_refused_with_a_reason_and_not_saved(self):
+        import json
+
+        with _PanelServer() as s:
+            status, body = s.request("POST", "/api/config", {"beam_size": 0, "transpose": "2"},
+                                     self.TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("beam_size", json.loads(body)["error"])
+            self.assertEqual(self.saved(s)["transpose"], 0)
+            status, _ = s.request("POST", "/api/config", {"transpose": "2"}, self.TOKEN)
+            self.assertEqual(status, 200)
+            self.assertEqual(self.saved(s)["transpose"], 2)
+            self.assertEqual(s.controller.cfg.transpose, 2)
 
     def test_host_and_origin_rules(self):
         from teto_relay.webui import host_allowed, origin_allowed
@@ -200,6 +217,231 @@ class TestUploadedModelsAreNotUnpickled(unittest.TestCase):
             info = install_rvc_model(buffer.getvalue(), "teto.pth", Path(tmp))
             self.assertEqual(info["kind"], "model")
             self.assertEqual(info["version"], "v2")
+
+
+class _TempHome:
+    """Point the data folder (TETO_RELAY_HOME) at a temporary directory."""
+
+    def __enter__(self):
+        import os
+        import tempfile
+
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        self._old = os.environ.get("TETO_RELAY_HOME")
+        os.environ["TETO_RELAY_HOME"] = str(self.home)
+        return self.home
+
+    def __exit__(self, *exc):
+        import os
+
+        if self._old is None:
+            os.environ.pop("TETO_RELAY_HOME", None)
+        else:
+            os.environ["TETO_RELAY_HOME"] = self._old
+        self.tmp.cleanup()
+
+
+class TestConfigLoading(unittest.TestCase):
+    """P0-5: config mistakes are explained, not crashed on."""
+
+    def load(self, text: str):
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            path = home / "config.json"
+            path.write_text(text, encoding="utf-8")
+            return Config.load(path)
+
+    def test_missing_file_gives_defaults(self):
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            cfg = Config.load(home / "nope.json")
+            self.assertEqual(cfg.voicebank, "english")
+            self.assertTrue(str(cfg.out_dir).startswith(str(home)))
+
+    def test_invalid_json_says_where_and_what_to_do(self):
+        from teto_relay.config import ConfigError
+
+        with self.assertRaises(ConfigError) as caught:
+            self.load('{"transpose": 3,,}')
+        message = str(caught.exception)
+        self.assertIn("line 1", message)
+        self.assertIn("delete the file", message)
+
+    def test_unknown_keys_are_ignored_with_a_warning(self):
+        with self.assertLogs("teto_relay.config", "WARNING") as logs:
+            cfg = self.load('{"transpose": 2, "from_the_future": true}')
+        self.assertEqual(cfg.transpose, 2)
+        self.assertIn("from_the_future", "\n".join(logs.output))
+
+    def test_strings_from_hand_edits_are_coerced(self):
+        cfg = self.load('{"transpose": "3", "use_alignment": "false", "playback_gain": "0.5"}')
+        self.assertEqual(cfg.transpose, 3)
+        self.assertIs(cfg.use_alignment, False)
+        self.assertEqual(cfg.playback_gain, 0.5)
+
+    def test_bad_values_are_all_reported_at_once(self):
+        from teto_relay.config import ConfigError
+
+        with self.assertRaises(ConfigError) as caught:
+            self.load('{"transpose": "loud", "beam_size": 0, "mode": "karaoke"}')
+        message = str(caught.exception)
+        for key in ("transpose", "beam_size", "mode"):
+            self.assertIn(key, message)
+
+    def test_choices_are_case_insensitive(self):
+        cfg = self.load('{"capture_mode": "VAD", "lyric_mode": "Japanese"}')
+        self.assertEqual(cfg.capture_mode, "vad")
+        self.assertEqual(cfg.lyric_mode, "japanese")
+
+    def test_relationships_are_checked(self):
+        from teto_relay.config import ConfigError
+
+        with self.assertRaises(ConfigError):
+            self.load('{"f0_min": 500, "f0_max": 400}')
+        with self.assertRaises(ConfigError):
+            self.load('{"sample_rate": 44100}')
+
+    def test_relative_paths_are_made_absolute_against_the_data_folder(self):
+        # The OpenUtau host chdirs into its own folder; a relative path left
+        # relative would start pointing there.
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            path = home / "config.json"
+            path.write_text('{"out_dir": "renders", "voicebank_root": "banks"}', encoding="utf-8")
+            cfg = Config.load(path)
+            self.assertEqual(Path(cfg.out_dir), (home / "renders").resolve())
+            self.assertEqual(Path(cfg.voicebank_root), (home / "banks").resolve())
+
+    def test_save_round_trips_and_leaves_no_temp_file(self):
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            cfg = Config(transpose=5)
+            path = cfg.save(home / "config.json")
+            self.assertEqual(Config.load(path).transpose, 5)
+            self.assertFalse((home / "config.json.tmp").exists())
+
+    def test_the_repo_ships_no_personal_config(self):
+        # P0-3: the committed config.json named a bank that only existed on
+        # one machine, so everyone else's first start crashed.
+        tracked = subprocess.run(
+            ["git", "ls-files", "config.json"], cwd=ROOT, capture_output=True, text=True
+        ).stdout.strip()
+        self.assertEqual(tracked, "")
+        from teto_relay.config import Config
+
+        defaults = Config()
+        self.assertEqual(defaults.voicebank_root, "")
+        self.assertEqual(defaults.openutau_dir, "")
+        self.assertNotIn("D:\\", defaults.out_dir)
+
+
+class TestDataFolders(unittest.TestCase):
+    """P1-5: packaged builds keep settings somewhere writable."""
+
+    def with_frozen(self, exe_dir: Path, fn):
+        import unittest.mock
+
+        from teto_relay import paths
+
+        with unittest.mock.patch.object(sys, "frozen", True, create=True), \
+                unittest.mock.patch.object(sys, "executable", str(exe_dir / "TetoRelay.exe")):
+            return fn(paths)
+
+    def test_source_checkout_uses_the_project_folder(self):
+        import os
+        import unittest.mock
+
+        from teto_relay import paths
+
+        with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": ""}):
+            self.assertEqual(paths.data_dir(), ROOT)
+
+    def test_installed_build_uses_local_app_data(self):
+        import os
+        import tempfile
+        import unittest.mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            exe_dir, appdata = Path(tmp, "Program Files", "TetoRelay"), Path(tmp, "AppData")
+            exe_dir.mkdir(parents=True)
+            with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": "", "LOCALAPPDATA": str(appdata)}):
+                self.assertEqual(self.with_frozen(exe_dir, lambda p: p.data_dir()), appdata / "TetoRelay")
+
+    def test_portable_build_keeps_data_beside_the_exe(self):
+        import os
+        import tempfile
+        import unittest.mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            exe_dir = Path(tmp, "TetoRelay")
+            exe_dir.mkdir()
+            (exe_dir / "portable.txt").write_text("", encoding="utf-8")
+            with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": ""}):
+                self.assertEqual(self.with_frozen(exe_dir, lambda p: p.data_dir()), exe_dir / "data")
+
+
+class TestLocate(unittest.TestCase):
+    """P0-3: no personal paths - OpenUtau and the banks are found instead."""
+
+    def test_openutau_is_found_from_the_environment(self):
+        import os
+        import tempfile
+        import unittest.mock
+
+        from teto_relay.locate import find_openutau
+
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "OpenUtau.Core.dll").write_bytes(b"")
+            with unittest.mock.patch.dict(os.environ, {"OPENUTAU_DIR": tmp}):
+                self.assertEqual(find_openutau(""), Path(tmp))
+            self.assertEqual(find_openutau("X:/configured"), Path("X:/configured"))
+
+    def test_voicebank_root_falls_back_to_the_data_folder(self):
+        from teto_relay.locate import find_voicebank_root
+
+        with _TempHome() as home:
+            root = find_voicebank_root("")
+            self.assertTrue(root.is_dir())
+            self.assertTrue(str(root).startswith(str(home)))
+
+    def test_a_folder_with_a_bank_is_preferred(self):
+        from teto_relay.locate import find_voicebank_root
+
+        with _TempHome() as home:
+            bank = home / "voicebanks" / "Teto"
+            bank.mkdir(parents=True)
+            (bank / "oto.ini").write_text("a.wav=a,0,0,0,0,0\n", encoding="utf-8")
+            self.assertEqual(find_voicebank_root(""), home / "voicebanks")
+
+
+class TestVoicebankErrors(unittest.TestCase):
+    """P1-4: voicebank problems say what to do."""
+
+    def test_missing_folder_is_explained(self):
+        from teto_relay.voicebank import VoicebankError, discover
+
+        with self.assertRaises(VoicebankError) as caught:
+            discover("/definitely/not/here")
+        self.assertIn("voicebank_root", str(caught.exception))
+
+    def test_no_banks_is_explained(self):
+        from teto_relay.voicebank import VoicebankError, select_or_default
+
+        with self.assertRaises(VoicebankError) as caught:
+            select_or_default([], "english", "/somewhere")
+        self.assertIn("oto.ini", str(caught.exception))
+
+    def test_an_unknown_key_falls_back_to_the_first_bank(self):
+        from teto_relay.voicebank import Voicebank, select_or_default
+
+        bank = Voicebank(key="tandoku", name="Teto", root=Path("/x"), flavour="ja-cv")
+        with self.assertLogs("teto_relay.voicebank", "WARNING"):
+            self.assertIs(select_or_default([bank], "english"), bank)
 
 
 if __name__ == "__main__":

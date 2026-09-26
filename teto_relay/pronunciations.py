@@ -20,8 +20,20 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-PRONUNCIATIONS_PATH = PROJECT_ROOT / "pronunciations.json"
+from . import paths
+
+#: None means "the user's file in the data folder, else the one shipped with
+#: the program" - see `default_path`. Tests point it at a temporary file.
+PRONUNCIATIONS_PATH: Path | None = None
+
+
+def default_path() -> Path:
+    if PRONUNCIATIONS_PATH is not None:
+        return PRONUNCIATIONS_PATH
+    user = paths.data_dir() / "pronunciations.json"
+    if user.exists():
+        return user
+    return paths.resource_dir() / "pronunciations.json"
 
 # Verified against the English bank: each replacement phonemizes without an
 # "error" phoneme. Keep additions verified too - a respelling that is itself
@@ -76,7 +88,7 @@ def _read_user_file(path: Path) -> dict:
 def load(path: Path | None = None) -> dict[str, str]:
     """Respellings: defaults merged with the user's file, which wins."""
     table = dict(DEFAULTS)
-    data = _read_user_file(path or PRONUNCIATIONS_PATH)
+    data = _read_user_file(path or default_path())
     # Either a flat {word: respelling} file (the original format) or the
     # sectioned form with "respellings" and "phonemes" keys.
     section = data.get("respellings") if "respellings" in data or "phonemes" in data else data
@@ -90,7 +102,7 @@ def load(path: Path | None = None) -> dict[str, str]:
 def load_hints(path: Path | None = None) -> dict[str, str]:
     """Phonetic hints: defaults merged with the user's file, which wins."""
     table = dict(PHONEME_HINTS)
-    data = _read_user_file(path or PRONUNCIATIONS_PATH)
+    data = _read_user_file(path or default_path())
     section = data.get("phonemes")
     if isinstance(section, dict):
         for word, hint in section.items():
@@ -111,7 +123,7 @@ def hint_for(lyric: str, hints: dict[str, str]) -> str | None:
 
 def write_default_file(path: Path | None = None) -> Path:
     """Create a starter pronunciations.json if the user has none."""
-    path = path or PRONUNCIATIONS_PATH
+    path = path or paths.data_dir() / "pronunciations.json"
     if path.exists():
         return path
     starter = {"phonemes": PHONEME_HINTS, "respellings": DEFAULTS}

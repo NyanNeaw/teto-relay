@@ -12,6 +12,14 @@ out/
 # Written by the hosted OpenUtau runtime
 .openutau-host/
 
+# Your settings - written by the control panel, specific to your machine
+config.json
+config.json.tmp
+
+# Downloaded voices, when kept inside a source checkout
+voicebanks/
+voices/
+
 # Logs
 *.log
 teto-relay.log

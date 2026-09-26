@@ -183,7 +183,7 @@ def _make_key(root: Path, taken: set[str]) -> str:
     return key
 
 
-def _find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
+def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
     """A singer root has character.txt; failing that, a bare oto.ini directory."""
     roots: list[Path] = []
     seen: set[Path] = set()
@@ -213,16 +213,24 @@ def _find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
     return roots
 
 
+class VoicebankError(RuntimeError):
+    """No usable voicebank. The message says what to do about it."""
+
+
 def discover(search_root: Path | str) -> list[Voicebank]:
     """Find every voicebank under `search_root`."""
     search_root = Path(search_root)
-    if not search_root.exists():
-        raise FileNotFoundError(f"voicebank_root does not exist: {search_root}")
+    if not search_root.is_dir():
+        raise VoicebankError(
+            f"The voicebank folder {search_root} does not exist. Set voicebank_root "
+            "in the control panel (Setup) to the folder that holds your UTAU "
+            "voicebanks, or leave it empty to use the default folder."
+        )
 
     banks: list[Voicebank] = []
     taken: set[str] = set()
 
-    for root in sorted(_find_singer_roots(search_root)):
+    for root in sorted(find_singer_roots(search_root)):
         oto_dirs = sorted({p.parent for p in root.rglob("oto.ini")})
         if not oto_dirs:
             continue
@@ -298,7 +306,9 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
     """
     import json
 
-    cache_path = Path(cfg.out_dir).parent / ".openutau-host" / "bank_pitch.json"
+    from . import paths
+
+    cache_path = paths.host_dir() / "bank_pitch.json"
     cache: dict[str, float] = {}
     if cache_path.exists():
         try:
@@ -345,6 +355,27 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
     except OSError:
         pass
     return estimate
+
+
+def select_or_default(banks: list[Voicebank], key: str, search_root: Path | str = "") -> Voicebank:
+    """Like `select`, but a first start with an unknown key still gets a voice.
+
+    The default key is "english"; someone whose only bank is a Japanese one
+    should hear it, with a warning, rather than get a crash.
+    """
+    if not banks:
+        where = f" in {search_root}" if search_root else ""
+        raise VoicebankError(
+            f"No UTAU voicebanks found{where}. A voicebank is a folder with an "
+            "oto.ini and .wav samples. Copy one there, install one from the "
+            "control panel, or point voicebank_root at the folder you keep them in."
+        )
+    try:
+        return select(banks, key)
+    except ValueError as exc:
+        chosen = banks[0]
+        log.warning("%s - using %r instead.", exc, chosen.key)
+        return chosen
 
 
 def select(banks: list[Voicebank], key: str) -> Voicebank:

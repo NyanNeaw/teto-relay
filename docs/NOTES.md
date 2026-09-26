@@ -487,3 +487,28 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
 - **`sounddevice` is imported on first use.** At module level it loads
   PortAudio, and without that library the whole app failed to import with a
   bare `OSError`.
+- **Settings and data now live in one data folder** (`teto_relay/paths.py`).
+  A source checkout keeps using the project folder, so nothing moves. A packaged
+  build uses `%LOCALAPPDATA%\TetoRelay`, or a `data` folder beside the exe when
+  a `portable.txt` sits next to it. PyInstaller's onefile mode unpacks the code
+  into a temporary folder, and Program Files is read-only, so neither can hold
+  settings. `TETO_RELAY_HOME` overrides the choice.
+- **`config.json` is no longer in git.** The committed file was one machine's
+  settings (`voicebank: "miku"`, `D:\` paths), and a new user's first start
+  crashed on it. `openutau_dir` and `voicebank_root` now default to empty,
+  which means "search the usual places" (`teto_relay/locate.py`). The panel
+  has a Setup group to set them. **Upgrade note for an existing checkout:**
+  `git pull` deletes an unmodified tracked `config.json`, so copy it aside
+  first and put it back afterwards; it is now ignored by git.
+- **The config is validated.** Hand edits and form fields send `"3"` for `3`
+  and `"true"` for `true`, and those used to be stored as-is and crash
+  mid-utterance. Values are now coerced to the setting's type, and ranges,
+  choices and relationships (`f0_min < f0_max`, `sample_rate` must be 16000)
+  are checked. Every problem is listed at once, with the fix. Keys this version
+  doesn't know are ignored with a warning instead of refusing to start, so a
+  config from a newer or older version still loads. Saves go through a temp
+  file, so a crash mid-write can't leave a broken config behind. Relative paths
+  are resolved against the data folder when loaded, because the OpenUtau host
+  `chdir`s into its own folder later.
+- **Voice mode no longer needs a voicebank.** It never sings through one, but
+  it refused to start without one.
