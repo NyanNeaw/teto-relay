@@ -232,6 +232,21 @@ fixes were checked by hand (a second panel launch, the Linux frozen build).
   and Setup folders were saved as "applied" though they only take effect on
   restart; the voice-mode idle text still used `innerHTML` for the key name;
   and the installer offered an all-users install the docs didn't describe.
+- Found by an independent code review, each reproduced, fixed and tested:
+  uploading an RVC file disconnected live settings from the running relay (a
+  pre-existing bug); a relative `--config` path broke once OpenUtau changed
+  the working directory; a moved portable folder kept pointing at its old
+  location; numbers of a trillion or more crashed transcription; streaming
+  dropped audio at every seam when the context was shorter than the
+  crossfade; an unwritable data folder crashed the app on import, before
+  `--doctor` could explain it; a streaming block finishing after Stop could
+  reopen the output; streaming ignored Volume changes; the tray's Retry
+  ignored a corrected config.
+- **Known limitation, not fixed:** a USB microphone that is unplugged and
+  plugged back in may not come back on its own. PortAudio only lists devices
+  when it starts, and re-initialising it to pick up the new device would also
+  close the output stream mid-phrase. The relay keeps retrying and says so in
+  the panel. Stop and Start picks the device up again.
 
 ## Next steps
 

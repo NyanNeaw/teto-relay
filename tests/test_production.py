@@ -1904,5 +1904,178 @@ class TestMicTap(unittest.TestCase):
         self.assertEqual(len(tapped), 30)
 
 
+class TestReviewFindings(unittest.TestCase):
+    """Bugs found by the independent code review of this branch."""
+
+    def test_installing_an_rvc_index_keeps_live_settings_connected(self):
+        import json
+        import urllib.parse
+
+        with _TempHome(), _PanelServer() as s:
+            live = s.controller.cfg
+            name = urllib.parse.quote("teto.index")
+            import http.client
+
+            conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
+            conn.request("POST", f"/api/install/rvc?name={name}", body=b"index-bytes",
+                         headers={"X-Teto-Relay": "1", "Content-Length": "11"})
+            self.assertEqual(json.loads(conn.getresponse().read())["ok"], True)
+            conn.close()
+            self.assertIs(s.controller.cfg, live)
+            self.assertTrue(live.rvc_index.endswith("teto.index"))
+            s.request("POST", "/api/config", {"transpose": 7}, {"X-Teto-Relay": "1"})
+            self.assertEqual(live.transpose, 7)
+
+    def test_a_relative_config_path_is_made_absolute(self):
+        import contextlib
+        import io
+        import os
+        import unittest.mock
+
+        seen = {}
+        with _TempHome() as home:
+            (home / "my.json").write_text('{"transpose": 5}', encoding="utf-8")
+            old = os.getcwd()
+            os.chdir(home)
+            try:
+                with unittest.mock.patch("teto_relay.__main__._run",
+                                         side_effect=lambda args, cfg: seen.update(path=args.config) or 0), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    from teto_relay.__main__ import main
+
+                    self.assertEqual(main(["--config", "my.json"]), 0)
+            finally:
+                os.chdir(old)
+        self.assertTrue(seen["path"].is_absolute())
+
+    def test_a_moved_portable_folder_keeps_working(self):
+        import os
+        import shutil
+        import tempfile
+        import unittest.mock
+
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp, "usbA"), Path(tmp, "usbB")
+            with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": str(a)}):
+                Config(transpose=3).save(a / "config.json")
+            shutil.move(str(a), str(b))
+            with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": str(b)}):
+                cfg = Config.load(b / "config.json")
+            self.assertEqual(Path(cfg.out_dir), (b / "out").resolve())
+            self.assertEqual(Path(cfg.log_file), (b / "teto-relay.log").resolve())
+            self.assertEqual(cfg.transpose, 3)
+
+    def test_very_large_numbers_are_read_digit_by_digit(self):
+        from teto_relay.stt import clean_lyric
+
+        self.assertEqual(clean_lyric("5551234567890"),
+                         "five five five one two three four five six seven eight nine zero")
+        self.assertTrue(clean_lyric("2,000,000,000,000").startswith("two zero"))
+        self.assertTrue(clean_lyric("1000000000000.5").endswith("point five"))
+
+    def test_streaming_loses_nothing_with_little_or_no_context(self):
+        import numpy as np
+
+        from teto_relay.streaming import BlockStreamer
+
+        x = np.random.default_rng(2).standard_normal(32000).astype(np.float32)
+        for context in (600, 20, 0):
+            streamer = BlockStreamer(lambda a, r: (a, r), 16000, 300, context, 50)
+            out = []
+            for i in range(0, len(x), 320):
+                out += streamer.feed(x[i:i + 320])
+            out += streamer.flush()
+            y = np.concatenate(out)
+            self.assertGreaterEqual(len(y), len(x), context)
+            self.assertLess(float(np.max(np.abs(y[:len(x)] - x))), 1e-6, context)
+
+    def test_an_unwritable_data_folder_does_not_stop_the_app_from_starting(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            blocker = Path(tmp, "afile")
+            blocker.write_text("", encoding="utf-8")
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("TORCH_HOME", "HF_HOME", "HUGGINGFACE_HUB_CACHE")}
+            env["TETO_RELAY_HOME"] = str(blocker / "data")
+            out = subprocess.run([sys.executable, "-m", "teto_relay", "--version"], cwd=ROOT,
+                                 env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("Teto Relay", out.stdout)
+
+    def fake_output(self, gain):
+        import types
+        import unittest.mock
+
+        from teto_relay import playback
+
+        streams = []
+
+        class FakeStream:
+            def __init__(self, **kw):
+                self.frames = []
+                streams.append(self)
+
+            def start(self):
+                pass
+
+            def write(self, frames):
+                self.frames.append(frames.copy())
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, query_devices=lambda *a: {
+            "default_samplerate": 16000, "max_output_channels": 1})
+        patch = unittest.mock.patch.object(playback, "sd", lambda: fake_sd)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return playback.StreamOutput(device=0, gain=gain), streams
+
+    def test_stream_output_stays_closed_after_stop(self):
+        import numpy as np
+
+        out, streams = self.fake_output(1.0)
+        out.close()
+        out.write(np.zeros(160, np.float32), 16000)  # a block finishing after stop
+        self.assertEqual(streams, [])
+
+    def test_stream_output_follows_the_volume_setting_live(self):
+        import numpy as np
+
+        volume = {"gain": 1.0}
+        out, streams = self.fake_output(lambda: volume["gain"])
+        out.write(np.full(160, 0.4, np.float32), 16000)
+        volume["gain"] = 0.5
+        out.write(np.full(160, 0.4, np.float32), 16000)
+        self.assertAlmostEqual(float(streams[0].frames[0][0, 0]), 0.4, places=5)
+        self.assertAlmostEqual(float(streams[0].frames[1][0, 0]), 0.2, places=5)
+
+    def test_tray_retry_reads_the_config_again(self):
+        import unittest.mock
+
+        from teto_relay import tray
+        from teto_relay.config import Config
+        from teto_relay.voicebank import VoicebankError
+
+        fixed = Config(transpose=9)
+        app = tray.TrayApp(Config(), reload=lambda: fixed)
+        with unittest.mock.patch.object(tray, "TetoRelay", side_effect=VoicebankError("x")):
+            app.start()
+        built = []
+        with unittest.mock.patch.object(tray, "TetoRelay",
+                                        side_effect=lambda cfg: built.append(cfg) or unittest.mock.Mock(
+                                            paused=False, health=lambda: {"problems": []})):
+            app.start()
+        self.assertIs(built[0], fixed)
+        self.assertEqual(app.state, "live")
+
+
 if __name__ == "__main__":
     unittest.main()

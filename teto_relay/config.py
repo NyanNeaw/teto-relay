@@ -439,7 +439,18 @@ class Config:
         # Written beside the target and swapped in, so a crash mid-write
         # cannot leave a half-written config that stops the next start.
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8")
+        data = asdict(self)
+        # Paths inside the data folder are stored relative to it, so a
+        # portable copy still works after being moved (another drive letter,
+        # a USB stick); they are made absolute again when loaded.
+        home = paths.data_dir()
+        for key in ("out_dir", "log_file", "voicebank_root", "rvc_model", "rvc_index"):
+            if data.get(key):
+                try:
+                    data[key] = Path(data[key]).resolve().relative_to(home).as_posix()
+                except ValueError:
+                    pass  # outside the data folder: kept as given
+        tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.replace(path)
         return path
 

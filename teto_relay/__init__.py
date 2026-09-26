@@ -19,5 +19,10 @@ for _var, _sub in (
 ):
     if not _os.environ.get(_var):
         _path = _CACHE / _sub
-        _path.mkdir(parents=True, exist_ok=True)
+        try:
+            _path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # An unwritable data folder must not stop the import: --doctor
+            # and the error message box are what explain it to the user.
+            continue
         _os.environ[_var] = str(_path)

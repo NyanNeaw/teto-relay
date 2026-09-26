@@ -52,8 +52,12 @@ class BlockStreamer:
         self.rate = int(sample_rate)
         self.block = max(1, int(self.rate * block_ms / 1000))
         self.context = max(0, int(self.rate * context_ms / 1000))
-        self.fade_s = crossfade_ms / 1000.0
-        self.search_s = search_ms / 1000.0
+        # The crossfade overlaps the end of the previous block, which is only
+        # available inside the context window, and so is the search around
+        # it. With less context than that, samples were dropped at every seam.
+        context_s = self.context / self.rate
+        self.fade_s = min(crossfade_ms / 1000.0, context_s)
+        self.search_s = max(0.0, min(search_ms / 1000.0, context_s - self.fade_s))
         self._pending = np.zeros(0, dtype=np.float32)  # input not yet converted
         self._history = np.zeros(self.context, dtype=np.float32)  # input already converted
         self._tail: np.ndarray | None = None  # output held back for the next crossfade

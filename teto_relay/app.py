@@ -263,7 +263,7 @@ class TetoRelay:
         else:
             gate.set()
 
-        self._stream_output = StreamOutput(out_dev.index, cfg.playback_gain)
+        self._stream_output = StreamOutput(out_dev.index, lambda: cfg.playback_gain)
         self._streamer = StreamingVoice(cfg, self.converter.convert, self._stream_output.write,
                                         gate.is_set)
 

@@ -655,7 +655,11 @@ def make_handler(controller: Controller):
                         else:
                             cfg.rvc_index = info["path"]
                         cfg.save(controller.config_path)
-                        controller.cfg = cfg
+                        # Applied in place: the running relay holds
+                        # controller.cfg, and rebinding it here cut every
+                        # later setting change off from the relay.
+                        controller.cfg.rvc_model = cfg.rvc_model
+                        controller.cfg.rvc_index = cfg.rvc_index
                     _forget_library()
                     self._json({"ok": True, "installed": info})
                 except ValueError as exc:

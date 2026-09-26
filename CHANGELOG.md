@@ -39,7 +39,12 @@ have them found automatically, or set them in the panel's Setup group.
   whole phrase.
 - Quick push-to-talk presses no longer lose a phrase.
 - The panel no longer overwrites the speech model setting when saving.
-- The panel uses the `--config` file it was started with.
+- The panel uses the `--config` file it was started with, and a relative
+  `--config` path keeps working after the relay starts.
+- Installing an RVC model no longer stops later setting changes from reaching
+  the running relay.
+- A portable folder keeps working after being moved.
+- Very long numbers (phone numbers, IDs) no longer crash transcription.
 - Note gaps survive rounding to ticks.
 
 ### Added

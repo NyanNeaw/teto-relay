@@ -56,7 +56,7 @@ build a release. The log and `latency.csv` are in the data folder.
 - [ ] `lead_silence` in the latency line is near 0 (the leading-silence trim works with real WORLDLINE output). If it is 0.2–0.5 s, WORLDLINE's positions are relative after all; report it.
 - [ ] Numbers ("I have 2 cats at 5:30"), "I'm", and a loanword on a Japanese bank are sung, not silent.
 - [ ] Switching voicebank in the panel while running takes effect on the next phrase.
-- [ ] Unplug the USB mic while running: the panel shows the microphone banner; plug it back in: it recovers on its own.
+- [ ] Unplug the USB mic while running: the panel shows the microphone banner. Plug it back in: note whether it recovers on its own (it may not - PortAudio only lists devices at start; see ROADMAP); Stop and Start must bring it back.
 - [ ] Rename the OpenUtau folder and start: plain tones play, and the panel banner and Check setup say why.
 - [ ] Tray mode (`TetoRelayConsole.exe --tray` or `pythonw -m teto_relay --tray`): red icon when live; with a broken setup, amber icon, the reason in the menu, and Retry / Open log work.
 

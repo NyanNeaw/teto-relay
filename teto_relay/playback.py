@@ -242,9 +242,12 @@ class StreamOutput:
     resampler, so block edges do not click.
     """
 
-    def __init__(self, device: int | None, gain: float = 1.0):
+    def __init__(self, device: int | None, gain=1.0):
         self.device = device
+        # A number, or a callable read on every block so the Volume slider
+        # applies while streaming.
         self.gain = gain
+        self._closed = False
         self.rate, channels = _device_format(device)
         self.channels = min(channels or 1, 2)
         self._stream = None
@@ -267,10 +270,15 @@ class StreamOutput:
         return _resample(block[:, None], rate, target)[:, 0]
 
     def write(self, block: np.ndarray, rate: int) -> None:
+        if self._closed:
+            # A block finished after stop(): opening a new stream now would
+            # leave it open with nothing to close it.
+            return
         target = self.rate or rate
         data = self._resampled(np.asarray(block, dtype=np.float32), rate, target)
-        if self.gain != 1.0:
-            data = np.clip(data * self.gain, -1.0, 1.0)
+        gain = float(self.gain() if callable(self.gain) else self.gain)
+        if gain != 1.0:
+            data = np.clip(data * gain, -1.0, 1.0)
         if self._stream is None:
             self._stream = sd().OutputStream(
                 samplerate=target, channels=self.channels, dtype="float32", device=self.device
@@ -280,6 +288,7 @@ class StreamOutput:
         self._stream.write(np.ascontiguousarray(frames))
 
     def close(self) -> None:
+        self._closed = True
         stream, self._stream = self._stream, None
         if stream is not None:
             try:

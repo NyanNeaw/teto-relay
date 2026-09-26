@@ -75,7 +75,7 @@ missing, with the fix.
 |---|---|
 | Plain beeps instead of Teto | OpenUtau could not start. Check setup names the reason, usually a missing .NET 8 Desktop Runtime or a wrong OpenUtau folder. |
 | "No output device matching 'CABLE Input'" | Install VB-Cable and restart Windows, or choose another Output. |
-| "The microphone is not available" banner | Plug the mic in, or close any app using it in exclusive mode. Teto Relay keeps retrying on its own. |
+| "The microphone is not available" banner | Plug the mic in, or close any app using it in exclusive mode. Teto Relay keeps retrying; if a re-plugged USB mic doesn't come back, press Stop and Start. |
 | Teto hears herself and loops | Your Microphone is set to *CABLE Output*. Set it to your real mic. |
 | Nothing when you hold F8 | Another app may be taking the key. Change **Push-to-talk key**. |
 | A word comes out silent | It isn't in the dictionary. Create `pronunciations.json` in the data folder with your fixes (see the README); they are added to the built-in ones. |

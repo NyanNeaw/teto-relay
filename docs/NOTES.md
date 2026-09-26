@@ -685,3 +685,17 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   Windows build hasn't been run. `--doctor` now uses cmudict and pykakasi
   instead of only locating them. That found the frozen build missing cmudict's
   `importlib.metadata`, which cmudict reads when it is imported.
+- **An independent review of the branch** (two reviewers: one for code, one
+  checking the docs against the code) found 26 issues; all are fixed except
+  the replugged-mic limitation below, and the code ones have regression tests
+  that fail on the reviewed commit. The notable ones: the panel ignored
+  `--config`; installing an RVC file silently disconnected the panel's settings
+  from the running relay (a bug from before this branch); saved paths inside
+  the data folder are now stored relative to it, so a portable copy survives
+  being moved; `BlockStreamer` clamps its crossfade and search to the context,
+  because with less context it dropped samples at every seam; numbers of a
+  trillion or more are read digit by digit instead of crashing.
+- **Known limitation: a replugged USB mic.** PortAudio enumerates devices only
+  when it initialises, so after an unplug/replug the old device index can stay
+  invalid. Re-initialising PortAudio from the capture thread would also close
+  the output stream mid-phrase, so it isn't done. Stop/Start recovers it.

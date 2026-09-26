@@ -44,11 +44,17 @@ def _under_thousand(n: int) -> list[str]:
 
 
 def cardinal(n: int) -> str:
-    """12 -> "twelve", 1234 -> "one thousand two hundred thirty four"."""
+    """12 -> "twelve", 1234 -> "one thousand two hundred thirty four".
+
+    From a trillion up (phone numbers, IDs) the digits are read one by one,
+    which is how such numbers are said anyway.
+    """
     if n < 0:
         return "minus " + cardinal(-n)
     if n == 0:
         return "zero"
+    if n >= 1_000_000_000_000:
+        return _digits(str(n))
     words: list[str] = []
     for value, name in _SCALES:
         if n >= value:

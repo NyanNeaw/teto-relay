@@ -113,20 +113,8 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.version:
-        from . import __version__
-
-        print(f"Teto Relay {__version__}")
-        return 0
-
-    try:
-        cfg = Config.load(args.config)
-    except ConfigError as exc:
-        report(str(exc))
-        return 2
-
+def _apply_overrides(cfg: Config, args) -> None:
+    """Command-line settings, on top of whatever the config file says."""
     if args.bank:
         cfg.voicebank = args.bank
     if args.backend:
@@ -141,6 +129,27 @@ def main(argv: list[str] | None = None) -> int:
         cfg.input_device = args.input_device
     if args.output_device:
         cfg.output_device = args.output_device
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.version:
+        from . import __version__
+
+        print(f"Teto Relay {__version__}")
+        return 0
+
+    if args.config is not None:
+        # Absolute now: the OpenUtau host changes the working directory once
+        # the relay starts, and the panel re-reads this file after that.
+        args.config = args.config.expanduser().resolve()
+    try:
+        cfg = Config.load(args.config)
+    except ConfigError as exc:
+        report(str(exc))
+        return 2
+
+    _apply_overrides(cfg, args)
     try:
         cfg.validate("the command line")
     except ConfigError as exc:
@@ -198,7 +207,13 @@ def _run(args, cfg: Config) -> int:
     if args.tray:
         from .tray import run_tray
 
-        return run_tray(cfg)
+        def reload() -> Config:
+            fresh = Config.load(args.config)
+            _apply_overrides(fresh, args)
+            fresh.validate("the command line")
+            return fresh
+
+        return run_tray(cfg, reload)
 
     from .app import run
 

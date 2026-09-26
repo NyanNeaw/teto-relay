@@ -65,8 +65,12 @@ class TrayApp:
     """The relay plus the state the tray menu shows. Kept apart from pystray
     so the start/failure logic can be tested without a desktop."""
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, reload=None):
         self.cfg = cfg
+        # Re-reads the config for Retry, so a setting fixed after a failed
+        # start is actually used. None keeps the config it was given.
+        self.reload = reload
+        self._attempts = 0
         self.relay: TetoRelay | None = None
         self.state = "starting"  # starting | live | paused | error
         self.error = ""
@@ -78,6 +82,9 @@ class TrayApp:
         self.on_change()
         try:
             if self.relay is None:
+                if self._attempts and self.reload is not None:
+                    self.cfg = self.reload()
+                self._attempts += 1
                 self.relay = TetoRelay(self.cfg)
             self.relay.start()
             self.state = "live"
@@ -117,10 +124,10 @@ class TrayApp:
             self.relay.stop()
 
 
-def run_tray(cfg: Config) -> int:
+def run_tray(cfg: Config, reload=None) -> int:
     import pystray
 
-    app = TrayApp(cfg)
+    app = TrayApp(cfg, reload)
 
     def start_in_background() -> None:
         threading.Thread(target=app.start, name="relay-start", daemon=True).start()
