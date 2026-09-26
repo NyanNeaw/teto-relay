@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
+import sys
 import threading
 from collections import deque
 from dataclasses import fields
@@ -17,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .config import Config, ConfigError, coerce
+from .errors import TetoRelayError, describe
 
 log = logging.getLogger(__name__)
 
@@ -1305,9 +1308,12 @@ def make_handler(controller: Controller):
                 try:
                     controller.start()
                     self._json({"ok": True})
+                except TetoRelayError as exc:
+                    log.error("Could not start: %s", exc)
+                    self._json({"ok": False, "error": str(exc)}, 400)
                 except Exception as exc:  # noqa: BLE001 - report it on the page
                     log.exception("could not start the relay")
-                    self._json({"ok": False, "error": str(exc)}, 500)
+                    self._json({"ok": False, "error": describe(exc, controller.cfg.log_file)}, 500)
             elif route == "api/stop":
                 controller.stop()
                 self._json({"ok": True})
@@ -1420,13 +1426,61 @@ def make_handler(controller: Controller):
     return Handler
 
 
-def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765) -> int:
+class PanelServer(ThreadingHTTPServer):
+    # The browser keeps connections open; with non-daemon handler threads,
+    # server_close() waited on them and Ctrl+C could hang until the tab closed.
+    daemon_threads = True
+    # On Windows SO_REUSEADDR lets a second process bind the same port and
+    # share it silently, so a second launch was never detected. Ask for
+    # exclusive use instead.
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def _panel_already_running(host: str, port: int) -> bool:
+    """Whether a Teto Relay panel is what is holding the port."""
+    import http.client
+
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=2)
+        conn.request("GET", "/api/status", headers={TOKEN_HEADER: "1"})
+        resp = conn.getresponse()
+        body = resp.read()
+        conn.close()
+        return resp.status == 200 and b'"running"' in body
+    except (OSError, http.client.HTTPException):
+        return False
+
+
+def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True) -> int:
     """Run the control panel until interrupted."""
-    controller = Controller(cfg)
-    server = ThreadingHTTPServer((host, port), make_handler(controller))
+    import webbrowser
+
     url = f"http://{host}:{port}/"
+    try:
+        server = PanelServer((host, port), None)
+    except OSError as exc:
+        # Double-clicking the app a second time lands here. If it is our own
+        # panel on that port, just show it rather than failing.
+        if _panel_already_running(host, port):
+            print(f"Teto Relay is already running: {url}")
+            if open_browser:
+                webbrowser.open(url)
+            return 0
+        raise TetoRelayError(
+            f"The control panel could not use port {port} ({exc.strerror or exc}). "
+            f"Another program is using it. Start with a different port, e.g. --port {port + 1}."
+        ) from exc
+    controller = Controller(cfg)
+    server.RequestHandlerClass = make_handler(controller)
     print(f"Teto Relay control panel: {url}")
     log.info("control panel on %s", url)
+    if open_browser:
+        threading.Timer(0.5, webbrowser.open, (url,)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

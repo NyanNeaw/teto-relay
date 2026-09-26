@@ -581,5 +581,176 @@ class TestRenderTimeout(unittest.TestCase):
         self.assertEqual([offset for offset, _ in segments], [460.0, 890.0])
 
 
+class TestFriendlyErrors(unittest.TestCase):
+    """P1-4: problems a person can fix are explained, not dumped."""
+
+    def run_main(self, argv):
+        import contextlib
+        import io
+
+        from teto_relay.__main__ import main
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = main(argv)
+        return code, err.getvalue()
+
+    def test_a_broken_config_file_is_explained(self):
+        with _TempHome() as home:
+            bad = home / "config.json"
+            bad.write_text("{oops", encoding="utf-8")
+            code, err = self.run_main(["--config", str(bad), "--list-banks"])
+        self.assertEqual(code, 2)
+        self.assertIn("not valid JSON", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_a_bad_command_line_value_is_explained(self):
+        with _TempHome():
+            code, err = self.run_main(["--key", " ", "--list-banks"])
+        self.assertEqual(code, 2)
+        self.assertIn("ptt_key", err)
+
+    def test_known_errors_exit_cleanly_with_their_message(self):
+        import unittest.mock
+
+        from teto_relay.voicebank import VoicebankError
+
+        with _TempHome(), unittest.mock.patch(
+            "teto_relay.__main__._run", side_effect=VoicebankError("No UTAU voicebanks found.")
+        ):
+            code, err = self.run_main([])
+        self.assertEqual(code, 2)
+        self.assertIn("No UTAU voicebanks found.", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_unexpected_errors_point_at_the_log(self):
+        import unittest.mock
+
+        with _TempHome(), unittest.mock.patch(
+            "teto_relay.__main__._run", side_effect=ZeroDivisionError("boom")
+        ):
+            code, err = self.run_main([])
+        self.assertEqual(code, 1)
+        self.assertIn("unexpected error", err)
+        self.assertIn(".log", err)
+        self.assertIn("--doctor", err)
+
+    def test_version(self):
+        import contextlib
+        import io
+
+        from teto_relay import __version__
+        from teto_relay.__main__ import main
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(main(["--version"]), 0)
+        self.assertIn(__version__, out.getvalue())
+
+
+class TestFailedStartCleansUp(unittest.TestCase):
+    """P1-2: a start that fails part-way stops whatever it had started."""
+
+    def test_devices_and_threads_are_stopped_when_start_fails(self):
+        import threading
+        import unittest.mock
+
+        from teto_relay.config import Config
+
+        relay = _bare_relay(Config())
+        relay._stop = threading.Event()
+        relay._threads, relay._hotkey, relay._capture = [], None, None
+        relay.renderer = unittest.mock.Mock()
+        relay.converter = None
+        player = unittest.mock.Mock()
+
+        def half_start():
+            relay._player = player  # the player got going...
+            raise RuntimeError("...and then the microphone would not open")
+
+        relay._player = None
+        relay._start = half_start
+        with self.assertRaises(RuntimeError):
+            relay.start()
+        player.stop.assert_called_once()
+        relay.renderer.close.assert_called_once()
+        self.assertTrue(relay._stop.is_set())
+
+
+class TestPanelStartup(unittest.TestCase):
+    """P1-13: a busy port is explained; a second launch shows the first."""
+
+    def test_port_used_by_something_else(self):
+        import socket
+
+        from teto_relay.config import Config
+        from teto_relay.errors import TetoRelayError
+        from teto_relay.webui import serve
+
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen()
+        port = blocker.getsockname()[1]
+        try:
+            with _TempHome(), self.assertRaises(TetoRelayError) as caught:
+                serve(Config(), port=port, open_browser=False)
+            self.assertIn(f"--port {port + 1}", str(caught.exception))
+        finally:
+            blocker.close()
+
+    def test_second_launch_finds_the_running_panel(self):
+        from teto_relay.webui import serve
+
+        with _PanelServer() as running:
+            self.assertEqual(serve(running.controller.cfg, port=running.port, open_browser=False), 0)
+
+
+class TestDoctor(unittest.TestCase):
+    """P1-9: the setup check runs anywhere and says what to fix."""
+
+    def test_runs_without_hardware_and_reports_every_group(self):
+        from teto_relay.config import Config
+        from teto_relay.doctor import format_checks, run_checks
+
+        with _TempHome():
+            checks = run_checks(Config())
+        names = {c.name for c in checks}
+        for expected in ("Python", "Data folder", "Voicebanks", "OpenUtau"):
+            self.assertIn(expected, names)
+        text = format_checks(checks)
+        for check in checks:
+            if check.status != "ok" and check.fix:
+                self.assertIn(check.fix, text)
+
+    def test_missing_openutau_names_the_places_searched(self):
+        import os
+        import unittest.mock
+
+        from teto_relay.config import Config
+        from teto_relay.doctor import check_openutau
+
+        with unittest.mock.patch.dict(os.environ, {"OPENUTAU_DIR": "/nowhere/OpenUtau"}), \
+                unittest.mock.patch("teto_relay.locate.find_openutau", return_value=None):
+            result = check_openutau(Config())[0]
+        self.assertEqual(result.status, "fail")
+        self.assertIn("/nowhere/OpenUtau", result.fix)
+
+    def test_exit_code_reflects_failures(self):
+        import contextlib
+        import io
+        import unittest.mock
+
+        from teto_relay import doctor
+        from teto_relay.config import Config
+
+        fine = [doctor.Check(doctor.OK, "x", "fine")]
+        broken = fine + [doctor.Check(doctor.FAIL, "y", "broken", "fix it")]
+        with contextlib.redirect_stdout(io.StringIO()):
+            with unittest.mock.patch.object(doctor, "run_checks", return_value=fine):
+                self.assertEqual(doctor.run_doctor(Config()), 0)
+            with unittest.mock.patch.object(doctor, "run_checks", return_value=broken):
+                self.assertEqual(doctor.run_doctor(Config()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

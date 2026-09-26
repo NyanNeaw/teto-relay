@@ -522,3 +522,26 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   `task.Wait(timeout)`, then the cancellation token, then a `RenderError`, which
   costs one utterance instead of silently blocking every later one. Untested
   against a real stall; the timeout path is unit tested with a fake task.
+- **Errors are for people.** `errors.TetoRelayError` marks a problem the user
+  can fix, and its message has to say what happened, why, and what to do. The
+  CLI prints those without a traceback (exit 2). Anything else is treated as a
+  bug: a one-line summary pointing at the log file and `--doctor` (exit 1),
+  with the traceback in the log. Under `pythonw` (tray, packaged app) there is
+  no console, so these go to a Windows message box; before, a startup error
+  there just made the app vanish. Config, voicebank, device and OpenUtau errors
+  were all rewritten to this standard. OpenUtau failing to start still falls
+  back to tones, but now says so in plain words.
+- **A failed start cleans up after itself.** `TetoRelay.start()` stops whatever
+  had already started before re-raising. A failure after the player or the
+  mic had opened used to leave them running, and a second Start opened a second
+  set.
+- **`--doctor`** checks Python, packages, the data folder, audio devices
+  (without opening them), feedback loops, voicebanks, OpenUtau, the .NET 8
+  Desktop Runtime (by looking in `dotnet\shared`, without starting it), torch
+  and CUDA, and voice-mode files, and prints the fix beside each problem.
+- **The control panel** opens the browser itself, explains a busy port, and
+  simply shows the already-running panel when launched twice. On Windows it
+  binds with `SO_EXCLUSIVEADDRUSE`, because `http.server`'s default
+  `SO_REUSEADDR` lets a second process share the port silently there. Handler
+  threads are daemons, so Ctrl+C no longer waits for the browser's keep-alive
+  connections to close.

@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from . import paths
+from .errors import TetoRelayError
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ PROJECT_ROOT = paths.SOURCE_ROOT
 CONFIG_PATH: Path | None = None
 
 
-class ConfigError(ValueError):
+class ConfigError(TetoRelayError, ValueError):
     """The configuration cannot be used. The message says what to change."""
 
 

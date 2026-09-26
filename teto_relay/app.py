@@ -26,6 +26,7 @@ from . import pitch as pitch_mod
 from . import voicebank as vb_mod
 from .capture import MicCapture, calibrate_threshold, make_chunker
 from .config import Config
+from .errors import TetoRelayError
 from .hotkey import PushToTalkListener
 from .notes import build_notes
 from .render import make_renderer
@@ -124,13 +125,27 @@ class TetoRelay:
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
+        """Open the devices, warm the models and start the workers.
+
+        If anything fails part-way, whatever did start is stopped again before
+        the error is raised - otherwise a failed start left the microphone open
+        and threads running, and a second Start opened a second set.
+        """
+        try:
+            self._start()
+        except BaseException:
+            log.info("Start failed; cleaning up what had started")
+            self.stop()
+            raise
+
+    def _start(self) -> None:
         cfg = self.cfg
         # Nothing downstream reads `mode`, so a relay configured for voice
         # conversion would quietly run the UTAU pipeline instead and look like
         # it was working. Refuse instead of lying about it.
         engine = self.engine
         if engine not in ("utau", "voice"):
-            raise RuntimeError(
+            raise TetoRelayError(
                 f"mode={engine!r} is not a thing - use 'utau' to sing your "
                 "speech as notes, or 'voice' to convert it to Teto's timbre."
             )
@@ -313,6 +328,7 @@ class TetoRelay:
             log.info("Warmed up analysis in %.1fs (%s)", elapsed, ", ".join(timings))
 
     def stop(self) -> None:
+        """Stop everything that is running. Safe to call more than once."""
         log.info("Stopping...")
         self._stop.set()
         if self._hotkey:

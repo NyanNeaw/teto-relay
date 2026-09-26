@@ -10,6 +10,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
+from ..errors import TetoRelayError
+
 
 @runtime_checkable
 class Renderer(Protocol):
@@ -24,5 +26,5 @@ class Renderer(Protocol):
         ...
 
 
-class RenderError(RuntimeError):
+class RenderError(TetoRelayError):
     """Raised when a backend cannot produce audio for a project."""

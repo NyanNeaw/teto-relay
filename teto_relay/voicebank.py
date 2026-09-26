@@ -213,7 +213,10 @@ def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
     return roots
 
 
-class VoicebankError(RuntimeError):
+from .errors import TetoRelayError
+
+
+class VoicebankError(TetoRelayError):
     """No usable voicebank. The message says what to do about it."""
 
 

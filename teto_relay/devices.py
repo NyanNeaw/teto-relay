@@ -10,11 +10,17 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from .errors import TetoRelayError
+
 log = logging.getLogger(__name__)
 
 
-class AudioUnavailable(RuntimeError):
+class AudioUnavailable(TetoRelayError):
     """The audio library could not be loaded, so no device can be opened."""
+
+
+class DeviceError(TetoRelayError):
+    """A configured audio device is not there."""
 
 
 def sd():
@@ -107,9 +113,15 @@ def resolve_output(cfg) -> DeviceInfo:
     dev = find_device(cfg.output_device, "output")
     if dev is None:
         available = "\n".join(str(d) for d in list_devices() if d.is_output)
-        raise RuntimeError(
-            f"No output device matching {cfg.output_device!r}.\n"
-            f"Install VB-Cable, or set output_device in config.json to one of:\n{available}"
+        hint = (
+            "Install VB-Cable (https://vb-audio.com/Cable/) and restart, or pick "
+            "another Output in the control panel."
+            if "cable" in cfg.output_device.casefold()
+            else "Pick another Output in the control panel."
+        )
+        raise DeviceError(
+            f"No output device matching {cfg.output_device!r} was found. {hint}\n"
+            f"Outputs on this PC:\n{available or '  (none)'}"
         )
     return dev
 
@@ -121,8 +133,10 @@ def resolve_input(cfg) -> DeviceInfo | None:
     dev = find_device(cfg.input_device, "input")
     if dev is None:
         available = "\n".join(str(d) for d in list_devices() if d.is_input)
-        raise RuntimeError(
-            f"No input device matching {cfg.input_device!r}. Available inputs:\n{available}"
+        raise DeviceError(
+            f"No microphone matching {cfg.input_device!r} was found. Plug it in, or "
+            "pick another Microphone in the control panel (blank uses the Windows "
+            f"default).\nInputs on this PC:\n{available or '  (none)'}"
         )
     return dev
 

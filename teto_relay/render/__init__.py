@@ -28,8 +28,16 @@ def make_renderer(cfg, bank=None) -> Renderer:
             from .openutau import OpenUtauRenderer
 
             return OpenUtauRenderer(cfg, bank)
-        except Exception:
-            log.exception("OpenUtau backend failed to start; falling back to tones")
+        except Exception as exc:
+            # Loud and specific: tones where Teto should be is otherwise
+            # baffling, and a bare traceback does not say what to do.
+            log.error(
+                "OpenUtau could not start, so you will hear plain tones instead of "
+                "Teto. Reason: %s. Run `python -m teto_relay --doctor` to check "
+                "OpenUtau, .NET 8 and the voicebank.",
+                exc,
+            )
+            log.debug("OpenUtau start failure", exc_info=True)
             from .null import NullRenderer
 
             return NullRenderer(cfg)
