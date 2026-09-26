@@ -139,7 +139,9 @@ class PushToTalkChunker:
     ends, so every chunk is a whole phrase.
 
     `start`/`stop` are called from the hotkey thread while `push` runs on the
-    audio thread, hence the lock and the handoff through `_pending`.
+    audio thread, hence the lock and the handoff through `_pending`. That is a
+    queue: a single slot lost the first phrase when the key was released,
+    pressed and released again before the next audio frame arrived.
     """
 
     def __init__(self, cfg, threshold: float | None = None):
@@ -149,7 +151,7 @@ class PushToTalkChunker:
         self._preroll: deque[np.ndarray] = deque(maxlen=preroll_frames)
         self._frames: list[np.ndarray] = []
         self._active = False
-        self._pending: Chunk | None = None
+        self._pending: deque[Chunk] = deque()
         self._lock = threading.Lock()
 
     @property
@@ -177,36 +179,36 @@ class PushToTalkChunker:
             log.info("Too short - ignored")
 
     def push(self, frame: np.ndarray) -> Chunk | None:
+        """Add one frame; returns a finished phrase, one per call, when there is one."""
         with self._lock:
             if not self._active:
                 self._preroll.append(frame)
-                pending, self._pending = self._pending, None
-                return pending
-
-            self._frames.append(frame)
-            if len(self._frames) >= max(1, self.cfg.max_chunk_ms // self.cfg.frame_ms):
-                self._active = False
-                log.warning("Hit the %.0fs recording limit", self.cfg.max_chunk_ms / 1000)
-                self._finish_locked("max_length")
-                pending, self._pending = self._pending, None
-                return pending
-            return None
+            else:
+                self._frames.append(frame)
+                if len(self._frames) >= max(1, self.cfg.max_chunk_ms // self.cfg.frame_ms):
+                    self._active = False
+                    log.warning("Hit the %.0fs recording limit", self.cfg.max_chunk_ms / 1000)
+                    self._finish_locked("max_length")
+            # Delivered even while the key is held again, so a phrase finished
+            # just before a new press is not held back until that one ends.
+            return self._pending.popleft() if self._pending else None
 
     def flush(self) -> Chunk | None:
+        """Finish any recording; returns one pending phrase. Call until None."""
         with self._lock:
             if self._active:
                 self._active = False
                 self._finish_locked("release")
-            pending, self._pending = self._pending, None
-            return pending
+            return self._pending.popleft() if self._pending else None
 
     def _finish_locked(self, reason: str) -> Chunk | None:
         frames, self._frames = self._frames, []
         min_frames = max(1, self.cfg.min_chunk_ms // self.cfg.frame_ms)
         if len(frames) < min_frames:
             return None
-        self._pending = Chunk(np.concatenate(frames), self.cfg.sample_rate, reason)
-        return self._pending
+        chunk = Chunk(np.concatenate(frames), self.cfg.sample_rate, reason)
+        self._pending.append(chunk)
+        return chunk
 
 
 def make_chunker(cfg, threshold: float | None = None):
@@ -318,8 +320,7 @@ class MicCapture(threading.Thread):
                 delay = min(delay * 2, self.MAX_RETRY_SECONDS)
         finally:
             self.state = "stopped"
-            tail = self.chunker.flush()
-            if tail is not None:
+            while (tail := self.chunker.flush()) is not None:
                 self._offer(tail)
             log.info("Microphone closed")
 

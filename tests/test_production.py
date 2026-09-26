@@ -1301,5 +1301,34 @@ class TestAlignmentSurvivesOddWords(unittest.TestCase):
         self.assertAlmostEqual(out[2].start, 0.12)
 
 
+class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
+    """P2-4: two phrases finished between audio frames are both delivered."""
+
+    def test_quick_release_press_release(self):
+        import numpy as np
+
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config
+
+        cfg = Config(min_chunk_ms=20, frame_ms=20)
+        chunker = PushToTalkChunker(cfg)
+        frame = np.full(cfg.frame_samples, 0.1, dtype=np.float32)
+        delivered = []
+        for label in ("first", "second"):
+            chunker.start()
+            for _ in range(5):
+                out = chunker.push(frame)
+                if out is not None:
+                    delivered.append(out)
+            chunker.stop()
+        chunker.start()  # a third press before any further frame arrives
+        while (out := chunker.push(frame)) is not None:
+            delivered.append(out)
+        chunker.stop()
+        while (out := chunker.flush()) is not None:
+            delivered.append(out)
+        self.assertEqual(len(delivered), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
