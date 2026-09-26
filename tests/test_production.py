@@ -860,5 +860,42 @@ class TestMicrophoneRecovery(unittest.TestCase):
         self.assertIn("PaErrorCode", error)
 
 
+class TestTray(unittest.TestCase):
+    """P1-3: with no console, a failed start must show in the tray."""
+
+    def test_a_failed_start_is_shown_and_can_be_retried(self):
+        import unittest.mock
+
+        from teto_relay import tray
+        from teto_relay.config import Config
+        from teto_relay.voicebank import VoicebankError
+
+        app = tray.TrayApp(Config())
+        changes = []
+        app.on_change = lambda: changes.append(app.state)
+        with unittest.mock.patch.object(tray, "TetoRelay",
+                                        side_effect=VoicebankError("No UTAU voicebanks found.")):
+            app.start()
+        self.assertEqual(app.state, "error")
+        self.assertIn("No UTAU voicebanks found.", app.status_line())
+        self.assertEqual(changes, ["starting", "error"])
+
+        working = unittest.mock.Mock(paused=False, last_text="hello",
+                                     health=lambda: {"problems": []})
+        with unittest.mock.patch.object(tray, "TetoRelay", return_value=working):
+            app.start()
+        self.assertEqual(app.state, "live")
+        self.assertEqual(app.status_line(), "Last: hello")
+        app.toggle_pause()
+        working.pause.assert_called_once()
+        self.assertEqual(app.state, "paused")
+
+    def test_icon_images_for_every_state(self):
+        from teto_relay import tray
+
+        for state in ("starting", "live", "paused", "error"):
+            self.assertEqual(tray._icon_image(state).size, (64, 64))
+
+
 if __name__ == "__main__":
     unittest.main()

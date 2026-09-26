@@ -555,3 +555,10 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   and logged from the capture thread, instead of one log line per frame from
   inside the callback. Tested with a scripted fake stream; untested with a real
   unplug.
+- **The tray shows failures.** It's the only UI under `pythonw`, and a failed
+  start used to leave a red "live" icon over a relay that never started. Now
+  the icon turns amber, the first menu line gives the reason (or the mic
+  problem, or the last phrase), and the menu has Retry start, Open log and Open
+  data folder, plus a Windows notification. The start/failure logic lives in
+  `TrayApp`, apart from pystray, so it is unit tested. The pystray menu itself
+  is untested here (no desktop).
