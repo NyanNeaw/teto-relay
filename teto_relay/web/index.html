@@ -250,6 +250,12 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
   backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
   border:1px solid var(--edge);box-shadow:var(--shadow)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* Problems the relay is having right now, and the setup check. */
+.alert{margin:0 0 16px;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.5;
+  background:rgba(230,150,20,.14);border:1px solid rgba(230,150,20,.45)}
+.alert p{margin:0}.alert p+p{margin-top:6px}
+.checks{margin:10px 0 0;font:12px/1.55 "Cascadia Mono",Consolas,ui-monospace,monospace;
+  white-space:pre-wrap;max-height:320px;overflow:auto}
 @media (max-width:720px){
   .wrap{padding:0 16px 48px} .bar{margin:10px 16px 18px;padding-left:14px}
   .heard{font-size:26px} .kana{font-size:17px}
@@ -295,6 +301,7 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
       <p class="help" id="up-status"></p>
     </section>
 
+    <div class="alert" id="alert" hidden></div>
     <section class="stage pane">
       <div class="stagehead">
         <p class="tag" id="stagetag">what she sang</p>
@@ -315,9 +322,14 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
     <div class="advbar">
       <button class="ghost advtoggle" id="advtoggle"><span>&#9654;</span>Show all settings</button>
       <span class="spacer"></span>
+      <button class="ghost" id="doctor" title="Check OpenUtau, .NET, devices, voicebanks and GPU">Check setup</button>
       <button class="ghost" id="save">Save settings</button>
     </div>
     <div class="adv pane" id="adv">
+      <div class="group" id="checkgroup" hidden>
+        <p class="tag">setup check</p>
+        <pre class="checks" id="checks"></pre>
+      </div>
       <div id="groups"></div>
       <div class="group">
         <p class="tag">activity</p>
@@ -396,7 +408,10 @@ function renderPicker(){
 }
 function showBank(key){
   const b=(meta.banks||[]).find(x=>x.key===key), img=$('avatar');
-  img.src='api/bank-image?bank='+encodeURIComponent(key)+'&t='+Date.now();
+  // No such bank (none installed yet): no picture to ask for.
+  img.hidden=!b;
+  img.onerror=()=>{img.hidden=true;};
+  if(b) img.src='api/bank-image?bank='+encodeURIComponent(key)+'&t='+Date.now();
   img.alt=b?('Voicebank '+b.key):'';
   img.title='';
   /* The name and what it is were a tooltip nobody would find. */
@@ -442,7 +457,12 @@ function control(k){
     wrap.appendChild(inp);
   } else if(meta.choices[k]){
     inp=document.createElement('select'); inp.className='box';
-    for(const opt of meta.choices[k]){
+    // A value the list does not offer (e.g. "base.en" from an older config)
+    // is kept as its own option. Left out, the select showed the first choice
+    // instead, and Save quietly wrote that over the real setting.
+    const choices=[...meta.choices[k]];
+    if(cfg[k]!=null&&cfg[k]!==''&&!choices.map(String).includes(String(cfg[k]))) choices.unshift(cfg[k]);
+    for(const opt of choices){
       const o=document.createElement('option'); o.value=opt; o.textContent=opt;
       if(String(cfg[k])===String(opt)) o.selected=true; inp.appendChild(o);
     }
@@ -554,7 +574,11 @@ function renderHero(d){
   }
   if(!d.notes.length){
     const p=document.createElement('p'); p.className='idle';
-    if(d.running) p.innerHTML='Hold <kbd>'+String(cfg.ptt_key||'F8').toUpperCase()+'</kbd> and speak.';
+    if(d.running){
+      // Built from nodes: the key name comes from the config file.
+      const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
+      p.append('Hold ',kbd,' and speak.');
+    }
     else p.textContent='Start the relay, then hold your push-to-talk key and speak.';
     hero.appendChild(p); roll.hidden=true; return;
   }
@@ -634,7 +658,7 @@ function renderMeters(s){
   for(const [k,v] of [['heard',s.speech!=null?s.speech+'s':'\u2014'],
                       ['analysed',s.analyse!=null?s.analyse+'s':'\u2014'],
                       ['rendered',s.render!=null?s.render+'s':'\u2014'],
-                      ['behind',s.behind!=null?s.behind+'s':'\u2014'],
+                      ['to sound',s.behind!=null?s.behind+'s':'\u2014'],
                       ['pitch',s.method||'\u2014']]){
     const d=document.createElement('div');
     const dt=document.createElement('dt'); dt.textContent=k;
@@ -734,6 +758,23 @@ if((()=>{try{return localStorage.getItem('teto.adv')==='1';}catch(e){return fals
   $('advtoggle').innerHTML='<span>&#9654;</span>Hide advanced';
 }
 
+function renderAlert(h){
+  const box=$('alert'); box.textContent='';
+  for(const problem of (h.problems||[])){
+    const p=document.createElement('p'); p.textContent=problem; box.appendChild(p);
+  }
+  box.hidden=!(h.problems||[]).length;
+}
+$('doctor').onclick=async()=>{
+  const out=$('checks'); $('checkgroup').hidden=false; out.textContent='Checking...';
+  app().classList.add('open');
+  try{
+    const d=await (await fetch('api/doctor')).json();
+    out.textContent=d.text;
+    toast(d.ok?'Setup looks ready.':'Some things need fixing - see "setup check".');
+  }catch(e){out.textContent='Could not run the check: '+e;}
+};
+
 async function poll(){
   try{
     const d=await (await fetch('api/status')).json();
@@ -749,8 +790,12 @@ async function poll(){
     const pick=$('bank');
     pick.disabled=voice;
     pick.title=voice?'Voice mode uses the RVC model, not a voicebank':'';
-    if(d.bank&&d.bank!==pick.value){pick.value=d.bank; showBank(d.bank);}
-    renderHero(d); renderMeters(d.stats||{});
+    // Only when the picker can actually show that bank; with none installed
+    // this used to refetch a missing picture every second.
+    if(d.bank&&d.bank!==pick.value&&[...pick.options].some(o=>o.value===d.bank)){
+      pick.value=d.bank; showBank(d.bank);
+    }
+    renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{});
     const box=$('log');
     const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-24;
     box.textContent=d.log.join('\n')||'Waiting for the relay to start.';

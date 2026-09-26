@@ -476,7 +476,10 @@ def _meta(cfg: Config) -> dict:
             "rvc_device": ["cuda:0", "cpu"],
             # Multilingual only: the .en models cannot hear Thai or Japanese,
             # and the Language box is where the language is chosen.
-            "whisper_model": ["tiny", "base", "small", "medium", "large-v3"],
+            # English-only (.en) models are faster and more accurate for
+            # English; the multilingual ones are needed for Thai or Japanese.
+            "whisper_model": ["tiny.en", "base.en", "small.en", "medium.en",
+                              "tiny", "base", "small", "medium", "large-v3"],
             "whisper_device": ["cpu", "cuda"],
             "whisper_compute_type": ["int8", "float16", "float32"],
             "language": ["en", "th", "ja"],
@@ -531,6 +534,15 @@ def make_handler(controller: Controller):
                 self._json({"config": data, "meta": _meta(cfg)})
             elif route == "api/status":
                 self._json(controller.status())
+            elif route == "api/doctor":
+                from .doctor import FAIL, format_checks, run_checks
+
+                checks = run_checks(Config.load())
+                self._json({
+                    "ok": not any(c.status == FAIL for c in checks),
+                    "checks": [c.as_dict() for c in checks],
+                    "text": format_checks(checks),
+                })
             elif route == "api/bank-image":
                 from urllib.parse import parse_qs, urlparse
 

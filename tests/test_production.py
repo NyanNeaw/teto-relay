@@ -162,6 +162,23 @@ class TestControlPanelIsNotDrivableFromOtherSites(unittest.TestCase):
             self.assertEqual(self.saved(s)["transpose"], 2)
             self.assertEqual(s.controller.cfg.transpose, 2)
 
+    def test_setup_check_is_available_to_the_panel(self):
+        import json
+
+        with _PanelServer() as s:
+            status, body = s.request("GET", "/api/doctor")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertIn("Voicebanks", data["text"])
+        self.assertIn(data["ok"], (True, False))
+
+    def test_status_carries_health(self):
+        import json
+
+        with _PanelServer() as s:
+            status, body = s.request("GET", "/api/status")
+        self.assertEqual(json.loads(body)["health"], {"microphone": "stopped", "problems": []})
+
     def test_the_page_is_served_from_its_own_file(self):
         with _PanelServer() as s:
             status, body = s.request("GET", "/")
