@@ -1,3 +1,4 @@
+# Core - everything the default pipeline needs.
 numpy>=1.24,<2.0
 sounddevice>=0.4.6
 soundfile>=0.12.1
@@ -8,3 +9,11 @@ pystray>=0.19.5
 Pillow>=10.0.0
 pynput>=1.7.6
 pythonnet>=3.0.3
+# English words -> Japanese morae. Without it every word in Japanese mode is
+# "not in the dictionary" and sung as silence.
+cmudict>=1.0.13
+# Kanji and katakana -> hiragana, for Japanese speech and Japanese banks.
+pykakasi>=2.2.1
+
+# GPU pitch tracking and word alignment are installed separately, because the
+# right torch build depends on your CUDA version - see requirements-gpu.txt.
