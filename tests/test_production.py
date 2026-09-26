@@ -1355,5 +1355,26 @@ class TestPronunciationsAreCached(unittest.TestCase):
                 self.assertEqual(parse.call_count, 2)
 
 
+class TestBankPitchCache(unittest.TestCase):
+    """P2-7: the measured pitch belongs to a folder, not to a short key."""
+
+    def test_two_folders_with_one_key_are_measured_separately(self):
+        import json
+        import unittest.mock
+
+        from teto_relay import voicebank
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            a = voicebank.Voicebank(key="teto", name="A", root=home / "a")
+            b = voicebank.Voicebank(key="teto", name="B", root=home / "b")
+            cache = home / ".openutau-host" / "bank_pitch.json"
+            cache.parent.mkdir(parents=True)
+            cache.write_text(json.dumps({str((home / "a").resolve()): 61.0}), encoding="utf-8")
+            self.assertEqual(voicebank.estimate_pitch(a, Config()), 61.0)
+            with unittest.mock.patch.object(voicebank, "log"):
+                self.assertEqual(voicebank.estimate_pitch(b, Config()), 60.0)  # nothing to measure
+
+
 if __name__ == "__main__":
     unittest.main()

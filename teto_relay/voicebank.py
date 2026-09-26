@@ -351,8 +351,12 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
             cache = json.loads(cache_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             cache = {}
-    if bank.key in cache:
-        return float(cache[bank.key])
+    # Keyed by folder, not by the short key: a different bank installed under
+    # the same key (or the same key rediscovered in another folder) used to
+    # reuse the old bank's pitch.
+    cache_key = str(Path(bank.root).resolve())
+    if cache_key in cache:
+        return float(cache[cache_key])
 
     import numpy as np
     import soundfile as sf
@@ -384,7 +388,7 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
     estimate = float(np.median(found))
     log.info("%s was recorded at about MIDI %.1f", bank.key, estimate)
 
-    cache[bank.key] = estimate
+    cache[cache_key] = estimate
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
