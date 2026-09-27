@@ -5,7 +5,7 @@
 //   python -m teto_relay --web --port 8799 --no-browser
 //   node tools/panel_smoke.mjs            (PANEL_URL / CHROMIUM override)
 //
-// It loads the page, runs the setup check, saves settings and presses Start,
+// It loads the page, runs the setup check, changes a setting and presses Start,
 // then prints any failed requests or page errors and saves a screenshot. It
 // does not need audio hardware: Start is expected to fail politely on a
 // machine without voicebanks or devices, and that message is printed too.
@@ -24,9 +24,12 @@ await page.waitForTimeout(1500);
 await page.click('#doctor');
 await page.waitForFunction(
   () => document.getElementById('checks').textContent.includes('Voicebanks'), null, { timeout: 60000 });
-await page.click('#save');
+// Settings apply as they change; nudge Transpose up and back with its stepper.
+await page.click('button[aria-label="Raise Transpose"]');
 await page.waitForTimeout(800);
 const saved = await page.textContent('#toast');
+await page.click('button[aria-label="Lower Transpose"]');
+await page.waitForTimeout(500);
 await page.click('#toggle');
 await page.waitForTimeout(3000);
 const started = await page.textContent('#toast');

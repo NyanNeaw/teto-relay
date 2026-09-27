@@ -202,14 +202,20 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:3px}
 .meters dd{margin:5px 0 0;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:15px}
 
 /* ---------- controls ---------- */
-.deck{padding:20px 28px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));
+.deckhead{padding:18px 28px 0}
+.deck{padding:6px 28px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));
   gap:6px 28px}
 .ctl{padding:12px 0}
-.ctl label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:9px}
-.ctl .help{display:block;font-size:11px;color:var(--faint);margin-top:7px;line-height:1.45}
+.ctl label{display:block;font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:9px}
+.ctl .help{display:block;font-size:12px;color:var(--muted);margin-top:7px;line-height:1.45}
+/* -/+ beside a slider: one exact step, which a 3px track makes fiddly. */
+.step{background-color:var(--sink);color:var(--text);padding:0;width:30px;height:30px;
+  border-radius:9px;font-size:16px;font-weight:600;line-height:1;flex:none;
+  box-shadow:inset 0 0 0 1px var(--edge)}
+.step:hover{background-color:var(--glass-strong);filter:none}
 .slide{display:flex;align-items:center;gap:13px}
-.readout{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:12.5px;
-  min-width:50px;text-align:right;color:var(--text)}
+.readout{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:14px;
+  min-width:58px;text-align:center;color:var(--text)}
 input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:20px;background:none;
   cursor:pointer;min-width:0}
 input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
@@ -240,6 +246,16 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
 .open .advtoggle span{transform:rotate(90deg)}
 .group{padding:20px 0;border-top:1px solid var(--edge)}
 .group:first-child{border-top:0}
+details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:12px;
+  flex-wrap:wrap}
+details.group>summary::-webkit-details-marker{display:none}
+details.group>summary::before{content:"\25B6";font-size:10px;color:var(--muted);
+  transition:transform .2s;display:inline-block}
+details.group[open]>summary::before{transform:rotate(90deg)}
+.gtitle{font-family:Bahnschrift,"Segoe UI Semibold",system-ui,sans-serif;font-size:16px;
+  font-weight:600;color:var(--text)}
+.gnote{font-size:12.5px;color:var(--muted)}
+details.group[open]>.grouprows{margin-top:10px}
 .grouprows{display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:0 28px}
 #log{margin:12px 0 0;background:var(--sink);border-radius:12px;padding:14px;height:200px;
   overflow:auto;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:11px;
@@ -318,12 +334,14 @@ input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--
   </div>
 
   <div class="col-set">
-    <section class="deck pane" id="deck"></section>
+    <section class="pane">
+      <p class="tag deckhead">most used - changes apply straight away</p>
+      <div class="deck" id="deck"></div>
+    </section>
     <div class="advbar">
-      <button class="ghost advtoggle" id="advtoggle"><span>&#9654;</span>Show all settings</button>
+      <button class="ghost advtoggle" id="advtoggle"><span>&#9654;</span>All settings</button>
       <span class="spacer"></span>
       <button class="ghost" id="doctor" title="Check OpenUtau, .NET, devices, voicebanks and GPU">Check setup</button>
-      <button class="ghost" id="save">Save settings</button>
       <button class="ghost" id="quit" title="Stop Teto Relay and close the control panel">Quit</button>
     </div>
     <div class="adv pane" id="adv">
@@ -476,8 +494,23 @@ function control(k){
     inp.min=range[0]; inp.max=range[1]; inp.step=range[2]; inp.value=cfg[k];
     out=document.createElement('span'); out.className='readout'; out.textContent=fmt(k,cfg[k]);
     inp.addEventListener('input',()=>{out.textContent=fmt(k,+inp.value); paint(inp);});
+    const slider=inp;
+    const step=(sign,label)=>{
+      const b=document.createElement('button'); b.type='button'; b.className='step';
+      b.textContent=label; b.setAttribute('aria-label',(sign<0?'Lower ':'Raise ')+labelOf(k));
+      b.onclick=()=>{
+        // Rounded to the step, so 0.05 steps don't drift into 0.30000000000000004.
+        const s=+slider.step, raw=+slider.value+sign*s;
+        const next=Math.min(+slider.max,Math.max(+slider.min,Math.round(raw/s)*s));
+        if(next===+slider.value) return;
+        slider.value=next; out.textContent=fmt(k,+slider.value); paint(slider);
+        slider.dispatchEvent(new Event('change',{bubbles:true}));
+      };
+      return b;
+    };
     const row=document.createElement('div'); row.className='slide';
-    row.appendChild(inp); row.appendChild(out); wrap.appendChild(row);
+    row.appendChild(step(-1,'\u2212')); row.appendChild(inp); row.appendChild(step(1,'+'));
+    row.appendChild(out); wrap.appendChild(row);
   } else {
     inp=document.createElement('input');
     inp.type=(typeof cfg[k]==='number')?'number':'text';
@@ -490,20 +523,15 @@ function control(k){
   if(help){const s=document.createElement('span'); s.className='help'; s.textContent=help;
     wrap.appendChild(s);}
   if(inp.type==='range') paint(inp);
+  /* Every setting applies as you change it. There used to be a Save button
+     for everything below the main screen, and a change that sat unsaved
+     behind it looked exactly like a change that did nothing. */
+  inp.addEventListener('change',()=>saveOne(k));
   return wrap;
 }
 function renderDeck(){
   const host=$('deck'); host.innerHTML='';
-  for(const k of (meta.essentials||[])){
-    const node=control(k);
-    /* The main screen applies as you change it, the way the voice picker and
-       the engine tabs already do. Choosing a language and having nothing
-       happen - because the change was sitting unsaved behind a button - is
-       the single most confusing thing this page did. Advanced settings still
-       wait for Save, where deliberate batching is the point. */
-    node.addEventListener('change',()=>saveOne(k));
-    host.appendChild(node);
-  }
+  for(const k of (meta.essentials||[])) host.appendChild(control(k));
 }
 async function saveOne(k){
   const value=collect()[k];
@@ -513,25 +541,36 @@ async function saveOne(k){
     headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:value})})).json();
   if(!d.ok){ toast('Could not save: '+d.error); return; }
   if(k==='mode'){ paintEngine(); renderGroups(); }
-  toast(d.restart&&d.restart.length ? 'Saved \u2014 restart to apply' : 'Saved');
+  toast(labelOf(k)+(d.restart&&d.restart.length ? ': saved \u2014 press Stop, then Start, to use it' : ': applied'));
 }
 /* The two engines are different machines and most settings belong to exactly
    one of them. Showing RVC sliders while UTAU is singing - or note timing while
    it isn't - is most of why this page was hard to read. Hide what the active
    engine cannot use; nothing is lost, since switching the tab brings it back. */
-const ENGINE_ONLY={
-  'Pitch':'utau', 'Expression':'utau', 'Timing':'utau',
-  'Voice conversion (RVC)':'voice',
-};
 function engineOf(){ return (cfg.mode||'utau').toLowerCase(); }
+/* Each group folds. The ones most people never need start folded, and
+   whatever you open or close is remembered. */
+function groupOpen(name,info){
+  try{const v=localStorage.getItem('teto.group.'+name); if(v!==null) return v==='1';}catch(e){}
+  return !info.collapsed;
+}
 function renderGroups(){
   const host=$('groups'); host.innerHTML='';
   for(const [name,keys] of Object.entries(meta.groups)){
     if(!keys.length) continue;
-    if(ENGINE_ONLY[name] && ENGINE_ONLY[name]!==engineOf()) continue;
-    const sec=document.createElement('section'); sec.className='group';
-    const h=document.createElement('p'); h.className='tag'; h.textContent=name.toLowerCase();
-    sec.appendChild(h);
+    const info=(meta.group_info||{})[name]||{};
+    // Each engine's own groups only: RVC sliders mean nothing while UTAU sings.
+    if(info.engine && info.engine!==engineOf()) continue;
+    const sec=document.createElement('details'); sec.className='group';
+    sec.open=groupOpen(name,info);
+    sec.addEventListener('toggle',()=>{
+      try{localStorage.setItem('teto.group.'+name,sec.open?'1':'0');}catch(e){}});
+    const sum=document.createElement('summary');
+    const t=document.createElement('span'); t.className='gtitle'; t.textContent=name;
+    sum.appendChild(t);
+    if(info.note){const n=document.createElement('span'); n.className='gnote'; n.textContent=info.note;
+      sum.appendChild(n);}
+    sec.appendChild(sum);
     const rows=document.createElement('div'); rows.className='grouprows';
     for(const k of keys) rows.appendChild(control(k));
     sec.appendChild(rows); host.appendChild(sec);
@@ -679,14 +718,6 @@ $('bank').onchange=async e=>{
     toast(d.applied?('Now singing as '+key):(key+' loads when you start the relay.'));
   } else toast('Could not switch: '+d.error);
 };
-$('save').onclick=async()=>{
-  const d=await (await fetch('api/config',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(collect())})).json();
-  if(!d.ok){ toast('Could not save: '+d.error); return; }
-  toast(d.restart&&d.restart.length
-    ? 'Saved — restart to apply '+d.restart.join(', ').replace(/_/g,' ')
-    : 'Saved and applied');
-};
 $('toggle').onclick=async e=>{
   const btn=e.currentTarget, starting=btn.dataset.state!=='running';
   btn.disabled=true; btn.textContent=starting?'Starting':'Stopping';
@@ -753,12 +784,12 @@ $('up-rvc').onchange=e=>upload('rvc',e.target.files[0],
 
 $('advtoggle').onclick=()=>{
   const open=app().classList.toggle('open');
-  $('advtoggle').innerHTML='<span>&#9654;</span>'+(open?'Hide advanced':'Show advanced');
+  $('advtoggle').innerHTML='<span>&#9654;</span>'+(open?'Hide settings':'All settings');
   try{localStorage.setItem('teto.adv',open?'1':'0');}catch(e){}
 };
 if((()=>{try{return localStorage.getItem('teto.adv')==='1';}catch(e){return false;}})()){
   app().classList.add('open');
-  $('advtoggle').innerHTML='<span>&#9654;</span>Hide advanced';
+  $('advtoggle').innerHTML='<span>&#9654;</span>Hide settings';
 }
 
 function renderAlert(h){

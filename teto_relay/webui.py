@@ -24,58 +24,73 @@ from .errors import TetoRelayError, describe
 
 log = logging.getLogger(__name__)
 
-# The handful of settings on the main screen. Everything else lives behind
-# "Show advanced", because a person who wants to sing through Teto needs a
-# microphone, an output, a key to hold and a transpose - not a phonemizer.
-# `voicebank` is not here either: it has its own picker beside the character,
-# and unlike these it applies to a running relay.
-#
-# Ordered as devices, then what she sings, then how she sounds. `mode` (Engine)
-# switches between the two pipelines, which is the biggest choice on the page.
+# The handful of settings on the main screen, most-changed first: how high she
+# sings and how loud, whether she speaks or sings, what language you speak, and
+# only then the devices, which are set once. Everything else is under "All
+# settings", because a person who wants to sing through Teto needs these - not
+# a phonemizer. `voicebank` has its own picker beside the character, and `mode`
+# is the UTAU / Voice switch in the top bar.
 ESSENTIALS: list[str] = [
+    "transpose", "playback_gain", "singing_style", "language",
     "input_device", "output_device", "ptt_key",
-    "mode", "renderer_backend", "lyric_mode", "language", "whisper_model",
-    "transpose", "playback_gain",
 ]
 
-# Which settings to show, grouped. Anything not listed still appears, under
-# "Other", so new options are never silently hidden.
+# "All settings", in order of how often they matter. Anything not listed still
+# appears, under "Other", so new options are never silently hidden.
 GROUPS: dict[str, list[str]] = {
-    # Where things are. Empty means "look in the usual places".
-    "Setup": ["openutau_dir", "voicebank_root"],
-    "Mode": ["mode", "renderer_backend", "lyric_mode"],
-    "Capture": ["capture_mode", "ptt_key", "input_device", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
-    # Speed vs accuracy lives here: device and compute type are the two biggest
-    # levers on how long whisper takes, and neither was reachable before.
-    "Transcription": [
-        "whisper_device", "whisper_compute_type", "initial_prompt", "beam_size",
-        "no_speech_threshold", "use_alignment", "align_device",
-    ],
-    "Pitch": [
-        "pitch_method", "crepe_model", "crepe_device", "target_tone", "shift_mode",
-        "stable_shift", "shift_tolerance", "transpose", "max_shift",
-        "fix_octave_errors", "f0_min", "f0_max",
-    ],
-    # Off by default until tried on real hardware; see teto_relay/singing.py.
-    "Singing (experimental)": [
-        "singing_style", "scale", "scale_key", "sung_contour_amount",
+    "Singing": [
+        "legato", "scale", "scale_key", "sung_contour_amount",
         "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
-        "final_hold_seconds", "legato",
+        "final_hold_seconds", "emit_contour",
     ],
-    "Expression": ["emit_contour", "contour_smooth_ms", "contour_points", "contour_range_cents"],
-    "Timing": [
+    # Speed vs accuracy lives here: device and compute type are the two biggest
+    # levers on how long whisper takes.
+    "Listening": [
+        "whisper_model", "whisper_device", "whisper_compute_type", "beam_size",
+        "initial_prompt", "use_alignment", "align_device", "no_speech_threshold",
+    ],
+    "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
+    "Voice engine (RVC)": [
+        "rvc_model", "rvc_index", "rvc_pitch", "rvc_index_rate", "rvc_protect",
+        "rvc_f0_method", "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_device",
+        "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
+    ],
+    # Where things are. Empty means "look in the usual places".
+    "Setup": ["openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
+              "persistent_output"],
+    "Fine tuning: pitch": [
+        "target_tone", "shift_mode", "stable_shift", "shift_tolerance", "max_shift",
+        "fix_octave_errors", "contour_smooth_ms", "contour_points", "contour_range_cents",
+        "pitch_method", "crepe_model", "crepe_device", "f0_min", "f0_max",
+    ],
+    "Fine tuning: timing": [
         "min_note_seconds", "seconds_per_syllable", "note_gap_ms",
         # Japanese mode only - a note there is one mora, not one word.
         "min_mora_seconds", "max_mora_seconds", "pause_borrow",
     ],
-    "Voice conversion (RVC)": [
-        "rvc_f0_method", "rvc_pitch", "rvc_index_rate", "rvc_protect",
-        "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_device",
-        "rvc_model", "rvc_index",
-        "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
-    ],
-    "Output": ["output_device", "playback_gain"],
 }
+
+# A line under each group's title, which engine it belongs to (the page hides
+# the other engine's groups), and whether it starts folded away.
+GROUP_INFO: dict[str, dict] = {
+    "Singing": {"note": "How sung she sounds. Singing style itself is on the main screen.",
+                "engine": "utau"},
+    "Listening": {"note": "Speech recognition: how well and how fast your words are heard.",
+                  "engine": "utau"},
+    "Recording": {"note": "When a phrase starts and ends."},
+    "Voice engine (RVC)": {"note": "Only for the Voice engine: your delivery in her timbre.",
+                           "engine": "voice"},
+    "Setup": {"note": "Where OpenUtau and your voicebanks are, and fallbacks."},
+    "Fine tuning: pitch": {"note": "Pitch tracking and how your voice is moved onto hers. "
+                                   "The defaults are measured; change with care.",
+                           "engine": "utau", "collapsed": True},
+    "Fine tuning: timing": {"note": "Note lengths and gaps. The defaults are measured.",
+                            "engine": "utau", "collapsed": True},
+    "Other": {"note": "Rarely needed.", "collapsed": True},
+}
+
+# Shown elsewhere on the page, so not in "Other" either.
+SHOWN_ELSEWHERE = {"mode", "voicebank"}
 
 HIDE = {"out_dir", "log_file", "queue_size", "keep_files"}
 
@@ -249,10 +264,11 @@ LABELS: dict[str, list[str]] = {
     "legato": ["Connect syllables", "Japanese banks: sing each word's morae joined up. Experimental."],
     "min_note_seconds": ["Shortest word", ""],
     "seconds_per_syllable": ["Time per syllable", "English banks only."],
-    "note_gap_ms": ["Gap between notes", "Zero collapses the phonemizer."],
+    "note_gap_ms": ["Gap between words", "A few ms keeps words apart; 0 lets them run together."],
     "min_mora_seconds": ["Shortest mora", "Japanese banks. Below ~100 ms consonants swallow the vowel."],
     "max_mora_seconds": ["Longest mora", "Japanese banks. Caps how far a word spreads into a pause."],
     "pause_borrow": ["Sing into pauses", "0 keeps every pause, 1 uses them all up."],
+    "persistent_output": ["Keep the output open", "Skips opening the device for every phrase. Experimental."],
     "silence_ms": ["Silence ends a phrase after", ""],
     "min_chunk_ms": ["Shortest phrase", ""],
     "max_chunk_ms": ["Longest phrase", ""],
@@ -442,7 +458,7 @@ def _meta(cfg: Config) -> dict:
     everything = [f.name for f in fields(cfg) if f.name not in HIDE]
     # Essentials are shown on the main screen, so they are not repeated in the
     # advanced groups - one control per setting.
-    handled = known | set(ESSENTIALS) | {"voicebank"}
+    handled = known | set(ESSENTIALS) | SHOWN_ELSEWHERE
     groups = {
         name: [k for k in keys if k in everything and k not in ESSENTIALS]
         for name, keys in GROUPS.items()
@@ -493,7 +509,8 @@ def _meta(cfg: Config) -> dict:
         banks = [cfg.voicebank]
 
     return {
-        "groups": groups,
+        "groups": {name: keys for name, keys in groups.items() if keys},
+        "group_info": GROUP_INFO,
         "essentials": [k for k in ESSENTIALS if k in everything],
         "devices": devices,
         "banks": details,
