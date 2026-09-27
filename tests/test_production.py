@@ -2384,6 +2384,22 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
+    def test_sung_style_overshoots_jumps_and_falls_at_the_end(self):
+        from teto_relay.notes import Note
+        from teto_relay.singing import (END_FALL_CENTS, OVERSHOOT_CENTS, OVERSHOOT_PEAK_MS,
+                                        shape_transitions)
+
+        notes = [Note(lyric="a", start=0.0, end=0.5, tone=60),
+                 Note(lyric="b", start=0.5, end=1.0, tone=64),   # a leap up
+                 Note(lyric="c", start=1.0, end=1.5, tone=63)]   # a step: no overshoot
+        shape_transitions(notes)
+        peak = dict(notes[1].contour)[OVERSHOOT_PEAK_MS]
+        self.assertAlmostEqual(peak, OVERSHOOT_CENTS)
+        self.assertEqual(notes[0].contour, [])  # nothing to jump from, not the last
+        last = dict(notes[2].contour)
+        self.assertAlmostEqual(last[500.0], -END_FALL_CENTS)
+        self.assertAlmostEqual(last[0.0], 0.0)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
