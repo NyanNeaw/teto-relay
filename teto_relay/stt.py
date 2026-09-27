@@ -23,6 +23,9 @@ _CJK_PUNCTUATION = "。、！？：；「」『』（）〈〉《》〔〕・…
 _STRIP = str.maketrans("", "", string.punctuation + _CJK_PUNCTUATION)
 # Everything except the apostrophe, which carries meaning inside a word.
 _STRIP_OUTER = string.punctuation.replace("'", "") + _CJK_PUNCTUATION
+# Marks that only lengthen the kana before them: the long-vowel mark and the
+# sokuon. Alone they are no sound; see Transcriber.transcribe.
+_MODIFIER_MARKS = "ーｰっッ"
 # Around a number, "$" and "%" are part of what is said ("$5", "50%").
 _STRIP_OUTER_NUMBER = _STRIP_OUTER.replace("$", "").replace("%", "")
 
@@ -211,6 +214,14 @@ class Transcriber:
                     continue
                 start, end = float(w.start), float(w.end)
                 if end <= start:
+                    continue
+                # Whisper splits ムー into "ム" + "ー". A long-vowel mark (or a
+                # sokuon) on its own is no sound - it only lengthens the kana
+                # before it - so alone it became a note with no sample, and
+                # "ムーリー" was sung む (silence) り (silence).
+                if words and lyric.strip(_MODIFIER_MARKS) == "":
+                    prev = words[-1]
+                    words[-1] = Word(text=prev.text + lyric, start=prev.start, end=max(prev.end, end))
                     continue
                 words.append(Word(text=lyric, start=start, end=end))
 

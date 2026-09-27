@@ -2303,6 +2303,33 @@ class TestHardwareFindings(unittest.TestCase):
         midi = 69 + 12 * np.log2(peak / 440.0)
         self.assertAlmostEqual(midi, 63.0, delta=0.3)
 
+    def test_a_lone_long_vowel_mark_joins_the_word_before(self):
+        # Whisper heard ムーリー as "ム ー リ ー"; each ー became a note with no
+        # sample. Joined to the kana before, it is sung as the held vowel.
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Transcriber
+
+        def word(text, start, end):
+            return types.SimpleNamespace(word=text, start=start, end=end)
+
+        segment = types.SimpleNamespace(
+            no_speech_prob=0.0, avg_logprob=-0.1,
+            words=[word("ム", 0.0, 0.2), word("ー", 0.2, 0.4), word("リ", 0.4, 0.6), word("ー", 0.6, 0.8)])
+        transcriber = Transcriber(Config(language="ja"))
+        transcriber._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([segment], None))
+        words = transcriber.transcribe(np.zeros(16000, np.float32), 16000)
+        self.assertEqual([(w.text, w.start, w.end) for w in words], [("ムー", 0.0, 0.4), ("リー", 0.4, 0.8)])
+
+        cfg = Config(auto_octave=False, language="ja")
+        notes = build_notes(words, _flat_track(), cfg, japanese_lyrics=True)
+        self.assertNotIn("ー", [n.lyric for n in notes])
+        self.assertEqual([n.lyric for n in notes], ["む", "う", "り", "い"])
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
