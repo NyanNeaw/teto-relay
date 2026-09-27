@@ -120,6 +120,26 @@ def _compile_int64_field_setter(declaring_type, field_name: str):
     return Expression.Lambda[Action[Object, Int64]](body, target, value).Compile()
 
 
+def phonemizer_groups(notes: list) -> list[list]:
+    """Split a part's notes into the groups a PhonemizerRequest carries.
+
+    A group is one note plus the extension notes after it (lyrics starting
+    with "+"), as OpenUtau's own `UNote.ToPhonemizerNotes` builds them: the
+    phonemizer sings the first note's lyric across the whole group. Whether
+    neighbouring groups touch is worked out by the runner from their
+    positions. Grouping every run of *touching* notes instead - as this did
+    until it was run on OpenUtau with `legato` - sang only the first lyric of
+    each run, which is why notes that met used to "collapse".
+    """
+    groups: list[list] = []
+    for note in notes:
+        if groups and str(note.lyric).startswith("+"):
+            groups[-1].append(note)
+        else:
+            groups.append([note])
+    return groups
+
+
 def response_type_phonemes(response) -> list:
     """Read the phonemes off an (internal) PhonemizerResponse."""
     from System.Reflection import BindingFlags
@@ -437,14 +457,7 @@ class OpenUtauRenderer:
         if not notes:
             return False
 
-        # A group is a run of notes with no gap between them - the phonemizer
-        # treats each group as one connected utterance.
-        groups: list[list] = [[notes[0]]]
-        for previous, note in zip(notes, notes[1:]):
-            if note.position == previous.position + previous.duration:
-                groups[-1].append(note)
-            else:
-                groups.append([note])
+        groups = phonemizer_groups(notes)
 
         # Phonemizer.Note is public, so build it through pythonnet directly.
         # Reflection's FieldInfo.SetValue cannot take a Python int - it rejects

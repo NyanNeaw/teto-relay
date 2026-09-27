@@ -2186,6 +2186,26 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertEqual(model.call_args.kwargs["compute_type"], "int8")
         self.assertIn("float16", "\n".join(logs.output))
 
+    def test_touching_notes_are_phonemized_as_separate_groups(self):
+        # legato on OpenUtau: 18 touching morae came back as 7 phonemes,
+        # because each run of touching notes was sent as one group and the
+        # phonemizer sings a group's first lyric across all of it.
+        import types
+
+        from teto_relay.render.openutau import phonemizer_groups
+
+        def note(lyric, position, duration=240):
+            return types.SimpleNamespace(lyric=lyric, position=position, duration=duration)
+
+        touching = [note("か", 0), note("さ", 240), note("ね", 480)]
+        self.assertEqual([len(g) for g in phonemizer_groups(touching)], [1, 1, 1])
+        gapped = [note("か", 0), note("さ", 250)]
+        self.assertEqual([len(g) for g in phonemizer_groups(gapped)], [1, 1])
+        # OpenUtau's own extension notes ("+", "+~") do belong to the note before.
+        extended = [note("か", 0), note("+~", 240), note("さ", 480)]
+        self.assertEqual([[n.lyric for n in g] for g in phonemizer_groups(extended)],
+                         [["か", "+~"], ["さ"]])
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
