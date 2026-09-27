@@ -269,7 +269,7 @@ class TetoRelay:
 
         def tap(frame) -> None:
             try:
-                self._streamer.frames.put_nowait(frame)
+                self._streamer.push(frame)
             except queue.Full:
                 pass  # the converter is behind; it says so in the log
 

@@ -2236,6 +2236,40 @@ class TestHardwareFindings(unittest.TestCase):
             converter.convert(np.zeros(3200, np.float32), 16000)
         self.assertEqual(cache.cache_clear.call_count, 2)
 
+    def test_releasing_the_key_keeps_frames_already_heard(self):
+        # Streaming voice on a GTX 1060: conversion ran behind, and releasing
+        # push-to-talk dropped every frame still queued - 40% of a 3.4 s
+        # phrase - because the gate was read when a frame was dequeued.
+        import threading
+        import time
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.streaming import StreamingVoice
+
+        def slow(a, r):
+            time.sleep(0.05)  # 50 ms per 100 ms block, but behind while the burst queues
+            return a, r
+
+        gate = threading.Event()
+        received = []
+        worker = StreamingVoice(Config(stream_block_ms=100, stream_context_ms=0), slow,
+                                lambda block, rate: received.append(len(block)), gate.is_set)
+        worker.start()
+        frame = np.full(320, 0.1, np.float32)
+        gate.set()
+        for _ in range(50):  # 1 s heard while the key is held, faster than it converts
+            worker.push(frame)
+        gate.clear()
+        worker.push(frame)  # the key is up: this frame closes the stream off
+        deadline = time.monotonic() + 10
+        while sum(received) < 16000 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        worker.stop()
+        worker.join(timeout=5)
+        self.assertGreaterEqual(sum(received), 16000)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock

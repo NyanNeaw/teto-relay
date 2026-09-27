@@ -185,6 +185,16 @@ class StreamingVoice(threading.Thread):
         self._stopping = threading.Event()
         self._behind_warned = False
 
+    def push(self, frame: np.ndarray) -> None:
+        """Queue a microphone frame with the gate as it is *now*.
+
+        The gate used to be read when the worker got round to the frame. When
+        conversion ran even a little behind, releasing push-to-talk then
+        dropped every frame still queued - the end of what was said. Raises
+        queue.Full when the worker is too far behind.
+        """
+        self.frames.put_nowait((frame, bool(self.gate())))
+
     def stop(self) -> None:
         self._stopping.set()
 
@@ -196,11 +206,13 @@ class StreamingVoice(threading.Thread):
         active = False
         while not self._stopping.is_set():
             try:
-                frame = self.frames.get(timeout=0.2)
+                item = self.frames.get(timeout=0.2)
             except queue.Empty:
                 continue
+            # Frames from push() carry the gate as it was when they were heard.
+            frame, held = item if isinstance(item, tuple) else (item, self.gate())
             try:
-                if self.gate():
+                if held:
                     active = True
                     blocks = self.streamer.feed(frame)
                 elif active:
