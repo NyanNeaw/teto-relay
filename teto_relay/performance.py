@@ -13,10 +13,9 @@ Pitch (the sung style; speech keeps your own contour)
     * **vibrato** that waits, then grows, on notes long enough to carry it.
 
 Dynamics and breath (both styles) - part-level curves for WORLDLINE-R
-    * ``dyn``: each note as loud as you said it relative to the loudest word
-      in its phrase, compressed the way a mix would (DYN_RATIO) - accents
-      survive, nothing jumps out - with a soft attack at a phrase start and a
-      fade at its end;
+    * ``dyn``: your own loudness through each phrase, relative to its loudest
+      part and compressed the way a mix would (DYN_RATIO) - your swells and
+      fades, not a fixed shape;
     * ``brec``: a breathier tail as each phrase ends;
     * ``voic``: and its last moment half-voiced, the way a line lets go.
 
@@ -57,16 +56,13 @@ VIBRATO_MIN_DELAY_S = 0.18
 # ------------------------------------------------------------- dynamics
 DYN_RATIO = 0.5          # 1.0 keeps your loudness differences, 0 flattens them
 DYN_FLOOR = -90.0        # tenths of a dB: never quieter than -9 dB
-ATTACK_DYN = -60.0       # a phrase's first 60 ms rise from this
-ATTACK_MS = 60.0
-FADE_DYN = -120.0        # and its end fades to this
-FADE_MS = 180.0
-BREATH_TAIL = 45.0       # brec at the very end of a phrase
+ENVELOPE_STEP = 0.04     # seconds between points of the loudness curve
+BREATH_TAIL = 30.0       # brec at the very end of a phrase
 BREATH_MS = 250.0
 # And the last moment of a phrase half-voiced, the way a sung line lets go
 # (a devoiced ending, [a_0] in VOCALOID terms). voic 50 measured -6 dB and
 # airier on WORLDLINE-R; 0 is a whisper.
-DEVOICE_TO = 55.0
+DEVOICE_TO = 70.0
 DEVOICE_MS = 90.0
 
 
@@ -148,50 +144,41 @@ def _loudness(audio, rate: int):
 def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tuple[float, float]]]:
     """Part-level curves, as {abbr: [(seconds, value)]} in the utterance's time.
 
-    Empty when `expressive` is off or there is no recording to follow.
+    ``dyn`` follows the speaker's own loudness through each phrase, every
+    ENVELOPE_STEP, relative to the phrase's loudest part and compressed
+    (DYN_RATIO) - their swells and fades, not a fixed shape. A fixed -12 dB
+    fade at every phrase end made a sung line sound as if it faded out
+    mid-song. ``brec`` and ``voic`` touch only the last moment of each phrase
+    and are held neutral from its start: with points only at phrase ends
+    they had ramped across the whole next phrase, which was sung half
+    whispered and breathy. Empty when `expressive` is off.
     """
     if not getattr(cfg, "expressive", True) or not notes:
         return {}
     times, db = _loudness(audio, rate) if audio is not None else (np.zeros(0), np.zeros(0))
-
-    def level(note) -> float | None:
-        a, b = note.spoken or (note.start, note.end)
-        mask = (times >= a) & (times < b)
-        return float(np.percentile(db[mask], 75)) if mask.any() else None
+    if db.size >= 5:
+        db = np.convolve(np.pad(db, 2, mode="edge"), np.ones(5) / 5, mode="valid")  # 50 ms
 
     dyn: list[tuple[float, float]] = []
     brec: list[tuple[float, float]] = []
     voic: list[tuple[float, float]] = []
     for phrase in phrases(notes):
-        levels = [level(n) for n in phrase]
-        known = [v for v in levels if v is not None]
-        loudest = max(known) if known else 0.0
-        values = [
-            max(DYN_FLOOR, min(0.0, (v - loudest) * DYN_RATIO * 10.0)) if v is not None else 0.0
-            for v in levels
-        ]
-        first, last = phrase[0], phrase[-1]
-        attack = min(ATTACK_MS / 1000.0, first.duration / 2)
-        fade = min(FADE_MS / 1000.0, last.duration / 2)
-        points = [(first.start, values[0] + ATTACK_DYN), (first.start + attack, values[0])]
-        for note, value in zip(phrase, values):
-            # Each note holds its level; the curve moves between neighbours
-            # over their boundary instead of stepping.
-            edge = min(0.03, note.duration / 4)
-            opening, closing = note.start + edge, note.end - edge
-            if note is first:
-                opening = max(opening, first.start + attack)
-            if note is last:
-                closing = min(closing, last.end - fade)
-            if closing > opening:
-                points += [(opening, value), (closing, value)]
-        points += [(last.end - fade, values[-1]), (last.end, max(2 * DYN_FLOOR, values[-1] + FADE_DYN))]
-        dyn.extend(points)
+        start, end = phrase[0].start, phrase[-1].end
+        spoken = (times >= start) & (times < end)
+        reference = float(np.percentile(db[spoken], 95)) if spoken.any() else None
+        for x in list(np.arange(start, end, ENVELOPE_STEP)) + [end]:
+            if reference is None:
+                value = 0.0
+            else:
+                heard = float(np.interp(x, times, db))
+                value = max(DYN_FLOOR, min(0.0, (heard - reference) * DYN_RATIO * 10.0))
+            dyn.append((float(x), round(value, 1)))
 
+        last = phrase[-1]
         tail = min(BREATH_MS / 1000.0, last.duration * 0.6)
-        brec.extend([(last.end - tail, 0.0), (last.end, BREATH_TAIL)])
+        brec += [(start, 0.0), (end - tail, 0.0), (end, BREATH_TAIL)]
         devoice = min(DEVOICE_MS / 1000.0, last.duration * 0.3)
-        voic.extend([(last.end - devoice, 100.0), (last.end, DEVOICE_TO)])
+        voic += [(start, 100.0), (end - devoice, 100.0), (end, DEVOICE_TO)]
 
     return {"dyn": _monotonic(dyn), "brec": _monotonic(brec), "voic": _monotonic(voic)}
 

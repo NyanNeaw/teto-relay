@@ -242,6 +242,40 @@ def _vowels_on_the_beat(words: list[Word], joined: list[bool], track) -> list[Wo
     return out
 
 
+def _extend_through_sound(words: list[Word], times, active) -> list[Word]:
+    """Let a word last as long as its sound does.
+
+    Sung, a vowel is held well past where whisper ends the word: in the
+    user's Senbonzakura "ら" of 桜 was held into よる, whisper ended 桜 early,
+    the gap looked like a pause, and Teto stopped while they were still
+    singing. A word whose sound is still going at its end is extended until
+    the sound stops (dropouts up to JOIN_GAP allowed) or the next word begins.
+    """
+    import numpy as np
+
+    times = np.asarray(times)
+    active = np.asarray(active, dtype=bool)
+    out = list(words)
+    for i, w in enumerate(words):
+        limit = words[i + 1].start if i + 1 < len(words) else float("inf")
+        k = int(np.searchsorted(times, w.end - 0.02))
+        if k >= len(times) or not active[k: k + 3].any():
+            continue  # the word ends in silence: nothing is being held
+        end, quiet = w.end, 0.0
+        while k < len(times) and times[k] < limit:
+            if active[k]:
+                end, quiet = float(times[k]) + 0.01, 0.0
+            else:
+                quiet += 0.01
+                if quiet > JOIN_GAP:
+                    break
+            k += 1
+        end = min(end, limit)
+        if end > w.end:
+            out[i] = Word(text=w.text, start=w.start, end=end)
+    return out
+
+
 def _tighten_to_sound(words: list[Word], times, active) -> list[Word]:
     """Trim each word's span to where there is actually sound.
 
@@ -335,7 +369,13 @@ def build_notes(
     joined: list[bool] = []  # legato: follows the previous note with no gap
     use_legato = bool(getattr(cfg, "legato", True))
     ordered = sorted((w for w in words if w.text), key=lambda x: x.start)
-    ordered = _tighten_to_sound(ordered, *_sound(track, audio, sample_rate))
+    sound = _sound(track, audio, sample_rate)
+    ordered = _tighten_to_sound(ordered, *sound)
+    if audio is not None:
+        # Only from the recording's loudness: a pitch track calls a breath
+        # voiced often enough that extending through "voicing" ran words
+        # across real pauses.
+        ordered = _extend_through_sound(ordered, *sound)
     readings: list[str | None] = [None] * len(ordered)
     if japanese_lyrics:
         ordered = join_kanji_compounds(ordered)
@@ -406,7 +446,14 @@ def build_notes(
                     mora = EXTEND
                 else:
                     vowel = own
-                respelled.append(Word(text=mora, start=start, end=start + step))
+                end = start + step
+                if index == len(morae) - 1:
+                    # The last mora holds for as long as the word's sound
+                    # lasts - a sung さく"ら~" is held, and capped at
+                    # max_mora_seconds like the others it stopped a quarter
+                    # of a second in while the singer went on.
+                    end = max(end, w.start + allowance)
+                respelled.append(Word(text=mora, start=start, end=end))
                 word_hints.append(None)
                 # The morae of one word are sung connected (with `legato`),
                 # and an extension always joins the note it extends.

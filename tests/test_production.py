@@ -2366,6 +2366,46 @@ class TestHardwareFindings(unittest.TestCase):
         # Sung as the held vowel: an extension of む and り, not a new sample.
         self.assertEqual([n.lyric for n in notes], ["む", "+", "り", "+"])
 
+    def test_a_held_note_lasts_as_long_as_it_is_sung(self):
+        # Senbonzakura: 桜's ら was held into よる, whisper ended 桜 early, the
+        # gap looked like a pause, and Teto stopped while the singer went on;
+        # then its last mora was capped at 0.25 s besides.
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        rate = 16000
+        t = np.arange(int(3.0 * rate)) / rate
+        voice = 0.3 * np.sin(2 * np.pi * 220 * t)
+        voice[(t > 1.6) & (t < 2.0)] = 0.0              # a real pause before 夜
+        audio = voice.astype(np.float32)
+        words = [Word("桜", 0.0, 0.6), Word("夜", 2.0, 2.4)]  # whisper ended 桜 at 0.6; sung to 1.6
+        notes = build_notes(words, _flat_track(seconds=3.0), Config(auto_octave=False, language="ja"),
+                            japanese_lyrics=True, audio=audio)
+        sakura = [n for n in notes if n.start < 1.9]
+        self.assertEqual("".join(n.lyric for n in sakura), "さくら")
+        self.assertGreaterEqual(sakura[-1].end, 1.55)   # ら held as long as it was sung
+        self.assertLess(sakura[-1].end, 2.0)            # but the real pause is still a rest
+        self.assertFalse(notes[len(sakura)].legato)
+
+    def test_breath_and_voicing_touch_only_each_phrase_end(self):
+        # With points only at phrase ends, voic and brec ramped across the
+        # whole next phrase: it was sung half whispered.
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.performance import expression_curves
+
+        notes = [Note("a", 0.0, 1.0, 60), Note("b", 2.0, 3.0, 60)]  # two phrases
+        curves = expression_curves(notes, np.zeros(48000, np.float32), 16000, Config())
+        for abbr, neutral in (("voic", 100.0), ("brec", 0.0)):
+            xs, ys = zip(*curves[abbr])
+            for x in (2.0, 2.3, 2.6):   # the second phrase, before its tail
+                self.assertAlmostEqual(float(np.interp(x, xs, ys)), neutral, msg=f"{abbr} at {x}")
+
     def test_sung_phrases_are_told_from_spoken_ones(self):
         import numpy as np
 
