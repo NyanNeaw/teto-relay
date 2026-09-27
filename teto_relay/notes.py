@@ -157,7 +157,10 @@ def _dedupe_spans(
         touches = bool(out) and out[-1][2] is not None and (
             joined or (connect and w.start - ordered[i - 1][0].end < phrase_gap))
         if i + 1 == len(ordered):
-            end = max(w.end, start + want)
+            # The last word rings on for a release like one before a rest:
+            # ending exactly where the speech stopped left OpenUtau's 35 ms
+            # fade to cut the note - a CV bank has no ending sample at all.
+            end = max(w.end + MAX_RELEASE, start + want)
         else:
             nxt_word, nxt_joined = ordered[i + 1]
             nxt = starts[i + 1]

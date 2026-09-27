@@ -574,7 +574,10 @@ class TestBuildNotes(unittest.TestCase):
     def test_long_words_keep_their_own_length(self):
         cfg = Config(auto_octave=False)
         notes = build_notes([Word("a", 0.0, 1.2)], self._track(440.0, 2.0), cfg)
-        self.assertAlmostEqual(notes[0].duration, 1.2, places=6)
+        # Its own length - plus, as the last word, a release to ring on.
+        from teto_relay.notes import MAX_RELEASE
+
+        self.assertAlmostEqual(notes[0].duration, 1.2 + MAX_RELEASE, places=6)
 
     def test_extending_preserves_order_and_gaps(self):
         cfg = Config(auto_octave=False, legato=False)
@@ -1274,8 +1277,12 @@ class TestJapaneseConversion(unittest.TestCase):
         words = [Word("love", 0.0, 0.2)]  # らぶ, then 6s of nothing
         notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True)
 
-        for note in notes:
+        from teto_relay.notes import MAX_RELEASE
+
+        for note in notes[:-1]:
             self.assertLessEqual(note.duration, 0.25 + 1e-6)
+        # The last only rings on for a release, however long the silence after.
+        self.assertLessEqual(notes[-1].duration, 0.25 + MAX_RELEASE + 1e-6)
 
     def test_the_voicebank_floor_wins_over_a_short_measurement(self):
         """A note under the sample's preutterance is all consonant, no vowel."""
