@@ -85,58 +85,6 @@ def key_from_config(value: str) -> int | None:
     return NOTE_NAMES.index(name)
 
 
-#: Hand-tuning conventions for UTAU/vocal synths, applied as pitch-curve shapes
-#: (cents; x in ms from the note start). On a jump of at least
-#: OVERSHOOT_MIN_INTERVAL semitones the voice passes the new note by
-#: OVERSHOOT_CENTS at OVERSHOOT_PEAK_MS and settles by OVERSHOOT_SETTLE_MS;
-#: the phrase's last note falls by END_FALL_CENTS over its last END_FALL_MS.
-OVERSHOOT_MIN_INTERVAL = 2
-OVERSHOOT_CENTS = 30.0
-OVERSHOOT_PEAK_MS = 70.0
-OVERSHOOT_SETTLE_MS = 160.0
-END_FALL_CENTS = 80.0
-END_FALL_MS = 150.0
-
-
-def _add_shape(note, shape: list[tuple[float, float]]) -> None:
-    """Add a pitch shape (cents) on top of the note's own contour."""
-    import numpy as np
-
-    base = sorted(note.contour) if note.contour else [(0.0, 0.0)]
-    xs = sorted({x for x, _ in base} | {x for x, _ in shape})
-    bx, by = [x for x, _ in base], [y for _, y in base]
-    sx, sy = [x for x, _ in shape], [y for _, y in shape]
-    note.contour = [
-        (x, round(float(np.interp(x, bx, by)) + float(np.interp(x, sx, sy, left=0.0, right=0.0)), 1))
-        for x in xs
-    ]
-
-
-def shape_transitions(notes: list) -> list:
-    """Overshoot on jumps between notes, and a fall at the end of the phrase.
-
-    These are what tuners draw by hand to stop a synth sounding "placed":
-    notes that land dead on pitch and stop dead read as a machine, while a
-    voice passes a note it leaps to and lets go of the last one.
-    """
-    for previous, note in zip(notes, notes[1:]):
-        interval = note.tone - previous.tone
-        if abs(interval) < OVERSHOOT_MIN_INTERVAL:
-            continue
-        span = note.duration * 1000.0
-        if span < OVERSHOOT_SETTLE_MS * 1.5:
-            continue  # too short to land, pass and settle
-        direction = 1.0 if interval > 0 else -1.0
-        _add_shape(note, [(0.0, 0.0), (OVERSHOOT_PEAK_MS, direction * OVERSHOOT_CENTS),
-                          (OVERSHOOT_SETTLE_MS, 0.0)])
-    if notes:
-        last = notes[-1]
-        span = last.duration * 1000.0
-        if span >= END_FALL_MS * 2:
-            _add_shape(last, [(span - END_FALL_MS, 0.0), (span, -END_FALL_CENTS)])
-    return notes
-
-
 def musicalize(notes: list, cfg, state: dict | None = None) -> list:
     """Apply the sung style to built notes, in place; returns them.
 
@@ -178,16 +126,8 @@ def musicalize(notes: list, cfg, state: dict | None = None) -> list:
     last = notes[-1]
     last.end += max(0.0, float(cfg.final_hold_seconds))
 
-    shape_transitions(notes)
+    # Scoops, portamento, overshoot, falls and vibrato: teto_relay.performance.
+    from .performance import shape_pitch
 
-    for note in notes:
-        if note.duration >= cfg.vibrato_min_seconds:
-            note.vibrato = {
-                # Percent of the note, from its end: the start stays steady.
-                "length": 60.0,
-                "period": float(cfg.vibrato_period_ms),
-                "depth": float(cfg.vibrato_depth_cents),
-                "in": 25.0,
-                "out": 15.0,
-            }
+    shape_pitch(notes, cfg)
     return notes

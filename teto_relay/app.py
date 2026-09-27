@@ -31,6 +31,7 @@ from .hotkey import PushToTalkListener
 from .latency import Timeline, append_csv
 from . import paths
 from .notes import build_notes
+from .performance import expression_curves
 from .render import make_renderer
 from .playback import Player
 from .stt import Transcriber, Word
@@ -604,7 +605,8 @@ class TetoRelay:
         except Exception:
             self.last_kana = ""
         path = self.cfg.out_path / f"relay_{stamp}.ustx"
-        write_ustx(notes, path, self.bank, self.cfg)
+        curves = expression_curves(notes, chunk.audio, chunk.sample_rate, self.cfg)
+        write_ustx(notes, path, self.bank, self.cfg, curves)
         done = timeline.lap("ustx")
 
         job = Job(

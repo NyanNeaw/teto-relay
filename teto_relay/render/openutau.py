@@ -386,6 +386,8 @@ class OpenUtauRenderer:
             # other would look them up as its own symbols and sing nothing.
             self._hints.append((note_doc.get("phonetic_hint") or None) if self._xsampa else None)
 
+        self._apply_curves(project, part, part_doc.get("curves") or [])
+
         project.parts.Add(part)
         # voiceParts is a cached view that AfterLoad normally builds; it is null
         # on a hand-built project, and only some code paths consult it.
@@ -820,6 +822,27 @@ class OpenUtauRenderer:
                     setattr(target, attr, float(vib[key]))
                 except Exception:  # noqa: BLE001
                     log.debug("could not set vibrato %s", attr, exc_info=True)
+
+    def _apply_curves(self, project, part, curve_docs: list) -> None:
+        """Part-level expression curves (dynamics, breathiness): see
+        teto_relay.performance. One the renderer cannot use is skipped."""
+        if not curve_docs:
+            return
+        from OpenUtau.Core.Ustx import UCurve
+
+        for doc in curve_docs:
+            abbr = str(doc.get("abbr", ""))
+            try:
+                if not project.expressions.ContainsKey(abbr):
+                    log.debug("no expression %r in this project; curve skipped", abbr)
+                    continue
+                curve = UCurve(project.expressions[abbr])
+                for x, y in zip(doc.get("xs") or [], doc.get("ys") or []):
+                    curve.xs.Add(int(x))
+                    curve.ys.Add(int(y))
+                part.curves.Add(curve)
+            except Exception:  # noqa: BLE001 - expression is a nicety, the notes are not
+                log.debug("could not apply the %r curve", abbr, exc_info=True)
 
     def _apply_pitch(self, note, note_doc: dict) -> None:
         """Copy our detected contour onto the note's pitch envelope."""

@@ -40,14 +40,17 @@ def _pitch_block(note: Note, cfg) -> dict:
     lead-in from the previous note); y is in OpenUtau's unit, tenths of a
     semitone away from the note's tone (see CENTS_PER_PITCH_UNIT).
     """
+    # With snap_first, the first point sits on the previous note's pitch, so
+    # the glide from it takes lead-in + the next point's x.
+    lead = float(note.lead_in_ms) if note.lead_in_ms is not None else 40.0
     if not note.contour:
         # The flat two-point envelope OpenUtau writes for an untouched note.
-        data = [{"x": -40.0, "y": 0.0, "shape": "io"}, {"x": 40.0, "y": 0.0, "shape": "io"}]
+        data = [{"x": -lead, "y": 0.0, "shape": "io"}, {"x": max(lead, 10.0), "y": 0.0, "shape": "io"}]
     else:
         points = list(note.contour)
         # Guarantee a lead-in point at or before the note start.
-        if points[0][0] > -40.0:
-            points.insert(0, (-40.0, points[0][1]))
+        if points[0][0] > -lead:
+            points.insert(0, (-lead, points[0][1]))
         data = [{"x": float(x), "y": float(y) / CENTS_PER_PITCH_UNIT, "shape": "io"}
                 for x, y in points]
     return {"data": data, "snap_first": True}
@@ -109,7 +112,25 @@ def _space_in_ticks(notes: list[Note], blocks: list[dict], cfg) -> list[dict]:
     return blocks
 
 
-def build_project(notes: list[Note], bank: Voicebank, cfg) -> dict:
+def _curve_blocks(curves: dict | None, part_start: float, cfg) -> list[dict]:
+    """Part curves (teto_relay.performance) in OpenUtau's form: ticks from the
+    part start, integer values, one value per tick."""
+    blocks = []
+    for abbr, points in (curves or {}).items():
+        xs, ys = [], []
+        for seconds, value in points:
+            x = cfg.seconds_to_ticks(seconds - part_start)
+            if xs and x <= xs[-1]:
+                xs[-1], ys[-1] = xs[-1], int(round(value))  # same tick: later wins
+                continue
+            xs.append(x)
+            ys.append(int(round(value)))
+        if xs:
+            blocks.append({"xs": xs, "ys": ys, "abbr": abbr})
+    return blocks
+
+
+def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None = None) -> dict:
     """Assemble the .ustx document as a plain dict."""
     if not notes:
         raise ValueError("cannot build a project with no notes")
@@ -153,16 +174,16 @@ def build_project(notes: list[Note], bank: Voicebank, cfg) -> dict:
                 "position": cfg.seconds_to_ticks(part_start),
                 "duration": part_duration,
                 "notes": note_blocks,
-                "curves": [],
+                "curves": _curve_blocks(curves, part_start, cfg),
             }
         ],
         "wave_parts": [],
     }
 
 
-def write_ustx(notes: list[Note], path: Path, bank: Voicebank, cfg) -> Path:
+def write_ustx(notes: list[Note], path: Path, bank: Voicebank, cfg, curves: dict | None = None) -> Path:
     """Serialise a project to `path` and return it."""
-    project = build_project(notes, bank, cfg)
+    project = build_project(notes, bank, cfg, curves)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     text = yaml.safe_dump(project, allow_unicode=True, sort_keys=False, default_flow_style=False)

@@ -206,6 +206,10 @@ class Config:
     # joins them (VCV / CVVC transitions) instead of starting every word from
     # silence. Off leaves a note_gap_ms gap before every word.
     legato: bool = True
+    # Dynamics and breath from how you said it: each word as loud as you said
+    # it (compressed), a soft attack and a fade per phrase, a breathier tail
+    # as each phrase ends. WORLDLINE-R curves; see teto_relay.performance.
+    expressive: bool = True
 
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,

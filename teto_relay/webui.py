@@ -39,7 +39,7 @@ ESSENTIALS: list[str] = [
 # appears, under "Other", so new options are never silently hidden.
 GROUPS: dict[str, list[str]] = {
     "Singing": [
-        "legato", "scale", "scale_key", "sung_contour_amount",
+        "legato", "expressive", "scale", "scale_key", "sung_contour_amount",
         "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
         "final_hold_seconds", "emit_contour",
     ],
@@ -261,7 +261,8 @@ LABELS: dict[str, list[str]] = {
     "stream_block_ms": ["Block length", "Shorter is quicker but needs a faster GPU."],
     "stream_context_ms": ["Context", "Audio before each block the model also hears; more sounds better, costs time."],
     "stream_crossfade_ms": ["Crossfade", "Blend between blocks."],
-    "legato": ["Connect syllables", "Japanese banks: sing each word's morae joined up. Experimental."],
+    "legato": ["Connect words", "Sing each phrase joined up; a pause you leave is kept as a rest."],
+    "expressive": ["Follow your loudness", "Loud and soft words, soft starts, fading breathy phrase ends."],
     "min_note_seconds": ["Shortest word", ""],
     "seconds_per_syllable": ["Time per syllable", "English banks only."],
     "note_gap_ms": ["Gap between words", "A few ms keeps words apart; 0 lets them run together."],
