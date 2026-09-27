@@ -40,6 +40,12 @@ class Note:
     # Vibrato as OpenUtau describes it (length/in/out in percent, period in
     # ms, depth in cents); None is none. Only the sung style sets it.
     vibrato: dict | None = None
+    # When the word was actually said (seconds), which the note's own span
+    # may not be - dynamics are measured over this.
+    spoken: tuple[float, float] | None = None
+    # How long before the note starts the glide from the previous note
+    # begins, in ms (teto_relay.performance). None is OpenUtau's usual 40.
+    lead_in_ms: float | None = None
 
     @property
     def duration(self) -> float:
@@ -96,6 +102,10 @@ def required_seconds(lyric: str, cfg) -> float:
 
 #: The most a phrase's last note may ring on into the rest after it.
 MAX_RELEASE = 0.15
+#: Bursts of sound this close together are one word (see _tighten_to_sound).
+JOIN_GAP = 0.12
+#: Shorter than this is a click or a breath, not a word.
+MIN_BLOCK = 0.04
 
 
 def note_floor(lyric: str, cfg, mora_floor: float | None = None) -> float:
@@ -203,9 +213,43 @@ def _tighten_to_sound(words: list[Word], times, active) -> list[Word]:
         if idx.size < 3:
             out.append(w)
             continue
-        start = max(w.start, float(times[idx[0]]))
-        end = min(w.end, float(times[idx[-1]]) + 0.01)  # to the end of the last frame
+        # The word is its last real block of sound. Bursts closer than
+        # JOIN_GAP belong together (a stop consonant is silence inside a
+        # word). Whisper folds a pause into the *start* of the word after it
+        # while its word ends are good, so what comes early in a long span is
+        # the previous word's tail or a click: "that" was given 1.90-3.84 s
+        # for a word said at 3.62, after a 1.7 s pause with a click in it.
+        blocks: list[list[int]] = [[idx[0], idx[0]]]
+        for i in idx[1:]:
+            if times[i] - times[blocks[-1][1]] <= JOIN_GAP:
+                blocks[-1][1] = i
+            else:
+                blocks.append([i, i])
+        real = [b for b in blocks if times[b[1]] - times[b[0]] >= MIN_BLOCK] or blocks
+        first, last = real[-1]
+        start = max(w.start, float(times[first]))
+        end = min(w.end, float(times[last]) + 0.01)  # to the end of the last frame
         out.append(Word(text=w.text, start=start, end=end) if end - start >= 0.05 else w)
+    return out
+
+
+_KANJI = re.compile(r"^[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff々]+$")
+
+
+def join_kanji_compounds(words: list[Word], max_gap: float = 0.1) -> list[Word]:
+    """Rejoin kanji that whisper's word timestamps split apart.
+
+    A kanji compound is read as a whole, not character by character: 明日 is
+    あした, but 明 + 日 read separately is めい + にち, which is what was sung.
+    Adjacent words made only of kanji, said without a pause, are one word.
+    """
+    out: list[Word] = []
+    for w in words:
+        if (out and _KANJI.match(out[-1].text) and _KANJI.match(w.text)
+                and w.start - out[-1].end <= max_gap):
+            out[-1] = Word(text=out[-1].text + w.text, start=out[-1].start, end=w.end)
+        else:
+            out.append(w)
     return out
 
 
@@ -245,6 +289,8 @@ def build_notes(
     use_legato = bool(getattr(cfg, "legato", True))
     ordered = sorted((w for w in words if w.text), key=lambda x: x.start)
     ordered = _tighten_to_sound(ordered, *_sound(track, audio, sample_rate))
+    if japanese_lyrics:
+        ordered = join_kanji_compounds(ordered)
     floor = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
     # Where the last word may sing to. The F0 track spans the whole chunk, so
     # its final frame is the end of the audio rather than the end of the speech.
@@ -372,6 +418,7 @@ def build_notes(
                     track, spoken_start, spoken_end, detected, cfg
                 ),
                 detected_midi=detected,
+                spoken=(spoken_start, spoken_end),
                 shift=octaves,
                 phonetic_hint=hint,
                 legato=legato,

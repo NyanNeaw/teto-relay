@@ -41,3 +41,6 @@ panel_smoke.png
 # Per-utterance latency rows (written to the data folder, which is this
 # folder in a source checkout).
 latency.csv
+
+# Your own voice recordings for tuning (tools/tuning_eval.py) - personal.
+my_voice/

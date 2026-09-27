@@ -63,8 +63,10 @@ def _activity(audio: np.ndarray, rate: int, floor_db: float = -35.0) -> np.ndarr
     if frames == 0:
         return np.zeros(0, bool)
     rms = np.sqrt(np.mean(audio[: frames * hop].reshape(frames, hop) ** 2, axis=1) + 1e-12)
-    db = 20 * np.log10(rms / rms.max())
-    return db > floor_db
+    db = 20 * np.log10(rms)
+    # A real microphone has a noise floor within 35 dB of the voice; judged
+    # against the peak alone, every pause in a recording counted as sound.
+    return db > max(np.percentile(db, 10) + 10.0, np.percentile(db, 99) + floor_db)
 
 
 def _span_and_pauses(active: np.ndarray, min_pause: float) -> tuple[float, int]:

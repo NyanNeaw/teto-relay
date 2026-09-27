@@ -1661,7 +1661,11 @@ class TestSungStyle(unittest.TestCase):
         note = Note("la", 0.0, 0.2, 60, contour=[(0.0, 100.0), (100.0, -60.0)],
                     detected_midi=60.0)
         musicalize([note], cfg, {})
-        self.assertEqual(note.contour, [(0.0, 50.0), (100.0, -30.0)])
+        # Narrowed to half, then the phrase-start scoop drawn on top of it.
+        from teto_relay.performance import SCOOP_CENTS, SCOOP_MS, _add
+
+        expected = _add([(0.0, 50.0), (100.0, -30.0)], [(0.0, -SCOOP_CENTS), (SCOOP_MS, 0.0)])
+        self.assertEqual(note.contour, expected)
 
     def test_scale_key_is_validated(self):
         from teto_relay.config import Config, ConfigError
@@ -1683,7 +1687,12 @@ class TestSungStyle(unittest.TestCase):
         notes, _ = self.notes(singing_style="sung")
         bank = Voicebank(key="english", name="Teto", root=Path("/x/Teto"), flavour="en-cvvc")
         block = build_project(notes, bank, Config())["voice_parts"][0]["notes"][1]
-        self.assertEqual(block["vibrato"]["length"], 60.0)
+        # Vibrato on the long middle note, after a steady start.
+        from teto_relay.performance import VIBRATO_MIN_DELAY_S
+
+        self.assertGreater(block["vibrato"]["length"], 0.0)
+        self.assertLessEqual(block["vibrato"]["length"],
+                             100.0 * (1 - VIBRATO_MIN_DELAY_S / notes[1].duration) + 0.1)
         with tempfile.TemporaryDirectory() as tmp:
             path = write_ustx(notes, Path(tmp) / "v.ustx", bank, Config())
             wav = NullRenderer(Config()).render(path, Path(tmp) / "v.wav")
@@ -2398,21 +2407,93 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
-    def test_sung_style_overshoots_jumps_and_falls_at_the_end(self):
-        from teto_relay.notes import Note
-        from teto_relay.singing import (END_FALL_CENTS, OVERSHOOT_CENTS, OVERSHOOT_PEAK_MS,
-                                        shape_transitions)
+    def test_a_click_in_a_pause_does_not_keep_the_pause_in_the_word(self):
+        # The user's "I wanted to say ... that I love you": whisper gave "that"
+        # 1.90-3.84 s; a click at 2.13 s kept the 1.7 s pause inside the word.
+        import numpy as np
 
-        notes = [Note(lyric="a", start=0.0, end=0.5, tone=60),
-                 Note(lyric="b", start=0.5, end=1.0, tone=64),   # a leap up
-                 Note(lyric="c", start=1.0, end=1.5, tone=63)]   # a step: no overshoot
-        shape_transitions(notes)
-        peak = dict(notes[1].contour)[OVERSHOOT_PEAK_MS]
-        self.assertAlmostEqual(peak, OVERSHOOT_CENTS)
-        self.assertEqual(notes[0].contour, [])  # nothing to jump from, not the last
-        last = dict(notes[2].contour)
-        self.assertAlmostEqual(last[500.0], -END_FALL_CENTS)
-        self.assertAlmostEqual(last[0.0], 0.0)
+        from teto_relay.notes import _tighten_to_sound
+        from teto_relay.stt import Word
+
+        times = np.arange(500) / 100.0
+        active = np.zeros(500, bool)
+        active[190:206] = True   # the tail of "say" (whisper ended it early)
+        active[213:216] = True   # a click
+        active[362:384] = True   # "that"
+        word = _tighten_to_sound([Word("that", 1.90, 3.84)], times, active)[0]
+        self.assertAlmostEqual(word.start, 3.62, places=2)
+        self.assertAlmostEqual(word.end, 3.84, places=2)
+
+    def test_kanji_split_by_whisper_is_read_as_one_word(self):
+        # 明日 was split into 明 + 日 and sung めい にち instead of あした.
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(auto_octave=False, language="ja")
+        notes = build_notes([Word("明", 0.0, 0.2), Word("日", 0.2, 0.4)], _flat_track(), cfg,
+                            japanese_lyrics=True)
+        self.assertEqual("".join(n.lyric for n in notes), "あした")
+
+    def test_performance_scoops_glides_overshoots_and_falls(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.performance import (FALL_CENTS, OVERSHOOT_MAX_CENTS, SCOOP_CENTS,
+                                            shape_pitch)
+
+        notes = [Note("a", 0.0, 0.5, 60),
+                 Note("b", 0.5, 1.0, 64, legato=True),   # a leap up
+                 Note("c", 1.0, 1.5, 63, legato=True),   # a step
+                 Note("d", 2.0, 2.5, 63)]                # after a rest: a new phrase
+        shape_pitch(notes, Config())
+        first = dict(notes[0].contour)
+        self.assertAlmostEqual(first[0.0], -SCOOP_CENTS)         # scooped into
+        leap = [y for _, y in notes[1].contour]
+        self.assertGreater(max(leap), 0.0)                        # overshoots...
+        self.assertLessEqual(max(leap), OVERSHOOT_MAX_CENTS)      # ...but not by much
+        self.assertGreater(notes[1].lead_in_ms, notes[2].lead_in_ms)  # bigger interval, longer glide
+        self.assertAlmostEqual(dict(notes[2].contour)[500.0], -FALL_CENTS)  # phrase end falls
+        self.assertAlmostEqual(dict(notes[3].contour)[0.0], -SCOOP_CENTS)  # new phrase scoops again
+
+    def test_dynamics_follow_the_speaker_within_limits(self):
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.performance import DYN_FLOOR, expression_curves
+
+        rate = 16000
+        t = np.arange(int(1.2 * rate)) / rate
+        # A loud word, then one 12 dB quieter.
+        audio = np.where(t < 0.6, 0.4, 0.1) * np.sin(2 * np.pi * 200 * t)
+        notes = [Note("a", 0.0, 0.6, 60, spoken=(0.0, 0.6)),
+                 Note("b", 0.6, 1.2, 60, legato=True, spoken=(0.6, 1.2))]
+        curves = expression_curves(notes, audio.astype(np.float32), rate, Config())
+        dyn = dict(curves["dyn"])
+        xs, ys = zip(*curves["dyn"])
+        at = lambda x: float(np.interp(x, xs, ys))  # noqa: E731 - the curve OpenUtau draws
+        self.assertEqual(at(0.3), 0.0)                  # the loud word is the reference
+        self.assertAlmostEqual(at(0.8), -60.0, delta=5)  # 12 dB quieter, halved: -6 dB
+        self.assertTrue(all(v <= 0 for v in dyn.values()))          # never boosts (it clips)
+        self.assertGreaterEqual(min(dyn.values()), 2 * DYN_FLOOR)
+        self.assertGreater(dict(curves["brec"])[1.2], 0)            # breathy phrase end
+        self.assertEqual(expression_curves(notes, audio, rate, Config(expressive=False)), {})
+
+    def test_curves_reach_the_ustx_in_ticks(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.ustx import build_project
+        from teto_relay.voicebank import Voicebank
+
+        cfg = Config()
+        notes = [Note("a", 0.5, 1.0, 60)]
+        bank = Voicebank(key="tandoku", name="Teto", root=Path("/x/Teto"), flavour="ja-cv")
+        curves = {"dyn": [(0.5, -60.0), (0.56, 0.0), (1.0, -120.0)]}
+        block = build_project(notes, bank, cfg, curves)["voice_parts"][0]["curves"][0]
+        self.assertEqual(block["abbr"], "dyn")
+        self.assertEqual(block["xs"][0], 0)  # from the part start
+        self.assertEqual(block["xs"][-1], cfg.seconds_to_ticks(0.5))
+        self.assertEqual(block["ys"], [-60, 0, -120])
 
     def test_keep_input_audio_saves_the_phrase_beside_the_render(self):
         import numpy as np
