@@ -26,6 +26,10 @@ _STRIP_OUTER = string.punctuation.replace("'", "") + _CJK_PUNCTUATION
 # Marks that only lengthen the kana before them: the long-vowel mark and the
 # sokuon. Alone they are no sound; see Transcriber.transcribe.
 _MODIFIER_MARKS = "ーｰっッ"
+# A segment below min_avg_logprob is dropped only if it is also this likely to
+# be no speech at all, or if it is GARBAGE_MARGIN further below (see transcribe).
+UNSURE_NO_SPEECH = 0.3
+GARBAGE_MARGIN = 0.5
 # Around a number, "$" and "%" are part of what is said ("$5", "50%").
 _STRIP_OUTER_NUMBER = _STRIP_OUTER.replace("$", "").replace("%", "")
 
@@ -214,7 +218,17 @@ class Transcriber:
                 dropped += 1
                 log.debug("dropped segment (no_speech_prob=%.2f): %r", segment.no_speech_prob, segment.text)
                 continue
-            if segment.avg_logprob is not None and segment.avg_logprob < self.cfg.min_avg_logprob:
+            # Low confidence alone is not silence - whisper itself calls a
+            # segment silent only when it is unsure *and* probably not speech.
+            # Dropping every unsure segment threw away whole phrases said with
+            # an accent: the user's "今日はいい天気ですね" decoded at -0.97 on
+            # one run and below -1.0 on the next, and vanished. Only a segment
+            # far below the threshold is treated as garbage on its own.
+            logprob = segment.avg_logprob
+            unsure = logprob is not None and logprob < self.cfg.min_avg_logprob
+            silent_ish = (segment.no_speech_prob or 0.0) > UNSURE_NO_SPEECH
+            garbage = logprob is not None and logprob < self.cfg.min_avg_logprob - GARBAGE_MARGIN
+            if (unsure and silent_ish) or garbage:
                 dropped += 1
                 log.debug("dropped segment (avg_logprob=%.2f): %r", segment.avg_logprob, segment.text)
                 continue

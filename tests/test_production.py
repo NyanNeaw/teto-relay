@@ -2407,6 +2407,29 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
+    def test_an_unsure_phrase_is_sung_not_thrown_away(self):
+        # The user's accented Japanese decoded at avg_logprob -0.97 on one run
+        # and just below -1.0 on another, and the whole phrase vanished.
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        def run(no_speech, logprob):
+            word = types.SimpleNamespace(word="ねえ", start=0.0, end=0.5)
+            segment = types.SimpleNamespace(no_speech_prob=no_speech, avg_logprob=logprob, words=[word],
+                                            text="ねえ")
+            t = Transcriber(Config(language="ja"))
+            t._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([segment], None))
+            return t.transcribe(np.zeros(16000, np.float32), 16000)
+
+        self.assertTrue(run(0.06, -1.02))    # spoken, just unsure: kept
+        self.assertFalse(run(0.5, -1.02))    # unsure and probably not speech: dropped
+        self.assertFalse(run(0.06, -1.8))    # far too unsure: garbage
+        self.assertFalse(run(0.9, -0.2))     # confident nonsense over silence: dropped
+
     def test_a_click_in_a_pause_does_not_keep_the_pause_in_the_word(self):
         # The user's "I wanted to say ... that I love you": whisper gave "that"
         # 1.90-3.84 s; a click at 2.13 s kept the 1.7 s pause inside the word.

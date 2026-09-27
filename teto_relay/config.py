@@ -64,9 +64,12 @@ class Config:
     calibrate_margin: float = 3.0  # threshold = noise floor * margin
 
     # ------------------------------------------------------ stage 2: whisper
-    # tiny.en < base.en < small.en < medium.en - bigger is more accurate and
-    # slower. See the latency table in the README before changing this.
-    whisper_model: str = "base.en"
+    # tiny < base < small < medium - bigger is more accurate and slower. The
+    # multilingual models, not the .en ones: on the target user's accented
+    # English, base.en got 42% of words wrong (it invents "mm mm mm", "kidding
+    # I am not") against 5.8% for base and 2.8% for small, at the same speed.
+    # small on a GPU (0.4 s) is the best choice when there is one.
+    whisper_model: str = "base"
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     language: str = "en"
