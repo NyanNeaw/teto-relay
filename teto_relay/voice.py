@@ -211,6 +211,14 @@ class VoiceConverter:
                 "using crepe, which is already loaded"
             )
             method = "crepe"
+        if method == "harvest":
+            # rvc memoises harvest's f0 by the "path" below, which is always
+            # "<memory>" here: every utterance after the first got the first
+            # one's pitch, and one of another length crashed on a tensor
+            # size mismatch.
+            from rvc.modules.vc import pipeline as rvc_pipeline
+
+            rvc_pipeline.cache_harvest_f0.cache_clear()
 
         times = {"npy": 0.0, "f0": 0.0, "infer": 0.0}
         converted = vc.pipeline.pipeline(

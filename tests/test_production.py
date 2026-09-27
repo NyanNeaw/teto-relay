@@ -2206,6 +2206,36 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertEqual([[n.lyric for n in g] for g in phonemizer_groups(extended)],
                          [["か", "+~"], ["さ"]])
 
+    def test_harvest_pitch_is_not_reused_between_utterances(self):
+        # rvc caches harvest's f0 by path, and every utterance is "<memory>":
+        # the second one was sung with the first one's pitch, and one of a
+        # different length crashed.
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.voice import VoiceConverter
+
+        cache = unittest.mock.MagicMock()
+        pipeline_mod = types.ModuleType("rvc.modules.vc.pipeline")
+        pipeline_mod.cache_harvest_f0 = cache
+        vc_pkg = types.ModuleType("rvc.modules.vc")
+        vc_pkg.pipeline = pipeline_mod
+        modules = {"rvc": types.ModuleType("rvc"), "rvc.modules": types.ModuleType("rvc.modules"),
+                   "rvc.modules.vc": vc_pkg, "rvc.modules.vc.pipeline": pipeline_mod}
+
+        cfg = Config()
+        cfg.rvc_f0_method, cfg.rvc_index = "harvest", ""
+        converter = VoiceConverter(cfg)
+        converter._vc = unittest.mock.MagicMock()
+        converter._vc.pipeline.pipeline.return_value = np.zeros(10, np.float32)
+        with unittest.mock.patch.dict(sys.modules, modules):
+            converter.convert(np.zeros(1600, np.float32), 16000)
+            converter.convert(np.zeros(3200, np.float32), 16000)
+        self.assertEqual(cache.cache_clear.call_count, 2)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
