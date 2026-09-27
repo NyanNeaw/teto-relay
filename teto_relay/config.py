@@ -136,6 +136,10 @@ class Config:
     # How far a word too short to sing clearly may push the next word's start
     # later. Onsets are the rhythm, so it is small and never adds up.
     onset_push_ms: int = 60
+    # Put each word's vowel on the beat and let the voicebank sing its
+    # consonant just before, the way sung parts are written (see
+    # notes._vowels_on_the_beat). Off starts notes at the consonant.
+    vowel_on_beat: bool = True
     # How long a note needs is a property of the word, not a flat number. A
     # single syllable needs far less room than three, and forcing every short
     # word up to one length made "I" and "a" drag like held notes.

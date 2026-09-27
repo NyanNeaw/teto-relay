@@ -201,6 +201,41 @@ def _sound(track, audio, sample_rate: int):
     return np.arange(frames) / 100.0, active  # frame start times, as in F0Track
 
 
+#: The longest a word's opening consonant is taken to be (see below).
+MAX_CONSONANT = 0.15
+
+
+def _vowels_on_the_beat(words: list[Word], joined: list[bool], track) -> list[Word]:
+    """Start each word's note where its vowel starts, not its consonant.
+
+    A voicebank sings a note's consonant *before* the note (its
+    preutterance), so that the vowel lands on the beat - which is how every
+    VOCALOID and UTAU part is written. Our notes started where the word's
+    first sound was, so every consonant was sung that much early and the
+    vowel came early with it. The vowel is found as the first voiced frame
+    in the word's first MAX_CONSONANT; a word that starts on a vowel or a
+    voiced consonant does not move. Only a word's first note moves - the
+    other morae of a word carry their own consonants.
+    """
+    import numpy as np
+
+    times = np.asarray(track.times)
+    voiced = np.asarray(track.voiced, dtype=bool)
+    out: list[Word] = []
+    for w, is_continuation in zip(words, joined + [False] * (len(words) - len(joined))):
+        if is_continuation:
+            out.append(w)
+            continue
+        window = (times >= w.start) & (times < min(w.end, w.start + MAX_CONSONANT)) & voiced
+        idx = np.flatnonzero(window)
+        onset = float(times[idx[0]]) if idx.size else w.start
+        if onset - w.start >= 0.02 and w.end - onset >= 0.05:
+            out.append(Word(text=w.text, start=onset, end=w.end))
+        else:
+            out.append(w)
+    return out
+
+
 def _tighten_to_sound(words: list[Word], times, active) -> list[Word]:
     """Trim each word's span to where there is actually sound.
 
@@ -375,6 +410,8 @@ def build_notes(
         word_hints.append(None)
         joined.append(False)
 
+    if getattr(cfg, "vowel_on_beat", True):
+        respelled = _vowels_on_the_beat(respelled, joined, track)
     adjusted = _dedupe_spans(respelled, cfg, joined, floor if japanese_lyrics else None)
     if not adjusted:
         return []

@@ -2407,6 +2407,30 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
+    def test_the_vowel_is_on_the_beat_and_the_consonant_before_it(self):
+        # A voicebank sings a note's consonant before the note; the note must
+        # start at the vowel, or every consonant is early.
+        import numpy as np
+
+        from teto_relay import pitch as pitch_mod
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        n = 200
+        voiced = np.ones(n, bool)
+        voiced[50:58] = False    # "stars": s-t unvoiced for 80 ms from 0.50 s
+        track = pitch_mod.F0Track(times=np.arange(n) / 100.0, f0=np.full(n, 220.0), voiced=voiced,
+                                  sample_rate=16000)
+        words = [Word("look", 0.0, 0.4), Word("stars", 0.5, 0.9)]
+        # The recording has sound throughout (the "st" is noise, not silence).
+        audio = (0.1 * np.sin(2 * np.pi * 220 * np.arange(32000) / 16000)).astype(np.float32)
+        on = build_notes(words, track, Config(auto_octave=False), audio=audio)
+        off = build_notes(words, track, Config(auto_octave=False, vowel_on_beat=False), audio=audio)
+        self.assertAlmostEqual(on[1].start, 0.58, places=2)
+        self.assertAlmostEqual(off[1].start, 0.50, places=2)
+        self.assertAlmostEqual(on[0].start, 0.0, places=2)  # "look" starts voiced: unmoved
+
     def test_melody_range_widens_intervals_around_the_phrase(self):
         from teto_relay.config import Config
         from teto_relay.notes import Note
