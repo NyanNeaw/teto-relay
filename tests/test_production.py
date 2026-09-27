@@ -1654,7 +1654,10 @@ class TestSungStyle(unittest.TestCase):
         from teto_relay.notes import Note
         from teto_relay.singing import musicalize
 
-        cfg = Config(singing_style="sung", sung_contour_amount=0.5, scale_key="C")
+        # No final hold: a 0.2 s last note is too short for the phrase-end
+        # fall (tested separately), so only the narrowing shows.
+        cfg = Config(singing_style="sung", sung_contour_amount=0.5, scale_key="C",
+                     final_hold_seconds=0.0)
         note = Note("la", 0.0, 0.2, 60, contour=[(0.0, 100.0), (100.0, -60.0)],
                     detected_midi=60.0)
         musicalize([note], cfg, {})
