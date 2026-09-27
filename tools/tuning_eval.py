@@ -178,7 +178,9 @@ def main() -> int:
             beam_size=5, condition_on_previous_text=False)
         heard = " ".join(s.text for s in segments)
         ref, hyp = _units(said, japanese), _units(heard, japanese)
-        error = _edit_distance(ref, hyp) / max(1, len(ref))
+        # Capped at 1: a judge stuck repeating a held vowel ("ぬぅぅぅぅ...")
+        # scored 4.0 on one phrase and swamped the rest of the set.
+        error = min(1.0, _edit_distance(ref, hyp) / max(1, len(ref)))
 
         spoken_len, spoken_pauses = _span_and_pauses(_activity(audio, 16000), 0.25)
         sung_len, sung_pauses = _span_and_pauses(_activity(sung, rate), 0.15)
