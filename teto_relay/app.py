@@ -574,6 +574,7 @@ class TetoRelay:
             words, track, self.cfg, self._octave_shift, self._target_tone,
             self._voice_baseline, self._japanese_lyrics(), self._mora_floor,
             self._singing_state, audio=chunk.audio, sample_rate=chunk.sample_rate,
+            mora_timer=lambda morae: align.vowel_onsets(morae, chunk.audio, chunk.sample_rate, self.cfg),
         )
         if not notes:
             return None

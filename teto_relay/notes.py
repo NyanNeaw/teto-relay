@@ -207,6 +207,36 @@ def _sound(track, audio, sample_rate: int):
     return np.arange(frames) / 100.0, active  # frame start times, as in F0Track
 
 
+def _time_morae(words: list[Word], joined: list[bool], mora_timer, phrase_gap: float) -> tuple[list[Word], bool]:
+    """Start each mora where its vowel was measured (mora_timer), keeping the
+    morae of a word touching and each inside its own word's reach.
+
+    Returns the morae and whether timing was applied at all.
+    """
+    onsets = mora_timer([w.text for w in words])
+    if not any(t is not None for t in onsets):
+        return words, False
+    starts = [w.start for w in words]
+    for i, t in enumerate(onsets):
+        if t is None:
+            continue
+        lo = starts[i - 1] + MIN_NOTE_SECONDS if i else words[i].start - 0.1
+        hi = words[i].end - MIN_NOTE_SECONDS
+        if lo <= t <= hi:
+            starts[i] = t
+    out = []
+    for i, w in enumerate(words):
+        end = w.end
+        connected = i + 1 < len(words) and (joined[i + 1] or words[i + 1].start - w.end < phrase_gap)
+        if connected:
+            # Morae of a word touch; so do words that were said without a
+            # pause - moving the next word's start to its vowel must not open
+            # a hole before it (it did: Senbonzakura's dropouts went 1% -> 9%).
+            end = max(starts[i] + MIN_NOTE_SECONDS, starts[i + 1])
+        out.append(Word(text=w.text, start=starts[i], end=max(end, starts[i] + MIN_NOTE_SECONDS)))
+    return out, True
+
+
 #: The longest a word's opening consonant is taken to be (see below).
 MAX_CONSONANT = 0.15
 
@@ -346,6 +376,7 @@ def build_notes(
     singing_state: dict | None = None,
     audio=None,
     sample_rate: int = 16000,
+    mora_timer=None,
 ) -> list[Note]:
     """Combine words and the F0 track into notes ready for the ustx writer.
 
@@ -353,7 +384,9 @@ def build_notes(
     `voicebank.mora_floor`); it falls back to the configured minimum.
     `singing_state` carries the sung style's key between phrases. `audio` is
     the recording the words came from, used to trim their spans to where there
-    was sound; without it the pitch track's voicing is used.
+    was sound; without it the pitch track's voicing is used. `mora_timer`,
+    given the morae in order, returns where each one's vowel starts (or None)
+    - align.vowel_onsets - and Japanese notes are timed from it.
     """
     # Exact phonemes beat a respelling, so check for a hint first: "kasane" is
     # k A s A n E rather than an approximation built from other English words.
@@ -485,7 +518,10 @@ def build_notes(
         word_hints.append(None)
         joined.append(False)
 
-    if getattr(cfg, "vowel_on_beat", True):
+    timed = False
+    if japanese_lyrics and mora_timer is not None:
+        respelled, timed = _time_morae(respelled, joined, mora_timer, cfg.phrase_gap_ms / 1000.0)
+    if getattr(cfg, "vowel_on_beat", True) and not timed:
         respelled = _vowels_on_the_beat(respelled, joined, track)
     adjusted = _dedupe_spans(respelled, cfg, joined, floor if japanese_lyrics else None)
     if not adjusted:

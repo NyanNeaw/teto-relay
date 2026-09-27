@@ -2366,6 +2366,44 @@ class TestHardwareFindings(unittest.TestCase):
         # Sung as the held vowel: an extension of む and り, not a new sample.
         self.assertEqual([n.lyric for n in notes], ["む", "+", "り", "+"])
 
+    def test_morae_start_at_their_measured_vowels_and_stay_connected(self):
+        # Senbonzakura's pronunciation was out of time: morae were spread
+        # evenly inside whisper's rough words. Timed from the aligner, each
+        # note starts at its vowel; moving a word's start must not open a
+        # hole before it (it did: dropouts went from 1% to 9%).
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        measured = {"せ": 0.08, "ん": 0.30, "ぼ": 0.36, "よ": 0.95, "る": 1.20}
+        timer = lambda morae: [measured.get(m) for m in morae]  # noqa: E731
+        words = [Word("千本", 0.0, 0.8), Word("夜", 0.85, 1.5)]
+        notes = build_notes(words, _flat_track(), Config(auto_octave=False, language="ja"),
+                            japanese_lyrics=True, mora_timer=timer)
+        starts = {n.lyric: round(n.start, 2) for n in notes}
+        self.assertEqual([n.lyric for n in notes], ["せ", "ん", "ぼ", "ん", "よ", "る"])
+        self.assertEqual((starts["せ"], starts["よ"], starts["る"]), (0.08, 0.95, 1.2))
+        for a, b in zip(notes, notes[1:]):
+            self.assertAlmostEqual(a.end, b.start, places=6, msg=f"{a.lyric} {b.lyric}")
+
+    def test_the_aligner_loads_memory_mapped(self):
+        # torchaudio's loader needs ~2.5 GB of RAM at once; the 8 GB target PC
+        # never had it free, so the aligner had never run there.
+        import unittest.mock
+
+        from teto_relay import align
+        from teto_relay.config import Config
+
+        if __import__("importlib.util").util.find_spec("torch") is None:
+            self.skipTest("needs torch")
+        with unittest.mock.patch.object(align, "_bundle", None), \
+                unittest.mock.patch.object(align, "_checkpoint", return_value=Path("model.pt")), \
+                unittest.mock.patch.object(align, "_available_memory", return_value=600_000_000), \
+                unittest.mock.patch.object(align, "_load_mapped", return_value="mapped") as mapped:
+            model, *_ = align._load(Config(align_device="cpu"))
+        self.assertEqual(model, "mapped")
+        mapped.assert_called_once()
+
     def test_a_held_note_lasts_as_long_as_it_is_sung(self):
         # Senbonzakura: 桜's ら was held into よる, whisper ended 桜 early, the
         # gap looked like a pause, and Teto stopped while the singer went on;

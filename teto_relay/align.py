@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 import numpy as np
 
@@ -60,21 +61,53 @@ def _available_memory() -> int | None:
         return None
 
 
+#: What loading needs when the checkpoint is memory-mapped (_load_mapped):
+#: the weights stream from disk to the device instead of sitting in RAM.
+_NEEDED_BYTES_MAPPED = 400_000_000
+
+
+def _checkpoint():
+    """The downloaded MMS_FA checkpoint, wherever torch's hub cache has it."""
+    import torch
+    from torchaudio.pipelines import MMS_FA
+
+    from . import paths
+
+    name = Path(MMS_FA._path).name
+    for hub in (Path(torch.hub.get_dir()), paths.cache_dir() / "torch" / "hub"):
+        candidate = hub / "checkpoints" / name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _load_mapped(path, device):
+    """MMS_FA without holding it in RAM: the model is built empty (on the
+    `meta` device) and given the checkpoint memory-mapped from disk, then
+    moved to `device`. torchaudio's own loader builds the model and reads the
+    checkpoint into RAM besides - about 2.5 GB at once, more than this 8 GB
+    PC ever had free, so the aligner had never run here."""
+    import torch
+    from torchaudio.pipelines import MMS_FA
+    from torchaudio.pipelines._wav2vec2 import utils
+
+    with torch.device("meta"):
+        model = utils._get_model(MMS_FA._model_type, MMS_FA._params)
+    state = torch.load(str(path), map_location="cpu", mmap=True, weights_only=True)
+    if MMS_FA._remove_aux_axis:
+        utils._remove_aux_axes(state, MMS_FA._remove_aux_axis)
+    model.load_state_dict(state, assign=True)
+    model = utils._extend_model(model, normalize_waveform=MMS_FA._normalize_waveform,
+                                apply_log_softmax=True, append_star=True)
+    return model.to(device).eval()
+
+
 def _load(cfg):
     """Load the aligner once. Returns (model, tokenizer, aligner, device)."""
     global _bundle
     with _lock:
         if _bundle is not None:
             return _bundle
-
-        free = _available_memory()
-        if free is not None and free < _NEEDED_BYTES:
-            raise MemoryError(
-                f"only {free/1e9:.1f} GB of RAM free and the aligner needs about "
-                f"{_NEEDED_BYTES/1e9:.1f} GB. Close what you can, or turn off "
-                "'Measure word timing' - whisper's own timings are ~0.12 s early "
-                "but everything still works."
-            )
 
         import torch
         from torchaudio.pipelines import MMS_FA
@@ -83,6 +116,23 @@ def _load(cfg):
         if device.startswith("cuda") and not torch.cuda.is_available():
             log.warning("CUDA not available; aligning on the CPU")
             device = "cpu"
+
+        path = _checkpoint()
+        free = _available_memory()
+        if path is not None and (free is None or free >= _NEEDED_BYTES_MAPPED):
+            log.info("Loading the forced aligner (%s, memory-mapped)...", device)
+            model = _load_mapped(path, device)
+            _bundle = (model, MMS_FA.get_tokenizer(), MMS_FA.get_aligner(), device)
+            log.info("Aligner ready")
+            return _bundle
+
+        if free is not None and free < _NEEDED_BYTES:
+            raise MemoryError(
+                f"only {free/1e9:.1f} GB of RAM free and the aligner needs about "
+                f"{_NEEDED_BYTES/1e9:.1f} GB. Close what you can, or turn off "
+                "'Measure word timing' - whisper's own timings are ~0.12 s early "
+                "but everything still works."
+            )
 
         log.info("Loading the forced aligner (%s)...", device)
         model = MMS_FA.get_model().to(device)
@@ -182,3 +232,59 @@ def refine(words: list[Word], audio: np.ndarray, sample_rate: int, cfg) -> list[
             float(np.mean(shifts)),
         )
     return refined
+
+
+_VOWELS = set("aiueo")
+
+
+def _romaji(mora: str) -> str:
+    """A mora in the aligner's alphabet: せ -> se, ん -> n, みゅ -> myu."""
+    from .translit import _load_kakasi
+
+    kakasi = _load_kakasi()
+    if kakasi is None:
+        return ""
+    return _normalise("".join(item["hepburn"] for item in kakasi.convert(mora)))
+
+
+def vowel_onsets(morae: list[str], audio: np.ndarray, sample_rate: int, cfg) -> list[float | None]:
+    """Where each mora's vowel starts in the recording, or None where unknown.
+
+    Whisper times words, and roughly - worse on singing - and a word's morae
+    were spread evenly inside it, so syllables landed off the melody (the
+    user heard Senbonzakura's pronunciation out of time). Aligned sound by
+    sound, each mora's vowel start is measured; the note starts there and the
+    voicebank sings the consonant before it, as parts are written. An
+    extension ("+") or anything unalignable is None.
+    """
+    if not cfg.use_alignment or not morae:
+        return [None] * len(morae)
+    tokens, owners = [], []
+    for index, mora in enumerate(morae):
+        roman = _romaji(mora) if mora and mora[0] not in "+-" else ""
+        if roman:
+            tokens.append(roman)
+            owners.append(index)
+    if not tokens:
+        return [None] * len(morae)
+    try:
+        import torch
+
+        model, tokenizer, aligner, device = _load(cfg)
+        waveform = torch.from_numpy(np.ascontiguousarray(audio, dtype=np.float32))[None].to(device)
+        with torch.inference_mode():
+            emission, _ = model(waveform)
+            spans = aligner(emission[0], tokenizer(tokens))
+    except Exception:
+        log.warning("mora alignment failed; keeping the even spacing", exc_info=True)
+        return [None] * len(morae)
+    if len(spans) != len(tokens):
+        return [None] * len(morae)
+    seconds_per_frame = audio.shape[0] / emission.shape[1] / sample_rate
+    out: list[float | None] = [None] * len(morae)
+    for token, token_spans, owner in zip(tokens, spans, owners):
+        chars = list(zip(token, token_spans))
+        vowel = next((span for char, span in chars if char in _VOWELS), None)
+        start = (vowel or chars[0][1]).start
+        out[owner] = float(start * seconds_per_frame)
+    return out
