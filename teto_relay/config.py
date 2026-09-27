@@ -123,17 +123,13 @@ class Config:
     # pitch differences between sentences survive into the singing.
     shift_tolerance: float = 6.0
     default_tone: int = 60  # used when a word has no voiced frames at all
-    # Notes must not touch. Butt two words together and the phonemizer treats
-    # them as one legato phrase and collapses the phoneme sequence - five words
-    # came back as 4 phonemes instead of 15. Any gap at all avoids it.
-    # Notes must not *touch* - at exactly zero the phonemizer collapses the
-    # sequence (English 15 phonemes -> 4, Japanese 6 -> 2). But only literal
-    # zero breaks it: one tick is enough for both banks.
-    #
-    # This was 30 ms, chosen off a coarse 0/10/30/50/100 grid. Inaudible
-    # between words, clearly audible between morae, where notes are ~0.2 s and
-    # every syllable got a gap. 2 ms is one tick above the proven minimum.
+    # With `legato` off, the gap left between words. (Notes that touch used to
+    # "collapse" - fewer phonemes than notes - but that was the relay sending
+    # touching notes to the phonemizer as one group; fixed, see NOTES.md.)
     note_gap_ms: int = 2
+    # A pause at least this long is a rest: the phrase ends and she stops. A
+    # shorter one - the ordinary space between words - is sung through.
+    phrase_gap_ms: int = 250
     # How long a note needs is a property of the word, not a flat number. A
     # single syllable needs far less room than three, and forcing every short
     # word up to one length made "I" and "a" drag like held notes.
@@ -166,11 +162,10 @@ class Config:
     # vowel beat an accurate rhythm made of half-sounded ones.
     min_mora_seconds: float = 0.11
     max_mora_seconds: float = 0.25
-    # How much of the pause after a word its morae may sing into. 1.0 uses the
-    # whole gap, which matches the speech's total length but leaves no silence
-    # between words and runs them together. 0.0 confines each word to its own
-    # span, which is where the flat-rhythm problem came from. Half keeps an
-    # audible gap while still giving the morae room to be sung.
+    # How much of a rest the note before it may sing into, as a release - at
+    # most MAX_RELEASE (0.15 s) whatever this says. It used to be uncapped, and
+    # half of every pause was spent stretching the word before it: leave a gap
+    # and the word dragged into it. Rests are rests now.
     pause_borrow: float = 0.5
     # Keep the octave shift steady between utterances so the character's pitch
     # does not jump around; recompute only when the voice drifts out of range.
@@ -206,10 +201,11 @@ class Config:
     vibrato_depth_cents: float = 25.0
     vibrato_period_ms: float = 175.0
     final_hold_seconds: float = 0.3  # how much longer the last note is held
-    # Morae of one word are sung as one connected phrase (their notes touch)
-    # instead of each with its own gap - smoother, less word-by-word. Touching
-    # notes collapsed the phonemizer in early tests, so it is off until tried.
-    legato: bool = False
+    # Sing each phrase connected, the way a singer does: the notes of words
+    # said without a pause (shorter than phrase_gap_ms) touch, so the voicebank
+    # joins them (VCV / CVVC transitions) instead of starting every word from
+    # silence. Off leaves a note_gap_ms gap before every word.
+    legato: bool = True
 
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
@@ -501,6 +497,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "shift_tolerance": (0.0, 48.0),
     "default_tone": (0, 127),
     "note_gap_ms": (0, 2_000),
+    "phrase_gap_ms": (0, 5_000),
     "min_note_seconds": (0.0, 10.0),
     "seconds_per_syllable": (0.0, 10.0),
     "min_mora_seconds": (0.0, 5.0),

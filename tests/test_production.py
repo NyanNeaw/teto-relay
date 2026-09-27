@@ -1615,7 +1615,7 @@ class TestSungStyle(unittest.TestCase):
         return build_notes(words, track, cfg, singing_state=state), state
 
     def test_speech_style_is_unchanged(self):
-        notes, _ = self.notes()
+        notes, _ = self.notes(legato=False)
         self.assertEqual([n.tone for n in notes], [61, 64, 66])
         self.assertTrue(all(n.vibrato is None and not n.legato for n in notes))
 
@@ -1692,18 +1692,29 @@ class TestSungStyle(unittest.TestCase):
 
 
 class TestLegato(unittest.TestCase):
-    """legato: the morae of one word touch; words keep their gap."""
+    """legato: a phrase is sung connected; a pause of phrase_gap_ms is a rest."""
 
-    def build(self, legato):
+    def build(self, legato, pause=0.4):
         from teto_relay.config import Config
         from teto_relay.notes import build_notes
         from teto_relay.stt import Word
 
         cfg = Config(auto_octave=False, legato=legato)
-        return build_notes([Word("hello", 0.0, 0.6), Word("teto", 0.8, 1.4)],
+        return build_notes([Word("hello", 0.0, 0.6), Word("teto", 0.6 + pause, 1.2 + pause)],
                            _flat_track(), cfg, japanese_lyrics=True)
 
-    def test_off_by_default_every_note_has_a_gap(self):
+    def test_on_by_default(self):
+        from teto_relay.config import Config
+
+        self.assertTrue(Config().legato)
+
+    def test_words_said_without_a_pause_touch(self):
+        notes = self.build(True, pause=0.1)
+        self.assertTrue(all(n.legato for n in notes[1:]))
+        for a, b in zip(notes, notes[1:]):
+            self.assertAlmostEqual(a.end, b.start)
+
+    def test_off_every_note_has_a_gap(self):
         notes = self.build(False)
         for a, b in zip(notes, notes[1:]):
             self.assertLess(a.end, b.start)

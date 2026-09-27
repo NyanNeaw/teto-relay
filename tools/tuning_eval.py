@@ -117,13 +117,21 @@ def main() -> int:
     ap.add_argument("--out", default=r"D:\Claude\_tmp\eval")
     ap.add_argument("--set", nargs="*", default=[], help="config overrides, key=value")
     ap.add_argument("--judge", default="small", help="whisper model that judges intelligibility")
+    ap.add_argument("--user-config", action="store_true",
+                    help="start from your saved config.json instead of the defaults")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     missing = _Missing()
     logging.getLogger("teto_relay.render.openutau").addHandler(missing)
 
-    cfg = Config.load()
+    # The shipped defaults, not your saved settings - a config.json from an
+    # older version spells out every value, so it would hide any new default.
+    # Only where things are is taken from it.
+    saved = Config.load()
+    cfg = Config() if not args.user_config else saved
+    for key in ("voicebank_root", "openutau_dir", "voicebank"):
+        setattr(cfg, key, getattr(saved, key))
     for kv in args.set:
         key, value = kv.split("=", 1)
         setattr(cfg, key, coerce(key, value))

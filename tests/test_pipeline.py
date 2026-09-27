@@ -16,7 +16,7 @@ from teto_relay import pitch as pitch_mod  # noqa: E402
 from teto_relay import pronunciations as pron  # noqa: E402
 from teto_relay.capture import Chunker, PushToTalkChunker, make_chunker, rms  # noqa: E402
 from teto_relay.config import Config  # noqa: E402
-from teto_relay.notes import Note, build_notes, required_seconds, syllables  # noqa: E402
+from teto_relay.notes import Note, build_notes, note_floor, required_seconds, syllables  # noqa: E402
 from teto_relay.stt import Word, clean_lyric  # noqa: E402
 from teto_relay.ustx import build_project, load_ustx, write_ustx  # noqa: E402
 from teto_relay.voicebank import Voicebank, _detect_flavour, parse_oto  # noqa: E402
@@ -493,9 +493,9 @@ class TestBuildNotes(unittest.TestCase):
     def test_no_words_gives_no_notes(self):
         self.assertEqual(build_notes([], self._track(440.0), Config()), [])
 
-    def test_notes_never_touch(self):
-        """Touching notes collapse into one legato phrase and lose phonemes."""
-        cfg = Config(auto_octave=False)
+    def test_with_legato_off_notes_never_touch(self):
+        """legato off: every word starts from silence, note_gap_ms apart."""
+        cfg = Config(auto_octave=False, legato=False)
         # Whisper routinely reports words that butt up against each other.
         words = [Word("hello", 0.0, 0.5), Word("there", 0.5, 1.0), Word("teto", 1.0, 1.5)]
         notes = build_notes(words, self._track(440.0, 2.0), cfg)
@@ -525,8 +525,29 @@ class TestBuildNotes(unittest.TestCase):
         cfg = Config(auto_octave=False)
         words = [Word("i", 0.0, 0.08), Word("kasane", 0.15, 0.25)]
         notes = build_notes(words, self._track(440.0, 3.0), cfg)
-        self.assertGreaterEqual(round(notes[0].duration, 6), round(required_seconds("i", cfg), 6))
+        # "i" is lengthened past its 0.08 s to at least what it can be sung in...
+        self.assertGreaterEqual(round(notes[0].duration, 6), round(note_floor("i", cfg), 6))
         self.assertGreater(notes[1].duration, notes[0].duration)
+        # ...but not by delaying "kasane", which is still where it was said.
+        self.assertAlmostEqual(notes[1].start, 0.15, places=6)
+
+    def test_onsets_stay_where_they_were_said(self):
+        """Every note used to get 0.22 s a syllable first and push the rest
+        along, so a phrase ended 0.6 s late. Onsets are the rhythm."""
+        cfg = Config(auto_octave=False)
+        said = [("every", 0.0, 0.36), ("night", 0.36, 0.56), ("i", 0.56, 0.74), ("look", 0.74, 0.88),
+                ("up", 0.88, 1.08), ("at", 1.08, 1.26), ("the", 1.26, 1.40), ("stars", 1.40, 1.68)]
+        notes = build_notes([Word(t, a, b) for t, a, b in said], self._track(440.0, 3.0), cfg)
+        for note, (_, start, _) in zip(notes, said):
+            self.assertAlmostEqual(note.start, start, places=6, msg=note.lyric)
+
+    def test_a_pause_is_a_rest_not_a_longer_word(self):
+        """Leave a gap and the word before it used to stretch into it."""
+        cfg = Config(auto_octave=False)
+        words = [Word("say", 0.72, 1.06), Word("that", 1.76, 1.88)]
+        notes = build_notes(words, self._track(440.0, 3.0), cfg)
+        self.assertLessEqual(notes[0].end, 1.06 + 0.15 + 1e-6)
+        self.assertFalse(notes[1].legato)
 
     def test_pitch_is_read_from_the_spoken_span_not_the_stretched_note(self):
         """A lengthened note covers the next word's audio; pitch must not."""
@@ -553,7 +574,7 @@ class TestBuildNotes(unittest.TestCase):
         self.assertAlmostEqual(notes[0].duration, 1.2, places=6)
 
     def test_extending_preserves_order_and_gaps(self):
-        cfg = Config(auto_octave=False)
+        cfg = Config(auto_octave=False, legato=False)
         words = [Word("a", 0.0, 0.10), Word("b", 0.12, 0.20)]
         notes = build_notes(words, self._track(440.0, 3.0), cfg)
         gap = cfg.note_gap_ms / 1000.0
@@ -1200,28 +1221,32 @@ class TestJapaneseConversion(unittest.TestCase):
             sample_rate=16000,
         )
 
-    def test_morae_sing_into_the_pause_after_the_word(self):
-        """Squeezed inside the word itself every mora hits the floor and the
-        rhythm goes flat, so a word may use the gap before the next one."""
+    def test_morae_sing_only_a_short_release_into_a_pause(self):
+        """Half of the pause after a word used to be spread over its morae, so
+        leaving a gap stretched the word into it. Now a rest keeps all but a
+        release of at most MAX_RELEASE."""
+        from teto_relay.notes import MAX_RELEASE
+
         cfg = Config(
             auto_octave=False, min_mora_seconds=0.06, max_mora_seconds=0.25,
             pause_borrow=0.5,
         )
-        # "understand" is 8 morae said in 0.4s - 0.05s each - but nothing else
-        # is spoken until 1.6s.
+        # "understand" is 8 morae said in 0.4s, then nothing until 1.6s.
         words = [Word("understand", 0.0, 0.4), Word("love", 1.6, 1.8)]
         notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True)
 
         understand = [n for n in notes if n.lyric in "あんだあすたんど"][:8]
         self.assertEqual(len(understand), 8)
-        # 0.4s of speech plus half of the 1.2s pause = 1.0s over 8 morae, not
-        # the 0.05s the word alone would have allowed and not the floor.
-        self.assertAlmostEqual(understand[0].duration, 0.125, places=3)
+        # Its own 0.4 s, or as long as 8 morae must take at the floor, plus a
+        # release - not half of the 1.2 s pause.
+        self.assertLessEqual(understand[-1].end, max(0.4, 8 * 0.06) + MAX_RELEASE + 1e-6)
         # The onset is untouched: that is what is heard as timing.
         self.assertAlmostEqual(understand[0].start, 0.0, places=3)
+        # The morae of one word are sung connected.
+        self.assertTrue(all(n.legato for n in understand[1:]))
 
     def test_pause_borrow_leaves_a_gap_between_words(self):
-        """Taking the whole pause ran words together; half keeps it audible."""
+        """However much of a pause may be borrowed, the rest stays a rest."""
         words = [Word("love", 0.0, 0.2), Word("you", 1.2, 1.4)]
         track = self._long_track()
 
@@ -1232,9 +1257,13 @@ class TestJapaneseConversion(unittest.TestCase):
             first_word = [n for n in notes if n.lyric in "らぶ"]
             return 1.2 - first_word[-1].end
 
-        self.assertAlmostEqual(gap_after_first(1.0), 0.0, places=2)
+        from teto_relay.notes import MAX_RELEASE
+
+        # らぶ is two morae at the 0.11 s floor, then a release at most.
+        sung = max(0.2, 2 * Config().min_mora_seconds)
+        self.assertGreaterEqual(gap_after_first(1.0), 1.2 - sung - MAX_RELEASE - 1e-6)
         self.assertGreater(gap_after_first(0.5), 0.4)
-        self.assertGreater(gap_after_first(0.0), gap_after_first(0.5))
+        self.assertGreaterEqual(gap_after_first(0.0), gap_after_first(0.5))
 
     def test_a_long_pause_does_not_inflate_the_word_before_it(self):
         cfg = Config(auto_octave=False, max_mora_seconds=0.25)

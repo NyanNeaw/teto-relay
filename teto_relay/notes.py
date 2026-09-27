@@ -94,43 +94,118 @@ def required_seconds(lyric: str, cfg) -> float:
     return max(cfg.min_note_seconds, syllables(lyric) * cfg.seconds_per_syllable)
 
 
+#: The most a phrase's last note may ring on into the rest after it.
+MAX_RELEASE = 0.15
+
+
+def note_floor(lyric: str, cfg, mora_floor: float | None = None) -> float:
+    """The shortest this lyric can be sung: each syllable (or mora) needs its
+    consonant and some vowel. Below it a note is all consonant."""
+    per = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
+    return max(MIN_NOTE_SECONDS, syllables(lyric) * per)
+
+
 def _dedupe_spans(
-    words: list[Word], cfg, legato: list[bool] | None = None
-) -> list[tuple[Word, tuple[float, float]]]:
-    """Space the words out so each note can be sung, keeping the spoken spans.
+    words: list[Word], cfg, legato: list[bool] | None = None, mora_floor: float | None = None
+) -> list[tuple[Word, tuple[float, float], bool]]:
+    """Lay the notes out: when each starts and ends, and which ones touch.
 
-    Two rules, which sometimes conflict:
+    Returns (note span, spoken span, touches the previous note) per word. The
+    spoken span is kept because pitch must be measured over what was said.
 
-    * **Notes must not touch.** Two notes that meet are treated by the
-      phonemizer as one legato phrase and the phoneme sequence collapses -
-      "hello whats up im duty" came back as 4 phonemes instead of 15.
-    * **Notes need room for their syllables.** A CVVC sample carries a
-      consonant, a vowel and the transition out of it. How much room depends on
-      the word: a flat minimum made one-syllable words drag like held notes.
+    **Onsets are the rhythm, so they stay where they were said.** A note may
+    fill the time up to the next word, never push it: giving every note its
+    ideal length first (0.22 s a syllable) and shoving the rest along made
+    "every night I look up at the stars" arrive 0.6 s late by the last word.
+    A later word only moves when the one before cannot be sung any shorter
+    (`note_floor`).
 
-    Each entry is returned with the *original* spoken span alongside the
-    adjusted note, because pitch must be measured over what was actually said.
-    Measuring over a stretched note samples the following word's audio too.
+    **Phrases are sung connected, rests are kept.** With `legato`, a word said
+    within `phrase_gap_ms` of the previous one touches it, so the voicebank
+    joins them as a singer would. A longer pause is a rest: the note before
+    it ends where the word ended, plus a short release (`pause_borrow`, at
+    most MAX_RELEASE) - it no longer stretches into the silence.
 
-    `legato[i]` lets note i follow the previous one with no gap (the `legato`
-    option, for the morae of one word).
+    `legato[i]` joins note i to the previous one regardless (the morae of one
+    word).
     """
-    # Callers pass words already sorted by start, and must - anything running
-    # alongside them (phonetic hints) is indexed positionally.
     flags = legato if legato is not None else [False] * len(words)
     ordered = [(w, flag) for w, flag in zip(words, flags) if w.text]
-    out: list[tuple[Word, tuple[float, float]]] = []
-    default_gap = cfg.note_gap_ms / 1000.0
+    gap = cfg.note_gap_ms / 1000.0
+    phrase_gap = cfg.phrase_gap_ms / 1000.0
+    connect = bool(getattr(cfg, "legato", True))
 
-    for w, joined in ordered:
-        spoken = (w.start, w.end)
-        start = w.start
-        gap = 0.0 if joined else default_gap
-        if out and start < out[-1][0].end + gap:
-            start = out[-1][0].end + gap
-        end = max(w.end, start + max(required_seconds(w.text, cfg), MIN_NOTE_SECONDS))
-        out.append((Word(text=w.text, start=start, end=end), spoken))
+    starts = [w.start for w, _ in ordered]
+    out: list[tuple[Word, tuple[float, float], bool]] = []
+    for i, (w, joined) in enumerate(ordered):
+        start = starts[i]
+        floor = note_floor(w.text, cfg, mora_floor if _KANA.search(w.text) else None)
+        want = max(floor, required_seconds(w.text, cfg))
+        touches = bool(out) and out[-1][2] is not None and (
+            joined or (connect and w.start - ordered[i - 1][0].end < phrase_gap))
+        if i + 1 == len(ordered):
+            end = max(w.end, start + want)
+        else:
+            nxt_word, nxt_joined = ordered[i + 1]
+            nxt = starts[i + 1]
+            next_touches = nxt_joined or (connect and nxt_word.start - w.end < phrase_gap)
+            if next_touches:
+                end = nxt  # legato: sing right up to the next word
+            else:
+                room = nxt - gap
+                pause = max(0.0, nxt_word.start - w.end)
+                release = min(pause * cfg.pause_borrow, MAX_RELEASE)
+                end = min(max(w.end + release, start + want), room)
+            end = max(end, start + floor)
+            # Only a note that cannot be sung shorter moves the next one.
+            if end > nxt - (0.0 if next_touches else gap):
+                starts[i + 1] = end + (0.0 if next_touches else gap)
+                if next_touches:
+                    end = starts[i + 1]
+        out.append((Word(text=w.text, start=start, end=end), (w.start, w.end), touches))
+    return out
 
+
+def _sound(track, audio, sample_rate: int):
+    """Frame times and whether each 10 ms frame has sound in it.
+
+    From the recording's loudness when there is one - that catches unvoiced
+    consonants too - otherwise from the pitch tracker's voicing.
+    """
+    import numpy as np
+
+    if audio is None or len(audio) < sample_rate // 50:
+        return np.asarray(track.times), np.asarray(track.voiced, dtype=bool)
+    hop = sample_rate // 100
+    frames = len(audio) // hop
+    chunk = np.asarray(audio[: frames * hop], dtype=np.float64).reshape(frames, hop)
+    db = 20 * np.log10(np.sqrt(np.mean(chunk ** 2, axis=1)) + 1e-9)
+    threshold = max(np.percentile(db, 10) + 10.0, np.percentile(db, 99) - 35.0)
+    active = db > threshold
+    return np.arange(frames) / 100.0, active  # frame start times, as in F0Track
+
+
+def _tighten_to_sound(words: list[Word], times, active) -> list[Word]:
+    """Trim each word's span to where there is actually sound.
+
+    Whisper's word timestamps run into the silence around a word: "that" in
+    "I wanted to say ... that I love you" was given 1.32-1.88 s, eating most
+    of a 0.7 s pause, so the pause was sung over. The forced aligner fixes
+    this but needs 1.6 GB of free RAM; this needs none. Spans only ever
+    shrink, and a word with too little sound in it is left alone.
+    """
+    import numpy as np
+
+    out = []
+    for w in words:
+        mask = (times >= w.start) & (times < w.end) & active
+        idx = np.flatnonzero(mask)
+        if idx.size < 3:
+            out.append(w)
+            continue
+        start = max(w.start, float(times[idx[0]]))
+        end = min(w.end, float(times[idx[-1]]) + 0.01)  # to the end of the last frame
+        out.append(Word(text=w.text, start=start, end=end) if end - start >= 0.05 else w)
     return out
 
 
@@ -144,12 +219,16 @@ def build_notes(
     japanese_lyrics: bool = False,
     mora_floor: float | None = None,
     singing_state: dict | None = None,
+    audio=None,
+    sample_rate: int = 16000,
 ) -> list[Note]:
     """Combine words and the F0 track into notes ready for the ustx writer.
 
     `mora_floor` is the shortest note the voicebank can sing (see
     `voicebank.mora_floor`); it falls back to the configured minimum.
-    `singing_state` carries the sung style's key between phrases.
+    `singing_state` carries the sung style's key between phrases. `audio` is
+    the recording the words came from, used to trim their spans to where there
+    was sound; without it the pitch track's voicing is used.
     """
     # Exact phonemes beat a respelling, so check for a hint first: "kasane" is
     # k A s A n E rather than an approximation built from other English words.
@@ -163,8 +242,9 @@ def build_notes(
     respelled: list[Word] = []
     word_hints: list[str | None] = []
     joined: list[bool] = []  # legato: follows the previous note with no gap
-    use_legato = bool(getattr(cfg, "legato", False))
+    use_legato = bool(getattr(cfg, "legato", True))
     ordered = sorted((w for w in words if w.text), key=lambda x: x.start)
+    ordered = _tighten_to_sound(ordered, *_sound(track, audio, sample_rate))
     floor = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
     # Where the last word may sing to. The F0 track spans the whole chunk, so
     # its final frame is the end of the audio rather than the end of the speech.
@@ -202,15 +282,19 @@ def build_notes(
                 if position + 1 < len(ordered)
                 else max(utterance_end, w.end)
             )
-            # Only part of the pause is taken, so a real gap survives between
-            # words; taking all of it ran them together.
+            # A word's morae share its own span, plus the gap before the next
+            # word when that is too short to be a rest. Borrowing half of every
+            # pause stretched the word into the silence after it, which is what
+            # leaving a gap sounded like; the release before a rest is added
+            # once, by the layout below.
             pause = max(0.0, next_onset - w.end)
-            allowance = (w.end - w.start) + pause * cfg.pause_borrow
+            allowance = (w.end - w.start) + (pause if pause < cfg.phrase_gap_ms / 1000.0 else 0.0)
             step = min(cfg.max_mora_seconds, max(floor, allowance / len(morae)))
             for index, mora in enumerate(morae):
                 start = w.start + index * step
                 respelled.append(Word(text=mora, start=start, end=start + step))
                 word_hints.append(None)
+                # The morae of one word are sung connected (with `legato`).
                 joined.append(use_legato and index > 0)
             continue
 
@@ -239,15 +323,16 @@ def build_notes(
         word_hints.append(None)
         joined.append(False)
 
-    adjusted = _dedupe_spans(respelled, cfg, joined)
+    adjusted = _dedupe_spans(respelled, cfg, joined, floor if japanese_lyrics else None)
     if not adjusted:
         return []
 
-    words = [w for w, _ in adjusted]
+    words = [w for w, _, _ in adjusted]
+    joined = [touches for _, _, touches in adjusted]
     # Pitch comes from what was actually said. A note that had to be lengthened
     # covers audio belonging to the next word, so measuring over it would read
     # the wrong pitch.
-    spans = [spoken for _, spoken in adjusted]
+    spans = [spoken for _, spoken, _ in adjusted]
     raw = pitch_mod.assign_tones(spans, track, cfg)
 
     voiced_count = sum(1 for t in raw if t is not None)
