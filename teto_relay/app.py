@@ -525,6 +525,9 @@ class TetoRelay:
                 continue
 
             began = time.monotonic()
+            stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+            if self.cfg.keep_input_audio:
+                self._save_input(chunk, stamp)
             # Per-stage timings, so a slow utterance says which stage was slow.
             # Steady state is roughly stt 2.0s, align 0.06s, pitch 0.2s; a stage
             # an order of magnitude above that is a model loading late.
@@ -588,7 +591,6 @@ class TetoRelay:
                     )
                 except Exception:
                     self.last_kana = ""
-                stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
                 path = self.cfg.out_path / f"relay_{stamp}.ustx"
                 write_ustx(notes, path, self.bank, self.cfg)
                 done = timeline.lap("ustx")
@@ -620,6 +622,16 @@ class TetoRelay:
                 _drop_oldest_put(self.ustx_q, job, "ustx")
             except Exception:
                 log.exception("analysis failed for a %.2fs chunk", chunk.duration)
+
+    def _save_input(self, chunk, stamp: str) -> None:
+        """keep_input_audio: the phrase as the microphone heard it. Never raises."""
+        try:
+            import soundfile as sf
+
+            sf.write(str(self.cfg.out_path / f"relay_{stamp}_in.wav"), chunk.audio,
+                     chunk.sample_rate, subtype="PCM_16")
+        except Exception:  # noqa: BLE001 - a diagnostic must not cost the phrase
+            log.debug("could not save the input audio", exc_info=True)
 
     def _convert_loop(self) -> None:
         """Chunk -> RVC -> .wav on disk. The whole of voice mode.

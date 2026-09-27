@@ -57,7 +57,7 @@ GROUPS: dict[str, list[str]] = {
     ],
     # Where things are. Empty means "look in the usual places".
     "Setup": ["openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
-              "persistent_output"],
+              "persistent_output", "keep_input_audio"],
     "Fine tuning: pitch": [
         "target_tone", "shift_mode", "stable_shift", "shift_tolerance", "max_shift",
         "fix_octave_errors", "contour_smooth_ms", "contour_points", "contour_range_cents",
@@ -268,6 +268,7 @@ LABELS: dict[str, list[str]] = {
     "min_mora_seconds": ["Shortest mora", "Japanese banks. Below ~100 ms consonants swallow the vowel."],
     "max_mora_seconds": ["Longest mora", "Japanese banks. Caps how far a word spreads into a pause."],
     "pause_borrow": ["Sing into pauses", "0 keeps every pause, 1 uses them all up."],
+    "keep_input_audio": ["Keep what I said", "Saves each phrase you speak in the out folder, next to what she sang."],
     "persistent_output": ["Keep the output open", "Skips opening the device for every phrase. Experimental."],
     "silence_ms": ["Silence ends a phrase after", ""],
     "min_chunk_ms": ["Shortest phrase", ""],

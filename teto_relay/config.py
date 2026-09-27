@@ -292,6 +292,9 @@ class Config:
     # utterance; the `output` stage of the latency line shows how much on your
     # PC. Off until it has been tried on real hardware.
     persistent_output: bool = False
+    # Save what the microphone heard beside each rendered phrase in out/
+    # (relay_<time>_in.wav), so a phrase can be re-rendered or reported later.
+    keep_input_audio: bool = False
 
     # -------------------------------------------------------------- runtime
     out_dir: str = field(default_factory=lambda: str(paths.data_dir() / "out"))

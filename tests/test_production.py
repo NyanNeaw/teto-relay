@@ -2403,6 +2403,23 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertAlmostEqual(last[500.0], -END_FALL_CENTS)
         self.assertAlmostEqual(last[0.0], 0.0)
 
+    def test_keep_input_audio_saves_the_phrase_beside_the_render(self):
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.app import TetoRelay
+        from teto_relay.capture import Chunk
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            relay = TetoRelay.__new__(TetoRelay)  # only the saving is under test
+            relay.cfg = Config(out_dir=str(home / "out"), keep_input_audio=True)
+            audio = np.linspace(-0.5, 0.5, 1600, dtype=np.float32)
+            relay._save_input(Chunk(audio=audio, sample_rate=16000, reason="release"), "120000_000")
+            saved, rate = sf.read(home / "out" / "relay_120000_000_in.wav", dtype="float32")
+        self.assertEqual(rate, 16000)
+        self.assertEqual(len(saved), 1600)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
