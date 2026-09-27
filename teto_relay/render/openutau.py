@@ -365,8 +365,17 @@ class OpenUtauRenderer:
         part_doc = doc["voice_parts"][0]
         part = UVoicePart()
         part.trackNo = 0
-        part.position = int(part_doc["position"])
-        part.Duration = int(part_doc["duration"])
+        # The part is placed at 0 and its notes (and curves) carry its offset
+        # instead. In a hosted project OpenUtau places the phonemes relative to
+        # the part but reads the pitch curve at project time, so a part that
+        # starts later - which is every utterance: the part starts where the
+        # first word was said - sang every pitch that much late against its
+        # syllables. Measured: 0.2 semitones mean error with the part at 0 s,
+        # 1.5 at 0.5 s, 3.6 at 1.0 s. Leading silence is trimmed in _mix.
+        offset = int(part_doc["position"])
+        self._part_offset = offset
+        part.position = 0
+        part.Duration = int(part_doc["duration"]) + offset
 
         # Phonetic hints travel alongside the notes: UNote has no field for
         # them, so they are indexed positionally and read back in
@@ -375,7 +384,7 @@ class OpenUtauRenderer:
         for note_doc in part_doc["notes"]:
             note = project.CreateNote(
                 int(note_doc["tone"]),
-                int(note_doc["position"]),
+                int(note_doc["position"]) + offset,
                 int(note_doc["duration"]),
             )
             note.lyric = str(note_doc["lyric"])
@@ -838,7 +847,7 @@ class OpenUtauRenderer:
                     continue
                 curve = UCurve(project.expressions[abbr])
                 for x, y in zip(doc.get("xs") or [], doc.get("ys") or []):
-                    curve.xs.Add(int(x))
+                    curve.xs.Add(int(x) + getattr(self, "_part_offset", 0))
                     curve.ys.Add(int(y))
                 part.curves.Add(curve)
             except Exception:  # noqa: BLE001 - expression is a nicety, the notes are not
