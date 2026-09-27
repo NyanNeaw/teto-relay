@@ -2408,6 +2408,27 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
+    def test_touching_notes_touch_exactly_in_ticks(self):
+        # "to sing": rounding left "to" ending one tick before "sing", the
+        # phonemizer took that for a rest ("u -" + "- sI"): a hard cut.
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.ustx import build_project
+        from teto_relay.voicebank import Voicebank
+
+        cfg = Config()
+        bank = Voicebank(key="english", name="Teto", root=Path("/x/Teto"), flavour="en-cvvc")
+        tick = 1.0 / cfg.seconds_to_ticks(1.0)
+        # Start and length both 0.4 of a tick past a whole tick: each rounds
+        # down, and the next note's start (0.8 past) rounds up - a gap.
+        start, length = 96.4 * tick, 100.4 * tick
+        notes = [Note("used", 0.0, start, 60),
+                 Note("to", start, start + length, 60, legato=True),
+                 Note("sing", start + length, start + length + 0.5, 60, legato=True)]
+        blocks = build_project(notes, bank, cfg)["voice_parts"][0]["notes"]
+        for a, b in zip(blocks, blocks[1:]):
+            self.assertEqual(a["position"] + a["duration"], b["position"])
+
     def test_doubling_lays_late_detuned_copies_without_clipping(self):
         import numpy as np
 

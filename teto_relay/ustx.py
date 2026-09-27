@@ -101,6 +101,15 @@ def _space_in_ticks(notes: list[Note], blocks: list[dict], cfg) -> list[dict]:
     previous_note = None
     for note, block in zip(notes, blocks):
         if previous_end is not None:
+            touching = note.legato or note.start <= previous_note.end + 1e-6
+            if touching and block["position"] != previous_end:
+                # Rounded separately, position and duration could leave a
+                # one-tick gap between notes that touch - which the phonemizer
+                # hears as a rest: "to sing" was sung "to -" + "- sing", a hard
+                # stop and restart mid-phrase. Touching notes touch exactly.
+                end = block["position"] + block["duration"]
+                block["position"] = previous_end
+                block["duration"] = max(1, end - previous_end)
             gapped = note.start > previous_note.end and not note.legato
             earliest = previous_end + (1 if gapped else 0)
             if block["position"] < earliest:
