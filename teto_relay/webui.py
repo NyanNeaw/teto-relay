@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 # a phonemizer. `voicebank` has its own picker beside the character, and `mode`
 # is the UTAU / Voice switch in the top bar.
 ESSENTIALS: list[str] = [
-    "transpose", "playback_gain", "singing_style", "language",
+    "transpose", "playback_gain", "singing_style", "language", "lyrics_hint",
     "input_device", "output_device", "ptt_key",
 ]
 
@@ -232,6 +232,7 @@ LABELS: dict[str, list[str]] = {
     "rvc_filter_radius": ["Smooth pitch", "Higher is smoother and less breathy."],
     "rvc_rms_mix_rate": ["Keep your dynamics", "0 uses her loudness curve, 1 keeps yours."],
     "language": ["Language", "Needs a multilingual speech model - the .en ones only hear English."],
+    "lyrics_hint": ["Song lyrics", "Singing a song? Paste the lines you'll sing so every word is heard right. Clear it after."],
     "initial_prompt": ["Vocabulary hint", "Words to expect, so they are not misheard."],
     "beam_size": ["Search width", "Higher is more accurate and slower."],
     "no_speech_threshold": ["Silence cutoff", "Higher discards more as background noise."],

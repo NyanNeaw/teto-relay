@@ -116,6 +116,19 @@ def clean_lyric(text: str) -> str:
     return word.translate(_STRIP).strip()
 
 
+def whisper_prompt(cfg) -> str | None:
+    """The vocabulary hint, then the song lyrics if any.
+
+    Speech models mishear singing: the user's Senbonzakura came back as
+    全部覚悟が夜にまじで... from base, small and medium alike. Given the lyric
+    (lyrics_hint) as the text that came before, all three heard it exactly.
+    It leans every phrase towards those words, so it is for singing a song
+    and should be cleared afterwards.
+    """
+    parts = [str(cfg.initial_prompt or "").strip(), str(getattr(cfg, "lyrics_hint", "") or "").strip()]
+    return " ".join(p for p in parts if p) or None
+
+
 def max_new_tokens(seconds: float) -> int:
     """Tokens whisper may write for this much audio (see Transcriber.transcribe)."""
     return int(16 + 12 * max(0.0, seconds))
@@ -200,7 +213,7 @@ class Transcriber:
             compression_ratio_threshold=self.cfg.compression_ratio_threshold,
             log_prob_threshold=self.cfg.min_avg_logprob,
             beam_size=self.cfg.beam_size,
-            initial_prompt=self.cfg.initial_prompt or None,
+            initial_prompt=whisper_prompt(self.cfg),
             # Enough for fast speech (~12 tokens a second) and no more. On
             # repetitive input ("ムーリームーリー") whisper loops until its
             # 448-token limit, fails the compression check, and retries at

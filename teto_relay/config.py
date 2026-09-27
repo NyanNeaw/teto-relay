@@ -85,6 +85,9 @@ class Config:
     # as "ted oh" or "cassini tito" without it - a bigger model does not fix
     # that, because the problem is an unknown proper noun, not capacity.
     initial_prompt: str = "Kasane Teto, UTAU, vocaloid, voicebank."
+    # The words of the song you are about to sing, so they are heard right
+    # (stt.whisper_prompt). Paste the part you sing; clear it afterwards.
+    lyrics_hint: str = ""
     # Anti-hallucination gates. Whisper answers near-silence with confident
     # nonsense, so segments it is unsure about are discarded rather than sung.
     no_speech_threshold: float = 0.6

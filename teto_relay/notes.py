@@ -330,8 +330,12 @@ def build_notes(
     use_legato = bool(getattr(cfg, "legato", True))
     ordered = sorted((w for w in words if w.text), key=lambda x: x.start)
     ordered = _tighten_to_sound(ordered, *_sound(track, audio, sample_rate))
+    readings: list[str | None] = [None] * len(ordered)
     if japanese_lyrics:
         ordered = join_kanji_compounds(ordered)
+        # Read in context: a kanji's reading depends on what follows it
+        # (translit.phrase_kana); each word falls back to its own reading.
+        readings = translit.phrase_kana([w.text for w in ordered])
     floor = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
     # Where the last word may sing to. The F0 track spans the whole chunk, so
     # its final frame is the end of the audio rather than the end of the speech.
@@ -347,8 +351,10 @@ def build_notes(
             # Converted word by word: a lyric can hold several ("i am" from
             # "I'm", "twenty one" from "21"), and looked up as one string it
             # was never in the dictionary and came out as romanised letters.
-            parts = [translit.to_kana(part, source) for part in w.text.split()]
-            kana = "".join(p for p in parts if p)
+            kana = readings[position]
+            if not kana:
+                parts = [translit.to_kana(part, source) for part in w.text.split()]
+                kana = "".join(p for p in parts if p)
             if not kana:
                 log.info("%r is not in the dictionary; leaving it as-is", w.text)
                 respelled.append(w)

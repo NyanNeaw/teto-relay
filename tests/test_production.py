@@ -2359,6 +2359,42 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertNotIn("ー", [n.lyric for n in notes])
         self.assertEqual([n.lyric for n in notes], ["む", "う", "り", "い"])
 
+    def test_japanese_is_read_in_context(self):
+        # Senbonzakura as whisper splits it: 紛|レ was sung ふん れ and 届|カ
+        # とどけ か; 君 alone was くん. Read as a phrase, then shared back out.
+        from teto_relay.translit import japanese_to_kana, phrase_kana
+
+        words = ["千本桜", "夜", "ニ", "紛", "レ", "君", "ノ", "声", "モ", "届", "カ", "ナイヨ"]
+        self.assertEqual(phrase_kana(words), ["せんぼんざくら", "よる", "に", "まぎ", "れ", "きみ", "の",
+                                              "こえ", "も", "とど", "か", "ないよ"])
+        self.assertEqual(phrase_kana(["kasane", "テト"]), [None, "てと"])  # Latin: read on its own
+        for text, reading in [("今日は晴れ", "きょうははれ"), ("雨の日", "あめのひ"), ("月が", "つきが"),
+                              ("人は", "ひとは"), ("愛してる", "あいしてる"), ("明日", "あした")]:
+            self.assertEqual(japanese_to_kana(text), reading)
+
+    def test_song_lyrics_reach_whisper_after_the_vocabulary(self):
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        seen = {}
+
+        def transcribe(audio, **kwargs):
+            seen.update(kwargs)
+            return [], None
+
+        cfg = Config(initial_prompt="Kasane Teto.", lyrics_hint="千本桜 夜ニ紛レ")
+        t = Transcriber(cfg)
+        t._model = types.SimpleNamespace(transcribe=transcribe)
+        t.transcribe(np.zeros(16000, np.float32), 16000)
+        self.assertEqual(seen["initial_prompt"], "Kasane Teto. 千本桜 夜ニ紛レ")
+        cfg.lyrics_hint, cfg.initial_prompt = "", ""
+        t.transcribe(np.zeros(16000, np.float32), 16000)
+        self.assertIsNone(seen["initial_prompt"])
+
     def test_whisper_output_is_bounded_by_the_audio_length(self):
         # A repetitive Japanese phrase made whisper loop to its 448-token
         # limit at every fallback temperature: 17.7 s for 2 s of speech.

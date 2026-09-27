@@ -142,13 +142,88 @@ def expand_long_vowels(kana: str) -> str:
     return "".join(out)
 
 
-def japanese_to_kana(text: str) -> str:
-    """Japanese to plain hiragana - kanji read out, so the bank can sing it."""
+#: Readings pykakasi gets wrong in lyrics, by the item it splits out. On 46
+#: common lyric words it missed 7, all here: a lone kanji read the way it is
+#: read inside compounds (君 くん, 人 にん, 月 がつ, 日 にち), the greeting
+#: reading of 今日は, and 愛し as いとし.
+READING_FIXES = {
+    "君": "きみ", "人": "ひと", "月": "つき", "日": "ひ",
+    "今日は": "きょうは", "愛し": "あいし", "日本": "にほん",
+}
+
+
+def to_hiragana(text: str) -> str:
+    """Katakana as hiragana (ァ-ヶ); everything else as it is.
+
+    Songs often write okurigana in katakana - 夜ニ紛レ, 届カナイヨ - and
+    pykakasi only reads a kanji with its okurigana when that is hiragana:
+    紛レ came out ふんれ and 届カ とどけか instead of まぎれ and とどか.
+    """
+    return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in text)
+
+
+def _items(text: str) -> list[tuple[str, str]]:
+    """pykakasi's (original, hiragana) items, with READING_FIXES applied."""
     kakasi = _load_kakasi()
     if kakasi is None:
+        return [(text, text)]
+    return [(i["orig"], READING_FIXES.get(i["orig"], i["hira"])) for i in kakasi.convert(to_hiragana(text))]
+
+
+def japanese_to_kana(text: str) -> str:
+    """Japanese to plain hiragana - kanji read out, so the bank can sing it."""
+    if _load_kakasi() is None:
         return text
-    kana = "".join(part["hira"] for part in kakasi.convert(text)).strip()
+    kana = "".join(hira for _, hira in _items(text)).strip()
     return expand_long_vowels(kana)
+
+
+def _hiragana_char(c: str) -> bool:
+    return "ぁ" <= c <= "ゖ" or c == "ー"
+
+
+def phrase_kana(words: list[str]) -> list[str | None]:
+    """Each word's reading, read as part of its phrase.
+
+    Whisper splits a phrase into words, and a kanji is read by what follows
+    it: 紛 alone is ふん, 紛れ is まぎれ; 君 alone is くん, 君の is きみの. So the
+    whole phrase is read at once and the reading shared back out: a word's
+    own okurigana (kana at the end of an item) stays with it, and the kanji's
+    reading goes to the word the kanji is in. A word that is not Japanese, or
+    gets no reading, is None - the caller reads it on its own.
+    """
+    if _load_kakasi() is None or not words:
+        return [None] * len(words)
+    owners: list[int] = []
+    for index, word in enumerate(words):
+        owners.extend([index] * len(word))
+    text = "".join(words)
+    readings = [""] * len(words)
+    position = 0
+    for orig, hira in _items(text):
+        chars = list(range(position, position + len(orig)))
+        position += len(orig)
+        if not chars:
+            continue
+        if len({owners[c] for c in chars}) == 1:
+            readings[owners[chars[0]]] += hira
+            continue
+        # The item spans words: hand its trailing kana back one by one.
+        tail: list[tuple[int, str]] = []
+        plain = to_hiragana(orig)
+        while chars and hira and _hiragana_char(plain[len(chars) - 1]) and hira[-1] == plain[len(chars) - 1]:
+            tail.insert(0, (owners[chars[-1]], hira[-1]))
+            chars.pop()
+            hira = hira[:-1]
+        if chars:
+            readings[owners[chars[0]]] += hira
+        for owner, kana in tail:
+            readings[owner] += kana
+    out: list[str | None] = []
+    for word, reading in zip(words, readings):
+        kana = expand_long_vowels(reading.strip())
+        out.append(kana if kana and looks_japanese(word) and looks_japanese(kana) else None)
+    return out
 
 
 def _load_kakasi():
