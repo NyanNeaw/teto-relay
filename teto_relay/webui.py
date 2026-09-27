@@ -47,7 +47,7 @@ GROUPS: dict[str, list[str]] = {
     # levers on how long whisper takes.
     "Listening": [
         "whisper_model", "whisper_device", "whisper_compute_type", "beam_size",
-        "initial_prompt", "use_alignment", "align_device", "no_speech_threshold",
+        "initial_prompt", "align_morae", "use_alignment", "align_device", "no_speech_threshold",
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
     "Voice engine (RVC)": [
@@ -236,7 +236,8 @@ LABELS: dict[str, list[str]] = {
     "initial_prompt": ["Vocabulary hint", "Words to expect, so they are not misheard."],
     "beam_size": ["Search width", "Higher is more accurate and slower."],
     "no_speech_threshold": ["Silence cutoff", "Higher discards more as background noise."],
-    "use_alignment": ["Measure word timing", "Corrects the ~0.12 s error in the timings."],
+    "use_alignment": ["Measure word timing", "English: re-times words sound by sound. Can hurt accented English."],
+    "align_morae": ["Measure syllable timing", "Japanese: each syllable starts where you sang its vowel."],
     "align_device": ["Alignment on", ""],
     "pitch_method": ["Pitch tracker", "crepe is faster and steadier than pyin."],
     "crepe_model": ["Pitch model", ""],

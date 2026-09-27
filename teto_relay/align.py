@@ -257,7 +257,7 @@ def vowel_onsets(morae: list[str], audio: np.ndarray, sample_rate: int, cfg) -> 
     voicebank sings the consonant before it, as parts are written. An
     extension ("+") or anything unalignable is None.
     """
-    if not cfg.use_alignment or not morae:
+    if not getattr(cfg, "align_morae", True) or not morae:
         return [None] * len(morae)
     tokens, owners = [], []
     for index, mora in enumerate(morae):

@@ -79,7 +79,15 @@ class Config:
     # long. Both note length and pitch are read from those spans, so the error
     # propagates. Alignment measures them against the audio for about 0.06s per
     # utterance. Model is ~1.2GB, downloaded on first use.
-    use_alignment: bool = True
+    #
+    # Off by default for words: on the target user's accented English it made
+    # the singing harder to follow (word error 0.07 -> 0.12, twice), since it
+    # aligns by spelling. It helped on native text-to-speech.
+    use_alignment: bool = False
+    # The same aligner, timing each Japanese mora from where its vowel was
+    # sung (align.vowel_onsets). On the user's Japanese takes it brought the
+    # syllables closer to theirs (Senbonzakura +33%) and cut kana error.
+    align_morae: bool = True
     align_device: str = "cuda"  # falls back to cpu automatically
     # Primes whisper's vocabulary. "Teto" is out-of-vocabulary and comes back
     # as "ted oh" or "cassini tito" without it - a bigger model does not fix

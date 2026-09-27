@@ -358,6 +358,8 @@ class TetoRelay:
 
         if self.cfg.use_alignment:
             stage("aligner", lambda: align.refine([Word("test", 0.0, 0.4)], probe, sample_rate, self.cfg))
+        elif self.cfg.align_morae and self._japanese_lyrics():
+            stage("aligner", lambda: align.vowel_onsets(["あ"], probe, sample_rate, self.cfg))
 
         # 2. whisper last.
         def _whisper() -> None:

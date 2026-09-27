@@ -1379,7 +1379,7 @@ class TestAlignmentSurvivesOddWords(unittest.TestCase):
         words = [Word("hello", 0.0, 0.5), Word("会議", 0.5, 1.0), Word("there", 1.0, 1.5)]
         audio = np.zeros(16000, dtype=np.float32)
         with unittest.mock.patch.object(align, "_load", return_value=fake):
-            out = align.refine(words, audio, 16000, Config())
+            out = align.refine(words, audio, 16000, Config(use_alignment=True))
         self.assertEqual(out[1], words[1])  # kept whisper's timing
         self.assertAlmostEqual(out[0].start, 0.02)
         self.assertAlmostEqual(out[2].start, 0.12)
