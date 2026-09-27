@@ -528,8 +528,9 @@ class TestBuildNotes(unittest.TestCase):
         # "i" is lengthened past its 0.08 s to at least what it can be sung in...
         self.assertGreaterEqual(round(notes[0].duration, 6), round(note_floor("i", cfg), 6))
         self.assertGreater(notes[1].duration, notes[0].duration)
-        # ...but not by delaying "kasane", which is still where it was said.
-        self.assertAlmostEqual(notes[1].start, 0.15, places=6)
+        # ...delaying "kasane" by no more than onset_push_ms.
+        self.assertGreaterEqual(notes[1].start, 0.15 - 1e-6)
+        self.assertLessEqual(notes[1].start, 0.15 + cfg.onset_push_ms / 1000.0 + 1e-6)
 
     def test_onsets_stay_where_they_were_said(self):
         """Every note used to get 0.22 s a syllable first and push the rest
@@ -539,7 +540,9 @@ class TestBuildNotes(unittest.TestCase):
                 ("up", 0.88, 1.08), ("at", 1.08, 1.26), ("the", 1.26, 1.40), ("stars", 1.40, 1.68)]
         notes = build_notes([Word(t, a, b) for t, a, b in said], self._track(440.0, 3.0), cfg)
         for note, (_, start, _) in zip(notes, said):
-            self.assertAlmostEqual(note.start, start, places=6, msg=note.lyric)
+            # At most onset_push_ms late, and it never builds up along the phrase.
+            self.assertGreaterEqual(note.start, start - 1e-6, msg=note.lyric)
+            self.assertLessEqual(note.start, start + cfg.onset_push_ms / 1000.0 + 1e-6, msg=note.lyric)
 
     def test_a_pause_is_a_rest_not_a_longer_word(self):
         """Leave a gap and the word before it used to stretch into it."""

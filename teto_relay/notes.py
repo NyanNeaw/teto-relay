@@ -161,6 +161,12 @@ def _dedupe_spans(
             next_touches = nxt_joined or (connect and nxt_word.start - w.end < phrase_gap)
             if next_touches:
                 end = nxt  # legato: sing right up to the next word
+                # A word squeezed below its natural length may borrow a little
+                # of the next word's start - whisper's boundaries between
+                # quick words are rough, and "good" in "good morning" got 0.11 s
+                # and was swallowed. Bounded, so the drift cannot build up.
+                if end - start < want:
+                    end = min(start + want, nxt + cfg.onset_push_ms / 1000.0)
             else:
                 room = nxt - gap
                 pause = max(0.0, nxt_word.start - w.end)

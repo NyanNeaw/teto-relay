@@ -64,7 +64,7 @@ GROUPS: dict[str, list[str]] = {
         "pitch_method", "crepe_model", "crepe_device", "f0_min", "f0_max",
     ],
     "Fine tuning: timing": [
-        "min_note_seconds", "seconds_per_syllable", "note_gap_ms",
+        "min_note_seconds", "seconds_per_syllable", "note_gap_ms", "phrase_gap_ms", "onset_push_ms",
         # Japanese mode only - a note there is one mora, not one word.
         "min_mora_seconds", "max_mora_seconds", "pause_borrow",
     ],

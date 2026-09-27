@@ -133,6 +133,9 @@ class Config:
     # A pause at least this long is a rest: the phrase ends and she stops. A
     # shorter one - the ordinary space between words - is sung through.
     phrase_gap_ms: int = 250
+    # How far a word too short to sing clearly may push the next word's start
+    # later. Onsets are the rhythm, so it is small and never adds up.
+    onset_push_ms: int = 60
     # How long a note needs is a property of the word, not a flat number. A
     # single syllable needs far less room than three, and forcing every short
     # word up to one length made "I" and "a" drag like held notes.
@@ -508,6 +511,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "default_tone": (0, 127),
     "note_gap_ms": (0, 2_000),
     "phrase_gap_ms": (0, 5_000),
+    "onset_push_ms": (0, 500),
     "min_note_seconds": (0.0, 10.0),
     "seconds_per_syllable": (0.0, 10.0),
     "min_mora_seconds": (0.0, 5.0),
