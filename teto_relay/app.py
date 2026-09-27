@@ -523,105 +523,115 @@ class TetoRelay:
                 chunk = self.chunk_q.get(timeout=0.2)
             except queue.Empty:
                 continue
-
-            began = time.monotonic()
-            stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
-            if self.cfg.keep_input_audio:
-                self._save_input(chunk, stamp)
-            # Per-stage timings, so a slow utterance says which stage was slow.
-            # Steady state is roughly stt 2.0s, align 0.06s, pitch 0.2s; a stage
-            # an order of magnitude above that is a model loading late.
-            timeline = Timeline(released_at=chunk.captured_at)
-            timeline.add("speech", chunk.duration)
-            timeline.lap("wait_analyse", began)
-
             try:
-                words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
-                timeline.lap("asr")
-                if not words:
-                    log.info("No speech recognised in a %.2fs chunk", chunk.duration)
-                    continue
-
-                # Measure when each word was actually said. Whisper's timings
-                # are systematically early, and both the note length and the
-                # pitch window are taken from these spans.
-                if self.cfg.use_alignment:
-                    words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg)
-                    timeline.lap("align")
-
-                track = pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
-                timeline.lap("pitch")
-                if not track.any_voiced:
-                    log.info("No voiced frames; skipping this utterance")
-                    continue
-
-                notes = build_notes(
-                    words, track, self.cfg, self._octave_shift, self._target_tone,
-                    self._voice_baseline, self._japanese_lyrics(), self._mora_floor,
-                    self._singing_state,
-                )
-                if not notes:
-                    continue
-                timeline.lap("notes")
-                self._octave_shift = notes[0].shift
-
-                # Learn the speaker's usual pitch so short utterances have a
-                # reference for octave correction. Only phrases long enough to
-                # have self-corrected contribute - otherwise a lone mis-detected
-                # "hello" defines the baseline and every later one agrees with
-                # it. Weighted towards history so one reading cannot move it far.
-                measured = [n.detected_midi for n in notes if n.detected_midi is not None]
-                if len(measured) >= 3:
-                    centre = float(sorted(measured)[len(measured) // 2])
-                    self._voice_baseline = (
-                        centre
-                        if self._voice_baseline is None
-                        else 0.8 * self._voice_baseline + 0.2 * centre
-                    )
-
-                self.last_text = " ".join(n.lyric for n in notes)
-                self.last_notes = [(n.lyric, n.tone) for n in notes]
-                self.last_source = " ".join(w.text for w in words)
-                # The Japanese reading is shown even on an English bank, where
-                # it is a caption rather than what is sung - the panel labels
-                # the two lines so they cannot be confused.
-                try:
-                    self.last_kana = " ".join(
-                        jp_mod.english_to_kana(w.text) or w.text for w in words
-                    )
-                except Exception:
-                    self.last_kana = ""
-                path = self.cfg.out_path / f"relay_{stamp}.ustx"
-                write_ustx(notes, path, self.bank, self.cfg)
-                done = timeline.lap("ustx")
-
-                job = Job(
-                    captured_at=chunk.captured_at,
-                    text=self.last_text,
-                    ustx_path=path,
-                    analyse_seconds=done - began,
-                    timeline=timeline,
-                    queued_at=done,
-                )
-                log.info(
-                    "Analysed %.2fs of speech in %.2fs [%s] via %s",
-                    chunk.duration,
-                    job.analyse_seconds,
-                    " ".join(
-                        f"{name} {timeline.stages[name]:.2f}s"
-                        for name in ("asr", "align", "pitch", "notes", "ustx")
-                        if name in timeline.stages
-                    ),
-                    track.method or "unknown",
-                )
-                self.last_stats = {
-                    "speech": round(chunk.duration, 2),
-                    "analyse": round(job.analyse_seconds, 2),
-                    "method": track.method or "unknown",
-                }
-                _drop_oldest_put(self.ustx_q, job, "ustx")
+                job = self.analyse(chunk)
+                if job is not None:
+                    _drop_oldest_put(self.ustx_q, job, "ustx")
             except Exception:
                 log.exception("analysis failed for a %.2fs chunk", chunk.duration)
+
+    def analyse(self, chunk) -> "Job | None":
+        """One utterance: words + F0 -> notes -> .ustx on disk, ready to render.
+
+        The whole of the analysis stage, apart from the queues, so that tools
+        (tools/tuning_eval.py) score exactly what the relay sings. None when
+        there is nothing to sing.
+        """
+        began = time.monotonic()
+        stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
+        if self.cfg.keep_input_audio:
+            self._save_input(chunk, stamp)
+        # Per-stage timings, so a slow utterance says which stage was slow.
+        # Steady state is roughly stt 2.0s, align 0.06s, pitch 0.2s; a stage
+        # an order of magnitude above that is a model loading late.
+        timeline = Timeline(released_at=chunk.captured_at)
+        timeline.add("speech", chunk.duration)
+        timeline.lap("wait_analyse", began)
+
+        words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
+        timeline.lap("asr")
+        if not words:
+            log.info("No speech recognised in a %.2fs chunk", chunk.duration)
+            return None
+
+        # Measure when each word was actually said. Whisper's timings
+        # are systematically early, and both the note length and the
+        # pitch window are taken from these spans.
+        if self.cfg.use_alignment:
+            words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg)
+            timeline.lap("align")
+
+        track = pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
+        timeline.lap("pitch")
+        if not track.any_voiced:
+            log.info("No voiced frames; skipping this utterance")
+            return None
+
+        notes = build_notes(
+            words, track, self.cfg, self._octave_shift, self._target_tone,
+            self._voice_baseline, self._japanese_lyrics(), self._mora_floor,
+            self._singing_state,
+        )
+        if not notes:
+            return None
+        timeline.lap("notes")
+        self._octave_shift = notes[0].shift
+
+        # Learn the speaker's usual pitch so short utterances have a
+        # reference for octave correction. Only phrases long enough to
+        # have self-corrected contribute - otherwise a lone mis-detected
+        # "hello" defines the baseline and every later one agrees with
+        # it. Weighted towards history so one reading cannot move it far.
+        measured = [n.detected_midi for n in notes if n.detected_midi is not None]
+        if len(measured) >= 3:
+            centre = float(sorted(measured)[len(measured) // 2])
+            self._voice_baseline = (
+                centre
+                if self._voice_baseline is None
+                else 0.8 * self._voice_baseline + 0.2 * centre
+            )
+
+        self.last_text = " ".join(n.lyric for n in notes)
+        self.last_notes = [(n.lyric, n.tone) for n in notes]
+        self.last_source = " ".join(w.text for w in words)
+        # The Japanese reading is shown even on an English bank, where
+        # it is a caption rather than what is sung - the panel labels
+        # the two lines so they cannot be confused.
+        try:
+            self.last_kana = " ".join(
+                jp_mod.english_to_kana(w.text) or w.text for w in words
+            )
+        except Exception:
+            self.last_kana = ""
+        path = self.cfg.out_path / f"relay_{stamp}.ustx"
+        write_ustx(notes, path, self.bank, self.cfg)
+        done = timeline.lap("ustx")
+
+        job = Job(
+            captured_at=chunk.captured_at,
+            text=self.last_text,
+            ustx_path=path,
+            analyse_seconds=done - began,
+            timeline=timeline,
+            queued_at=done,
+        )
+        log.info(
+            "Analysed %.2fs of speech in %.2fs [%s] via %s",
+            chunk.duration,
+            job.analyse_seconds,
+            " ".join(
+                f"{name} {timeline.stages[name]:.2f}s"
+                for name in ("asr", "align", "pitch", "notes", "ustx")
+                if name in timeline.stages
+            ),
+            track.method or "unknown",
+        )
+        self.last_stats = {
+            "speech": round(chunk.duration, 2),
+            "analyse": round(job.analyse_seconds, 2),
+            "method": track.method or "unknown",
+        }
+        return job
 
     def _save_input(self, chunk, stamp: str) -> None:
         """keep_input_audio: the phrase as the microphone heard it. Never raises."""
