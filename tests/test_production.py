@@ -1662,9 +1662,10 @@ class TestSungStyle(unittest.TestCase):
                     detected_midi=60.0)
         musicalize([note], cfg, {})
         # Narrowed to half, then the phrase-start scoop drawn on top of it.
-        from teto_relay.performance import SCOOP_CENTS, SCOOP_MS, _add
+        from teto_relay.performance import SCOOP_CENTS, SCOOP_HOLD_MS, SCOOP_MS, _add
 
-        expected = _add([(0.0, 50.0), (100.0, -30.0)], [(0.0, -SCOOP_CENTS), (SCOOP_MS, 0.0)])
+        expected = _add([(0.0, 50.0), (100.0, -30.0)],
+                        [(0.0, -SCOOP_CENTS), (SCOOP_HOLD_MS, -SCOOP_CENTS), (SCOOP_MS, 0.0)])
         self.assertEqual(note.contour, expected)
 
     def test_scale_key_is_validated(self):
@@ -2406,6 +2407,23 @@ class TestHardwareFindings(unittest.TestCase):
                              subbanks=[SubBank(name="m", path=folder, entry_count=50, sample_aliases=())])
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
+
+    def test_doubling_lays_late_detuned_copies_without_clipping(self):
+        import numpy as np
+
+        from teto_relay.performance import DOUBLES, double_voice
+
+        rate = 44100
+        t = np.arange(rate) / rate
+        voice = (0.9 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        self.assertIs(double_voice(voice, rate, 0.0), voice)          # off: untouched
+        doubled = double_voice(voice, rate, 1.0)
+        self.assertLessEqual(float(np.max(np.abs(doubled))), 1.0)     # never clips
+        # Until the first copy arrives it is the lead alone, times one gain.
+        first_copy = int(rate * min(d for _, d in DOUBLES) / 1000)
+        gain = doubled[100] / voice[100]
+        self.assertTrue(np.allclose(doubled[:first_copy], voice[:first_copy] * gain, atol=1e-5))
+        self.assertFalse(np.allclose(doubled[rate // 2:], voice[rate // 2:], atol=0.05))
 
     def test_the_vowel_is_on_the_beat_and_the_consonant_before_it(self):
         # A voicebank sings a note's consonant before the note; the note must

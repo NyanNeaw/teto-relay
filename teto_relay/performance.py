@@ -17,7 +17,8 @@ Dynamics and breath (both styles) - part-level curves for WORLDLINE-R
       in its phrase, compressed the way a mix would (DYN_RATIO) - accents
       survive, nothing jumps out - with a soft attack at a phrase start and a
       fade at its end;
-    * ``brec``: a breathier tail as each phrase ends.
+    * ``brec``: a breathier tail as each phrase ends;
+    * ``voic``: and its last moment half-voiced, the way a line lets go.
 
 Units were measured on WORLDLINE-R rather than assumed (see NOTES.md): dyn is
 tenths of a dB and clips a little above +5 dB, so it only ever cuts; brec
@@ -32,11 +33,18 @@ from __future__ import annotations
 import numpy as np
 
 # ------------------------------------------------------------------ pitch
-SCOOP_CENTS = 70.0       # how far below the first note of a phrase it starts
-SCOOP_MS = 90.0          # and how long it takes to arrive
-PORTA_MIN_MS = 35.0      # glide from the previous note: a step...
-PORTA_PER_SEMITONE = 9.0  # ...plus this per semitone of interval...
-PORTA_MAX_MS = 95.0      # ...up to this
+# The scoop into a phrase: held a little below, then a quick rise - the
+# "__/----" entry tuners draw, rather than a slow slide.
+SCOOP_CENTS = 150.0      # how far below the first note of a phrase it starts
+SCOOP_HOLD_MS = 25.0     # held there this long
+SCOOP_MS = 85.0          # and on pitch by this point
+PORTA_MIN_MS = 30.0      # glide from the previous note: a step...
+PORTA_PER_SEMITONE = 6.0  # ...plus this per semitone of interval...
+PORTA_MAX_MS = 75.0      # ...up to this
+# How much of the glide happens before the new note starts. Low, so each
+# note holds its pitch until the last moment and then moves decisively -
+# a pitch that sags early toward the next note sounds unsure.
+PORTA_LEAD = 0.3
 OVERSHOOT_MIN_INTERVAL = 2
 OVERSHOOT_PER_SEMITONE = 7.0
 OVERSHOOT_MAX_CENTS = 35.0
@@ -55,6 +63,11 @@ FADE_DYN = -120.0        # and its end fades to this
 FADE_MS = 180.0
 BREATH_TAIL = 45.0       # brec at the very end of a phrase
 BREATH_MS = 250.0
+# And the last moment of a phrase half-voiced, the way a sung line lets go
+# (a devoiced ending, [a_0] in VOCALOID terms). voic 50 measured -6 dB and
+# airier on WORLDLINE-R; 0 is a whisper.
+DEVOICE_TO = 55.0
+DEVOICE_MS = 90.0
 
 
 def phrases(notes: list) -> list[list]:
@@ -87,14 +100,15 @@ def shape_pitch(notes: list, cfg) -> list:
             prev = phrase[i - 1] if i else None
             if prev is None:
                 if span >= SCOOP_MS * 2:
-                    note.contour = _add(note.contour, [(0.0, -SCOOP_CENTS), (SCOOP_MS, 0.0)])
+                    note.contour = _add(note.contour, [
+                        (0.0, -SCOOP_CENTS), (SCOOP_HOLD_MS, -SCOOP_CENTS), (SCOOP_MS, 0.0)])
             else:
                 interval = note.tone - prev.tone
                 glide = min(PORTA_MAX_MS, PORTA_MIN_MS + PORTA_PER_SEMITONE * abs(interval))
                 # The glide straddles the boundary: it leaves the previous note
                 # a little before this one starts and lands a little after.
-                note.lead_in_ms = glide * 0.5
-                land = glide * 0.5
+                note.lead_in_ms = glide * PORTA_LEAD
+                land = glide * (1.0 - PORTA_LEAD)
                 if abs(interval) >= OVERSHOOT_MIN_INTERVAL and span >= land + OVERSHOOT_SETTLE_MS * 1.3:
                     peak = min(OVERSHOOT_MAX_CENTS, OVERSHOOT_PER_SEMITONE * abs(interval))
                     sign = 1.0 if interval > 0 else -1.0
@@ -147,6 +161,7 @@ def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tupl
 
     dyn: list[tuple[float, float]] = []
     brec: list[tuple[float, float]] = []
+    voic: list[tuple[float, float]] = []
     for phrase in phrases(notes):
         levels = [level(n) for n in phrase]
         known = [v for v in levels if v is not None]
@@ -175,8 +190,10 @@ def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tupl
 
         tail = min(BREATH_MS / 1000.0, last.duration * 0.6)
         brec.extend([(last.end - tail, 0.0), (last.end, BREATH_TAIL)])
+        devoice = min(DEVOICE_MS / 1000.0, last.duration * 0.3)
+        voic.extend([(last.end - devoice, 100.0), (last.end, DEVOICE_TO)])
 
-    return {"dyn": _monotonic(dyn), "brec": _monotonic(brec)}
+    return {"dyn": _monotonic(dyn), "brec": _monotonic(brec), "voic": _monotonic(voic)}
 
 
 def _monotonic(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
@@ -185,3 +202,36 @@ def _monotonic(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
     for x, y in sorted(points, key=lambda p: p[0]):
         out[round(x, 4)] = y
     return sorted(out.items())
+
+
+# ------------------------------------------------------------- doubling
+#: The copies laid under the lead: (cents detuned, ms late). Slightly sharp
+#: and slightly flat, a little behind - two takes that are nearly the same.
+DOUBLES = ((7.0, 21.0), (-9.0, 32.0))
+
+
+def double_voice(audio, rate: int, amount: float):
+    """Lay quiet, slightly detuned and delayed copies under the voice.
+
+    Tuners double a lead with a second take for a fuller sound. Rendering her
+    twice would double the render time - the slowest stage there is - so
+    this is an effect on the finished audio instead. `amount` 0 is off; 1 lays
+    each copy at half the lead's level.
+    """
+    audio = np.asarray(audio, dtype=np.float32)
+    if amount <= 0 or audio.size == 0:
+        return audio
+    n = audio.size
+    out = audio.astype(np.float64).copy()
+    for cents, delay_ms in DOUBLES:
+        ratio = 2.0 ** (cents / 1200.0)
+        # Reading the audio slightly faster raises its pitch by `cents`.
+        shifted = np.interp(np.arange(n) * ratio, np.arange(n), audio, right=0.0)
+        delay = int(rate * delay_ms / 1000.0)
+        copy = np.zeros(n)
+        copy[delay:] = shifted[: n - delay]
+        out += copy * (0.5 * amount)
+    peak = float(np.max(np.abs(out)))
+    if peak > 1.0:
+        out /= peak
+    return out.astype(np.float32)

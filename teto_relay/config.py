@@ -223,6 +223,9 @@ class Config:
     # it (compressed), a soft attack and a fade per phrase, a breathier tail
     # as each phrase ends. WORLDLINE-R curves; see teto_relay.performance.
     expressive: bool = True
+    # A doubled lead: quiet, slightly detuned and delayed copies under her
+    # voice for a fuller sound (teto_relay.performance.double_voice). 0 is off.
+    double_voice: float = 0.0
 
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
@@ -532,6 +535,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "render_timeout_seconds": (1.0, 600.0),
     "sung_contour_amount": (0.0, 1.0),
     "sung_melody_range": (0.5, 3.0),
+    "double_voice": (0.0, 1.0),
     "vibrato_min_seconds": (0.05, 10.0),
     "vibrato_depth_cents": (0.0, 200.0),
     "vibrato_period_ms": (40.0, 1000.0),
