@@ -1350,6 +1350,21 @@ class TestFlavourDetection(unittest.TestCase):
     def test_english_xsampa(self):
         self.assertEqual(_detect_flavour(Path("bank"), ["_b{_b{_b-", "d+ju"]), "en-cvvc")
 
+    def test_english_arpabet(self):
+        """An ARPAsing bank ("- hh", "aa", "aa -") was "unknown" and sang nothing."""
+        aliases = ["- b", "b -", "- hh", "hh -", "- aa", "aa", "aa -", "aa r", "ae n",
+                   "- ow", "ow", "ow -", "n", "ng"]
+        self.assertEqual(_detect_flavour(Path("Miku Eng"), aliases), "en-arpa")
+        # Even with "English" in its folder name, which used to mean X-SAMPA.
+        self.assertEqual(_detect_flavour(Path("Some English bank"), aliases), "en-arpa")
+        bank = Voicebank(key="m", name="m", root=Path("m"), flavour="en-arpa")
+        self.assertTrue(bank.phonemizer.endswith("ArpasingPhonemizer"))
+
+    def test_japanese_vowels_are_not_arpabet(self):
+        """Romaji CV banks share a few letters with ARPAbet; they must stay Japanese."""
+        aliases = ["あ", "い", "- か", "か", "a", "i", "u", "e", "o", "n"]
+        self.assertNotEqual(_detect_flavour(Path("bank"), aliases), "en-arpa")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

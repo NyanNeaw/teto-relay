@@ -222,6 +222,7 @@ class OpenUtauRenderer:
         # Built once and reused: constructing it waits on the async dictionary
         # load, which would otherwise cost ~1.3s on every single utterance.
         self._phonemizer = self._make_phonemizer(cfg.phonemizer or bank.phonemizer)
+        self._xsampa = (cfg.phonemizer or bank.phonemizer).endswith("EnXSampaPhonemizer")
         log.info("OpenUtau backend ready: singer=%s renderer=%s", self.singer.Name, self.renderer)
 
     # ------------------------------------------------------------ singer
@@ -381,7 +382,9 @@ class OpenUtauRenderer:
             self._apply_pitch(note, note_doc)
             self._apply_vibrato(note, note_doc)
             part.notes.Add(note)
-            self._hints.append(note_doc.get("phonetic_hint") or None)
+            # Hints are X-SAMPA, which only the X-SAMPA phonemizer reads; any
+            # other would look them up as its own symbols and sing nothing.
+            self._hints.append((note_doc.get("phonetic_hint") or None) if self._xsampa else None)
 
         project.parts.Add(part)
         # voiceParts is a cached view that AfterLoad normally builds; it is null

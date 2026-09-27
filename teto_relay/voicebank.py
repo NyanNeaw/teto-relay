@@ -27,6 +27,8 @@ _ENCODINGS = ("utf-8-sig", "cp932", "utf-8", "latin-1")
 # Phonemizers that ship in OpenUtau.Plugin.Builtin, keyed by bank flavour.
 PHONEMIZERS = {
     "en-cvvc": "OpenUtau.Plugin.Builtin.EnXSampaPhonemizer",
+    # ARPAbet aliases ("- hh", "aa", "aa -", "eh r"): OpenUtau's "EN ARPA".
+    "en-arpa": "OpenUtau.Plugin.Builtin.ArpasingPhonemizer",
     "ja-vcv": "OpenUtau.Plugin.Builtin.JapaneseVCVPhonemizer",
     "ja-cv": "OpenUtau.Core.DefaultPhonemizer",
 }
@@ -117,7 +119,7 @@ class Voicebank:
     name: str  # human name from character.txt
     root: Path  # the singer root OpenUtau should load
     subbanks: list[SubBank] = field(default_factory=list)
-    flavour: str = "unknown"  # en-cvvc | ja-vcv | ja-cv | unknown
+    flavour: str = "unknown"  # en-cvvc | en-arpa | ja-vcv | ja-cv | unknown
 
     @property
     def phonemizer(self) -> str:
@@ -150,6 +152,21 @@ _KANA_HINT = re.compile(r"[぀-ヿ]")
 # n - a "-" or "*" marker means CV, which is what tripped the first version of
 # this heuristic on the tandoku bank.
 _VCV_ALIAS = re.compile(r"^[aiueon]\s+\S")
+# ARPAbet, as ARPAsing banks spell their aliases: "- hh", "aa", "aa -", "eh r".
+_ARPABET = frozenset(
+    "aa ae ah ao aw ax ay eh er ey ih iy ow oy uh uw "
+    "b ch d dh dx el f g hh jh k l m n ng p q r s sh t th v w y z zh".split()
+)
+
+
+def _looks_arpabet(aliases: list[str]) -> bool:
+    """Most aliases are ARPAbet phones, with "-" as the word-edge marker."""
+    tokens = [a.split() for a in aliases if a.strip()]
+    if not tokens:
+        return False
+    arpa = sum(1 for t in tokens if all(x == "-" or x in _ARPABET for x in t)
+               and any(x in _ARPABET for x in t))
+    return arpa > len(tokens) * 0.8
 
 
 def _detect_flavour(bank_dir: Path, aliases: list[str]) -> str:
@@ -157,6 +174,10 @@ def _detect_flavour(bank_dir: Path, aliases: list[str]) -> str:
     path_str = str(bank_dir)
     name_blob = path_str.lower()
 
+    # Before the name check: an ARPAsing bank is often called "English" too,
+    # and sung through the X-SAMPA phonemizer it found no samples at all.
+    if _looks_arpabet(aliases):
+        return "en-arpa"
     if "english" in name_blob or "英語" in path_str or _XSAMPA_HINT.search(blob):
         return "en-cvvc"
     # Explicit naming beats sampling when the bank says what it is.
