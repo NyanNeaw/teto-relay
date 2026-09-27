@@ -888,10 +888,6 @@ class OpenUtauRenderer:
             raise RenderError(f"{ustx_path.name} rendered no audio")
 
         mixed = self._mix(segments)
-        if float(getattr(self.cfg, "double_voice", 0.0)) > 0:
-            from ..performance import double_voice
-
-            mixed = double_voice(mixed, WORLDLINE_SAMPLE_RATE, float(self.cfg.double_voice))
         out_wav = Path(out_wav)
         out_wav.parent.mkdir(parents=True, exist_ok=True)
         sf.write(out_wav, mixed, WORLDLINE_SAMPLE_RATE)

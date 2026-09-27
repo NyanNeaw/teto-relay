@@ -228,7 +228,10 @@ class Config:
     expressive: bool = True
     # A doubled lead: quiet, slightly detuned and delayed copies under her
     # voice for a fuller sound (teto_relay.performance.double_voice). 0 is off.
-    double_voice: float = 0.0
+    # By default only on phrases that were sung - it thickens a sung line and
+    # muddies speech (the user's verdict) - "always" doubles every phrase.
+    double_voice: float = 0.5
+    double_when: str = "singing"
 
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
@@ -489,6 +492,7 @@ CHOICES: dict[str, set[str]] = {
     "whisper_device": {"cpu", "cuda", "auto"},
     "singing_style": {"speech", "sung"},
     "scale": {"major", "minor", "pentatonic", "chromatic"},
+    "double_when": {"singing", "always"},
     "whisper_compute_type": {
         "default", "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
         "int16", "float16", "bfloat16", "float32",

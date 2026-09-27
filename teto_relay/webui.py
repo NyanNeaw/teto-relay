@@ -39,7 +39,7 @@ ESSENTIALS: list[str] = [
 # appears, under "Other", so new options are never silently hidden.
 GROUPS: dict[str, list[str]] = {
     "Singing": [
-        "legato", "expressive", "double_voice", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
+        "legato", "expressive", "double_voice", "double_when", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
         "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
         "final_hold_seconds", "emit_contour",
     ],
@@ -257,6 +257,7 @@ LABELS: dict[str, list[str]] = {
     "scale": ["Scale", "Sung style: which notes are allowed."],
     "scale_key": ["Key", "Sung style: auto finds it from what you say, or pick one (C, F#, Bb...)."],
     "double_voice": ["Double her voice", "Layers a second take under her for a fuller sound. 0 is off."],
+    "double_when": ["Double when", "singing: only phrases you sing, not ones you speak."],
     "sung_melody_range": ["Melody range", "Sung style: 1 keeps your intervals; higher makes the tune move more."],
     "sung_contour_amount": ["Keep your inflection", "Sung style: 0 holds each note flat, 1 keeps all of it."],
     "vibrato_min_seconds": ["Vibrato from", "Sung style: notes at least this long get vibrato."],
@@ -532,6 +533,7 @@ def _meta(cfg: Config) -> dict:
             "renderer_backend": ["openutau", "null"],
             "shift_mode": ["semitone", "octave"],
             "singing_style": ["speech", "sung"],
+            "double_when": ["singing", "always"],
             "scale": ["major", "minor", "pentatonic", "chromatic"],
             "scale_key": ["auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
             "pitch_method": ["crepe", "pyin"],

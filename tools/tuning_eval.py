@@ -168,6 +168,8 @@ def main() -> int:
             continue
         said = relay.last_source
         wav = relay.renderer.render(job.ustx_path, out / (Path(path).stem + ".wav"))
+        job.wav_path = wav
+        relay.finish_render(job)
         sung, rate = sf.read(str(wav), dtype="float32", always_2d=True)
         sung = sung.mean(axis=1)
 

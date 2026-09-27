@@ -56,6 +56,8 @@ class Job:
     timeline: Timeline = field(default_factory=Timeline)
     # When the job was last put on a queue, so the wait can be charged.
     queued_at: float = 0.0
+    # The phrase was sung rather than spoken (pitch.held_share).
+    sung: bool = False
 
     @property
     def age(self) -> float:
@@ -616,6 +618,7 @@ class TetoRelay:
             analyse_seconds=done - began,
             timeline=timeline,
             queued_at=done,
+            sung=pitch_mod.held_share(track) >= pitch_mod.SUNG_HELD_SHARE,
         )
         log.info(
             "Analysed %.2fs of speech in %.2fs [%s] via %s",
@@ -634,6 +637,22 @@ class TetoRelay:
             "method": track.method or "unknown",
         }
         return job
+
+    def finish_render(self, job: "Job") -> None:
+        """Effects on the rendered audio: the doubled lead, on sung phrases
+        (or always, with double_when). Never costs the phrase."""
+        amount = float(self.cfg.double_voice)
+        if amount <= 0 or not (job.sung or self.cfg.double_when == "always"):
+            return
+        try:
+            import soundfile as sf
+
+            from .performance import double_voice
+
+            audio, rate = sf.read(str(job.wav_path), dtype="float32")
+            sf.write(str(job.wav_path), double_voice(audio, rate, amount), rate)
+        except Exception:  # noqa: BLE001
+            log.debug("could not double %s", job.wav_path, exc_info=True)
 
     def _save_input(self, chunk, stamp: str) -> None:
         """keep_input_audio: the phrase as the microphone heard it. Never raises."""
@@ -717,6 +736,7 @@ class TetoRelay:
             try:
                 job.wav_path = job.ustx_path.with_suffix(".wav")
                 self.renderer.render(job.ustx_path, job.wav_path)
+                self.finish_render(job)
                 done = job.timeline.lap("render")
                 for stage, seconds in (getattr(self.renderer, "last_timings", None) or {}).items():
                     job.timeline.add(stage, seconds)

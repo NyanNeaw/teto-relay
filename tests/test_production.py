@@ -2359,6 +2359,44 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertNotIn("ー", [n.lyric for n in notes])
         self.assertEqual([n.lyric for n in notes], ["む", "う", "り", "い"])
 
+    def test_sung_phrases_are_told_from_spoken_ones(self):
+        import numpy as np
+
+        from teto_relay import pitch as pitch_mod
+
+        n = 300
+        times = np.arange(n) / 100.0
+        held = np.repeat([220.0, 247.0, 262.0], 100)                  # three held notes
+        sliding = 220.0 * 2 ** (np.sin(np.arange(n) / 9.0) * 3 / 12)   # speech-like glides
+        for f0, sung in ((held, True), (sliding, False)):
+            track = pitch_mod.F0Track(times=times, f0=f0, voiced=np.ones(n, bool), sample_rate=16000)
+            share = pitch_mod.held_share(track)
+            self.assertEqual(share >= pitch_mod.SUNG_HELD_SHARE, sung, share)
+
+    def test_doubling_only_on_sung_phrases_by_default(self):
+        import tempfile
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.app import Job, TetoRelay
+        from teto_relay.config import Config
+
+        tone = (0.5 * np.sin(2 * np.pi * 440 * np.arange(22050) / 22050)).astype(np.float32)
+        with tempfile.TemporaryDirectory() as tmp:
+            def doubled(sung, **cfg):
+                relay = TetoRelay.__new__(TetoRelay)
+                relay.cfg = Config(**{"double_voice": 0.5, **cfg})
+                path = Path(tmp) / "x.wav"
+                sf.write(path, tone, 22050)
+                relay.finish_render(Job(captured_at=0.0, text="", wav_path=path, sung=sung))
+                return not np.allclose(sf.read(path, dtype="float32")[0], tone, atol=1e-3)
+
+            self.assertTrue(doubled(True))
+            self.assertFalse(doubled(False))
+            self.assertTrue(doubled(False, double_when="always"))
+            self.assertFalse(doubled(True, double_voice=0.0))
+
     def test_japanese_is_read_in_context(self):
         # Senbonzakura as whisper splits it: 紛|レ was sung ふん れ and 届|カ
         # とどけ か; 君 alone was くん. Read as a phrase, then shared back out.
