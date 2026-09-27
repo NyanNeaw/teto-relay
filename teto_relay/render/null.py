@@ -16,6 +16,7 @@ import numpy as np
 import soundfile as sf
 
 from ..pitch import midi_to_hz
+from ..ustx import CENTS_PER_PITCH_UNIT
 from ..ustx import load_ustx
 from .base import RenderError
 
@@ -72,9 +73,11 @@ class NullRenderer:
         t = np.arange(length) / self.sample_rate
         base_midi = float(note["tone"])
 
-        # Interpolate the cents contour across the note, so the preview carries
-        # the same prosody the ustx describes.
-        points = [(p["x"], p["y"]) for p in note.get("pitch", {}).get("data", [])]
+        # Interpolate the contour across the note, so the preview carries the
+        # same prosody the ustx describes. The ustx holds it in OpenUtau's
+        # tenths of a semitone; this works in cents.
+        points = [(p["x"], p["y"] * CENTS_PER_PITCH_UNIT)
+                  for p in note.get("pitch", {}).get("data", [])]
         points = [(x, y) for x, y in points if x >= 0]
         if len(points) >= 2:
             xs = np.array([x / 1000.0 for x, _ in points])

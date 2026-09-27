@@ -26,11 +26,19 @@ log = logging.getLogger(__name__)
 USTX_VERSION = "0.6"
 
 
+#: OpenUtau's pitch points are in tenths of a semitone, not cents: y=30 sings
+#: three semitones up. Note.contour is in cents, so it is divided on the way
+#: out. Writing cents as-is made every inflection ten times too big - a
+#: "hello" shown as tone 62 was sung at MIDI 86.7.
+CENTS_PER_PITCH_UNIT = 10.0
+
+
 def _pitch_block(note: Note, cfg) -> dict:
     """The note's pitch envelope.
 
     x is milliseconds relative to the note start and may be negative (the
-    lead-in from the previous note); y is cents away from the note's tone.
+    lead-in from the previous note); y is in OpenUtau's unit, tenths of a
+    semitone away from the note's tone (see CENTS_PER_PITCH_UNIT).
     """
     if not note.contour:
         # The flat two-point envelope OpenUtau writes for an untouched note.
@@ -40,7 +48,8 @@ def _pitch_block(note: Note, cfg) -> dict:
         # Guarantee a lead-in point at or before the note start.
         if points[0][0] > -40.0:
             points.insert(0, (-40.0, points[0][1]))
-        data = [{"x": float(x), "y": float(y), "shape": "io"} for x, y in points]
+        data = [{"x": float(x), "y": float(y) / CENTS_PER_PITCH_UNIT, "shape": "io"}
+                for x, y in points]
     return {"data": data, "snap_first": True}
 
 

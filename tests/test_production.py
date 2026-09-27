@@ -2270,6 +2270,39 @@ class TestHardwareFindings(unittest.TestCase):
         worker.join(timeout=5)
         self.assertGreaterEqual(sum(received), 16000)
 
+    def test_pitch_contour_is_written_in_openutau_units(self):
+        # OpenUtau's pitch points are tenths of a semitone (measured: y=30
+        # sings +3 semitones, y=100 sings +10). The contour went out in cents,
+        # so a "hello" shown as tone 62 was sung at MIDI 86.7.
+        import tempfile
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.render.null import NullRenderer
+        from teto_relay.ustx import build_project, write_ustx
+        from teto_relay.voicebank import Voicebank
+
+        note = Note(lyric="a", start=0.0, end=1.0, tone=60,
+                    contour=[(0.0, 300.0), (1000.0, 300.0)])  # +3 semitones, in cents
+        bank = Voicebank(key="tandoku", name="Teto", root=Path("/x/Teto"), flavour="ja-cv")
+        block = build_project([note], bank, Config())["voice_parts"][0]["notes"][0]
+        self.assertEqual({p["y"] for p in block["pitch"]["data"]}, {30.0})
+
+        # The tone renderer reads the unit back: +3 semitones, not +30 or +0.3.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_ustx([note], Path(tmp) / "p.ustx", bank, Config())
+            wav = NullRenderer(Config()).render(path, Path(tmp) / "p.wav")
+            audio, rate = sf.read(wav)
+        audio = audio if audio.ndim == 1 else audio.mean(axis=1)
+        middle = audio[len(audio) // 4: 3 * len(audio) // 4]
+        spectrum = np.abs(np.fft.rfft(middle * np.hanning(len(middle))))
+        peak = np.fft.rfftfreq(len(middle), 1 / rate)[np.argmax(spectrum)]
+        midi = 69 + 12 * np.log2(peak / 440.0)
+        self.assertAlmostEqual(midi, 63.0, delta=0.3)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
