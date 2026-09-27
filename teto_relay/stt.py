@@ -112,6 +112,11 @@ def clean_lyric(text: str) -> str:
     return word.translate(_STRIP).strip()
 
 
+def max_new_tokens(seconds: float) -> int:
+    """Tokens whisper may write for this much audio (see Transcriber.transcribe)."""
+    return int(16 + 12 * max(0.0, seconds))
+
+
 def pick_compute_type(device: str, requested: str) -> str:
     """`requested` if the device can run it, otherwise the best type it can.
 
@@ -192,6 +197,12 @@ class Transcriber:
             log_prob_threshold=self.cfg.min_avg_logprob,
             beam_size=self.cfg.beam_size,
             initial_prompt=self.cfg.initial_prompt or None,
+            # Enough for fast speech (~12 tokens a second) and no more. On
+            # repetitive input ("ムーリームーリー") whisper loops until its
+            # 448-token limit, fails the compression check, and retries at
+            # every fallback temperature: 17.7 s for a 2 s phrase on the
+            # CPU, with the next phrase queued behind it. Capped: ~5 s.
+            max_new_tokens=max_new_tokens(len(audio) / sample_rate),
         )
 
         words: list[Word] = []

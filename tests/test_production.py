@@ -2330,6 +2330,33 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertNotIn("ー", [n.lyric for n in notes])
         self.assertEqual([n.lyric for n in notes], ["む", "う", "り", "い"])
 
+    def test_whisper_output_is_bounded_by_the_audio_length(self):
+        # A repetitive Japanese phrase made whisper loop to its 448-token
+        # limit at every fallback temperature: 17.7 s for 2 s of speech.
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        seen = {}
+
+        def transcribe(audio, **kwargs):
+            seen.update(kwargs)
+            return [], None
+
+        transcriber = Transcriber(Config())
+        transcriber._model = types.SimpleNamespace(transcribe=transcribe)
+        transcriber.transcribe(np.zeros(2 * 16000, np.float32), 16000)
+        two_seconds = seen["max_new_tokens"]
+        transcriber.transcribe(np.zeros(10 * 16000, np.float32), 16000)
+        # Room for fast speech (well over 10 tokens a second)...
+        self.assertGreaterEqual(two_seconds, 30)
+        self.assertGreater(seen["max_new_tokens"], two_seconds)
+        # ...but nowhere near the 448 a runaway loop fills.
+        self.assertLess(two_seconds, 100)
+
     def test_a_supported_compute_type_is_kept(self):
         import types
         import unittest.mock
