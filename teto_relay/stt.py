@@ -109,6 +109,37 @@ def clean_lyric(text: str) -> str:
     return word.translate(_STRIP).strip()
 
 
+def pick_compute_type(device: str, requested: str) -> str:
+    """`requested` if the device can run it, otherwise the best type it can.
+
+    CTranslate2 refuses a compute type the hardware has no fast path for, and
+    it does so when the model loads - which is on the first utterance if the
+    warm-up failed, and again on every utterance after it. float16 on a
+    GTX 10xx (Pascal) is the common case: the relay said "running" and then
+    every phrase failed with a ValueError.
+    """
+    if not requested or requested in ("default", "auto"):
+        return requested
+    try:
+        import ctranslate2
+
+        supported = ctranslate2.get_supported_compute_types(device.split(":")[0])
+    except Exception:  # noqa: BLE001 - let WhisperModel report a broken device itself
+        return requested
+    if requested in supported:
+        return requested
+    # int8 first: on GPUs without fast float16 it is also the fastest.
+    for choice in ("int8", "int8_float32", "float32"):
+        if choice in supported:
+            log.warning(
+                "whisper_compute_type %r is not supported on %s here (supported: %s); "
+                "using %r. Set it to %r to hide this warning.",
+                requested, device, ", ".join(sorted(supported)), choice, choice,
+            )
+            return choice
+    return requested
+
+
 class Transcriber:
     """Lazily-loaded faster-whisper wrapper. Safe to call from one worker thread."""
 
@@ -124,16 +155,17 @@ class Transcriber:
                 return
             from faster_whisper import WhisperModel
 
+            compute_type = pick_compute_type(self.cfg.whisper_device, self.cfg.whisper_compute_type)
             log.info(
                 "Loading whisper %r (%s, %s)...",
                 self.cfg.whisper_model,
                 self.cfg.whisper_device,
-                self.cfg.whisper_compute_type,
+                compute_type,
             )
             self._model = WhisperModel(
                 self.cfg.whisper_model,
                 device=self.cfg.whisper_device,
-                compute_type=self.cfg.whisper_compute_type,
+                compute_type=compute_type,
             )
             log.info("Whisper ready")
 

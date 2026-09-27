@@ -2161,5 +2161,42 @@ class TestReReviewFindings(unittest.TestCase):
         self.assertTrue(all(s.closed for s in opened), "a stream was left open")
 
 
+class TestHardwareFindings(unittest.TestCase):
+    """Found running the branch on the target PC (Windows, GTX 1060)."""
+
+    def test_an_unsupported_whisper_compute_type_falls_back(self):
+        # float16 on a Pascal GPU: CTranslate2 raised ValueError when the
+        # model loaded, so every utterance failed while the relay said running.
+        import types
+        import unittest.mock
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        fake_ct2 = types.SimpleNamespace(
+            get_supported_compute_types=lambda device: {"int8", "int8_float32", "float32"}
+        )
+        model = unittest.mock.MagicMock()
+        fake_fw = types.SimpleNamespace(WhisperModel=model)
+        cfg = Config()
+        cfg.whisper_device, cfg.whisper_compute_type = "cuda", "float16"
+        with unittest.mock.patch.dict(sys.modules, {"ctranslate2": fake_ct2, "faster_whisper": fake_fw}), \
+                self.assertLogs("teto_relay.stt", "WARNING") as logs:
+            Transcriber(cfg).load()
+        self.assertEqual(model.call_args.kwargs["compute_type"], "int8")
+        self.assertIn("float16", "\n".join(logs.output))
+
+    def test_a_supported_compute_type_is_kept(self):
+        import types
+        import unittest.mock
+
+        from teto_relay.stt import pick_compute_type
+
+        fake_ct2 = types.SimpleNamespace(get_supported_compute_types=lambda d: {"float16", "int8"})
+        with unittest.mock.patch.dict(sys.modules, {"ctranslate2": fake_ct2}):
+            self.assertEqual(pick_compute_type("cuda", "float16"), "float16")
+            self.assertEqual(pick_compute_type("cuda:0", "int8"), "int8")
+
+
 if __name__ == "__main__":
     unittest.main()
