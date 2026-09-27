@@ -286,7 +286,9 @@ class _TempHome:
         import tempfile
 
         self.tmp = tempfile.TemporaryDirectory()
-        self.home = Path(self.tmp.name)
+        # resolve(): on Windows %TEMP% is often an 8.3 short path
+        # (C:\Users\WINDOW~1), and the app resolves it to the long name.
+        self.home = Path(self.tmp.name).resolve()
         self._old = os.environ.get("TETO_RELAY_HOME")
         os.environ["TETO_RELAY_HOME"] = str(self.home)
         return self.home
@@ -298,6 +300,17 @@ class _TempHome:
             os.environ.pop("TETO_RELAY_HOME", None)
         else:
             os.environ["TETO_RELAY_HOME"] = self._old
+        # Windows can't delete a file that is still open, and setup_logging
+        # leaves its log file open until the next call. Close any handler
+        # writing into this folder first.
+        import logging
+
+        root = logging.getLogger()
+        for handler in list(root.handlers):
+            filename = getattr(handler, "baseFilename", None)
+            if filename and Path(filename).resolve().is_relative_to(self.home):
+                root.removeHandler(handler)
+                handler.close()
         self.tmp.cleanup()
 
 
@@ -396,7 +409,11 @@ class TestConfigLoading(unittest.TestCase):
         defaults = Config()
         self.assertEqual(defaults.voicebank_root, "")
         self.assertEqual(defaults.openutau_dir, "")
-        self.assertNotIn("D:\\", defaults.out_dir)
+        # Not a hard-coded folder: output goes in the data folder, wherever
+        # this checkout happens to be.
+        from teto_relay import paths
+
+        self.assertEqual(Path(defaults.out_dir), paths.data_dir() / "out")
 
 
 class TestDataFolders(unittest.TestCase):
@@ -437,7 +454,7 @@ class TestDataFolders(unittest.TestCase):
         import unittest.mock
 
         with tempfile.TemporaryDirectory() as tmp:
-            exe_dir = Path(tmp, "TetoRelay")
+            exe_dir = Path(tmp).resolve() / "TetoRelay"
             exe_dir.mkdir()
             (exe_dir / "portable.txt").write_text("", encoding="utf-8")
             with unittest.mock.patch.dict(os.environ, {"TETO_RELAY_HOME": ""}):
@@ -844,7 +861,7 @@ class TestDoctor(unittest.TestCase):
                 unittest.mock.patch("teto_relay.locate.find_openutau", return_value=None):
             result = check_openutau(Config())[0]
         self.assertEqual(result.status, "fail")
-        self.assertIn("/nowhere/OpenUtau", result.fix)
+        self.assertIn(str(Path("/nowhere/OpenUtau")), result.fix)
 
     def test_exit_code_reflects_failures(self):
         import contextlib
