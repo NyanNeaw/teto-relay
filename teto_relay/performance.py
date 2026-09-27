@@ -57,6 +57,7 @@ VIBRATO_MIN_DELAY_S = 0.18
 DYN_RATIO = 0.5          # 1.0 keeps your loudness differences, 0 flattens them
 DYN_FLOOR = -90.0        # tenths of a dB: never quieter than -9 dB
 ENVELOPE_STEP = 0.04     # seconds between points of the loudness curve
+ENVELOPE_WINDOW = 21     # 10 ms frames: the phrasing is read over ~200 ms
 BREATH_TAIL = 30.0       # brec at the very end of a phrase
 BREATH_MS = 250.0
 # And the last moment of a phrase half-voiced, the way a sung line lets go
@@ -156,8 +157,15 @@ def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tupl
     if not getattr(cfg, "expressive", True) or not notes:
         return {}
     times, db = _loudness(audio, rate) if audio is not None else (np.zeros(0), np.zeros(0))
-    if db.size >= 5:
-        db = np.convolve(np.pad(db, 2, mode="edge"), np.ones(5) / 5, mode="valid")  # 50 ms
+    if db.size >= ENVELOPE_WINDOW:
+        # The phrasing, not the syllables: the upper envelope over 200 ms.
+        # Following every 40 ms copied the dips of the speaker's consonants
+        # onto hers - which land at other moments - and turned her
+        # consonants down: English word error went from 0.09 to 0.18.
+        half = ENVELOPE_WINDOW // 2
+        padded = np.pad(db, half, mode="edge")
+        windows = np.lib.stride_tricks.sliding_window_view(padded, ENVELOPE_WINDOW)
+        db = np.percentile(windows, 80, axis=1)[: len(db)]
 
     dyn: list[tuple[float, float]] = []
     brec: list[tuple[float, float]] = []
