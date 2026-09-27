@@ -1454,7 +1454,12 @@ class TestBankPitchCache(unittest.TestCase):
             b = voicebank.Voicebank(key="teto", name="B", root=home / "b")
             cache = home / ".openutau-host" / "bank_pitch.json"
             cache.parent.mkdir(parents=True)
-            cache.write_text(json.dumps({str((home / "a").resolve()): 61.0}), encoding="utf-8")
+            cache.write_text(json.dumps({
+                "v2:" + str((home / "a").resolve()): 61.0,
+                # An estimate from before sampling was spread across the bank
+                # (unversioned key) is measured again, not reused.
+                str((home / "b").resolve()): 54.0,
+            }), encoding="utf-8")
             self.assertEqual(voicebank.estimate_pitch(a, Config()), 61.0)
             with unittest.mock.patch.object(voicebank, "log"):
                 self.assertEqual(voicebank.estimate_pitch(b, Config()), 60.0)  # nothing to measure
@@ -2356,6 +2361,28 @@ class TestHardwareFindings(unittest.TestCase):
         self.assertGreater(seen["max_new_tokens"], two_seconds)
         # ...but nowhere near the 448 a runaway loop fills.
         self.assertLess(two_seconds, 100)
+
+    def test_bank_pitch_is_sampled_across_the_whole_bank(self):
+        # Miku's ARPAsing bank lists 25 consonants before its vowels; the first
+        # 12 files read an octave low, so she was aimed an octave too low.
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.config import Config
+        from teto_relay.voicebank import SubBank, Voicebank, estimate_pitch
+
+        with _TempHome() as home:
+            folder = home / "bank"
+            folder.mkdir()
+            t = np.arange(16000) / 16000
+            for i in range(25):  # "consonants" first by name, an octave low
+                sf.write(folder / f"a_{i:03d}.wav", 0.3 * np.sin(2 * np.pi * 110.0 * t), 16000)
+            for i in range(25):  # the vowels: A3
+                sf.write(folder / f"b_{i:03d}.wav", 0.3 * np.sin(2 * np.pi * 220.0 * t), 16000)
+            bank = Voicebank(key="m", name="m", root=folder,
+                             subbanks=[SubBank(name="m", path=folder, entry_count=50, sample_aliases=())])
+            estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
+        self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
     def test_a_supported_compute_type_is_kept(self):
         import types

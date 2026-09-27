@@ -375,7 +375,9 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
     # Keyed by folder, not by the short key: a different bank installed under
     # the same key (or the same key rediscovered in another folder) used to
     # reuse the old bank's pitch.
-    cache_key = str(Path(bank.root).resolve())
+    # "v2": estimates made before sampling was spread across the bank are
+    # measured again (see below).
+    cache_key = "v2:" + str(Path(bank.root).resolve())
     if cache_key in cache:
         return float(cache[cache_key])
 
@@ -384,9 +386,16 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
 
     from . import pitch as pitch_mod
 
+    # Spread the samples across the whole bank. The first few by name can
+    # all be one kind: an ARPAsing bank lists its consonants first, and a
+    # voiced "b"/"d"/"g" reads an octave low - Miku measured MIDI 54.0 from
+    # them against 65.9 from her vowels, so she sang an octave too low.
     found: list[float] = []
     for sub in bank.subbanks:
-        for wav in sorted(sub.path.glob("*.wav"))[:samples]:
+        wavs = sorted(sub.path.glob("*.wav"))
+        if len(wavs) > samples:
+            wavs = [wavs[int(i)] for i in np.linspace(0, len(wavs) - 1, samples)]
+        for wav in wavs:
             try:
                 audio, sr = sf.read(wav, dtype="float32", always_2d=True)
                 mono = audio[:, 0]
@@ -406,7 +415,8 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
         log.warning("could not measure %s's pitch; assuming C4", bank.key)
         return 60.0
 
-    estimate = float(np.median(found))
+    # The odd sample still reads an octave out; don't let it vote.
+    estimate = float(np.median(pitch_mod.correct_octaves(found, cfg)))
     log.info("%s was recorded at about MIDI %.1f", bank.key, estimate)
 
     cache[cache_key] = estimate
