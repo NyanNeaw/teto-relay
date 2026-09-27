@@ -3,284 +3,212 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Teto Relay</title>
 <style>
-/* Light is the default; dark is a media query the toggle can override, so the
-   page follows the system until someone says otherwise. */
+/* Flat and plain, the way system apps look: solid cards on a solid page, one
+   accent colour, no blur, glow or gradients. The accent is the only colour on
+   the page and it comes from the selected voicebank's artwork (applyAccent),
+   so each voice still brings its own look. Light is the default; dark follows
+   the system until the toggle says otherwise. */
 :root{
-  /* Native widgets - the select popup, scrollbars, focus rings - are drawn by
-     the browser, not by this stylesheet. Without color-scheme the open
-     dropdown list stays white on a dark page and is unreadable. */
+  /* Native widgets - the select popup, scrollbars - follow this. Without it
+     the open dropdown list stays white on a dark page. */
   color-scheme:light;
-  --solid:#fff;
-  --ground:#efeaf2; --tint-a:rgba(232,36,79,.30); --tint-b:rgba(109,91,255,.26);
-  --glass:rgba(255,255,255,.52); --glass-strong:rgba(255,255,255,.72);
-  --edge:rgba(23,17,28,.09); --sheen:rgba(255,255,255,.85);
-  --text:#1a1424; --muted:#6b6178; --faint:#9d94a9;
-  --crimson:#d31b45; --violet:#5b46f0;
-  --sink:rgba(23,17,28,.05); --shadow:0 18px 44px -22px rgba(23,17,28,.5);
-  --grain:.05;
+  --bg:#f5f5f7; --card:#fff; --sink:#f0f0f3; --line:#e2e2e7;
+  --text:#1d1d1f; --muted:#6e6e73; --faint:#8e8e93;
+  --accent:#d31b45; --accent-weak:rgba(211,27,69,.12);
+  --warn-bg:#fff6e5; --warn-line:#f0c46b;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   color-scheme:dark;
-  --solid:#191521;
-  --ground:#0c0a11; --tint-a:rgba(232,36,79,.34); --tint-b:rgba(109,91,255,.30);
-  --glass:rgba(255,255,255,.055); --glass-strong:rgba(255,255,255,.085);
-  --edge:rgba(255,255,255,.075); --sheen:rgba(255,255,255,.16);
-  --text:#f3eff6; --muted:#9c93a8; --faint:#6d6479;
-  --crimson:#ff4a70; --violet:#8f7dff;
-  --sink:rgba(0,0,0,.22); --shadow:0 22px 50px -26px #000;
-  --grain:.055;
+  --bg:#000; --card:#1c1c1e; --sink:#2c2c2e; --line:#38383a;
+  --text:#f5f5f7; --muted:#a1a1a6; --faint:#8e8e93;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18);
+  --warn-bg:#3a2c10; --warn-line:#8a6420;
 }}
 :root[data-theme=dark]{
   color-scheme:dark;
-  --solid:#191521;
-  --ground:#0c0a11; --tint-a:rgba(232,36,79,.34); --tint-b:rgba(109,91,255,.30);
-  --glass:rgba(255,255,255,.055); --glass-strong:rgba(255,255,255,.085);
-  --edge:rgba(255,255,255,.075); --sheen:rgba(255,255,255,.16);
-  --text:#f3eff6; --muted:#9c93a8; --faint:#6d6479;
-  --crimson:#ff4a70; --violet:#8f7dff;
-  --sink:rgba(0,0,0,.22); --shadow:0 22px 50px -26px #000;
-  --grain:.055;
+  --bg:#000; --card:#1c1c1e; --sink:#2c2c2e; --line:#38383a;
+  --text:#f5f5f7; --muted:#a1a1a6; --faint:#8e8e93;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18);
+  --warn-bg:#3a2c10; --warn-line:#8a6420;
 }
 *{box-sizing:border-box}
-html{background-color:var(--ground)}
-/* background-color, not the `background` shorthand: transitioning the
-   shorthand leaves it pinned to the old value when the variable behind it
-   changes, so the page kept its dark ground after switching to light. */
-body{margin:0;background-color:var(--ground);color:var(--text);font-size:14px;
-  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
-  -webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden;
-  transition:background-color .4s,color .4s}
-/* The light behind the glass. Off-centre on purpose - centred blobs read as a
-   template, and the panels need an uneven field to refract. */
-.lamp{position:fixed;border-radius:50%;filter:blur(84px);z-index:0;pointer-events:none}
-.lamp.a{width:52vw;height:52vw;left:-12vw;top:-16vw;background:var(--tint-a)}
-.lamp.b{width:44vw;height:44vw;right:-10vw;top:32vh;background:var(--tint-b)}
-/* Grain. Glass without it looks like a CSS demo. */
-body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:99;opacity:var(--grain);
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E")}
-/* Two columns: who is singing on the left, how she sings on the right. The
-   left column is fixed and narrow because it is an identity card - portrait,
-   name, picker - and the right takes the rest because settings are the long
-   tail. Below 900px they stack, identity first. */
-.wrap{position:relative;z-index:2;max-width:1180px;margin:0 auto;padding:0 28px 64px;
-  display:grid;grid-template-columns:336px minmax(0,1fr);gap:16px;align-items:start}
-.col-voice{display:flex;flex-direction:column;gap:16px;position:sticky;top:96px}
-.col-set{display:flex;flex-direction:column;gap:16px;min-width:0}
+html,body{background-color:var(--bg)}
+body{margin:0;color:var(--text);font-size:15px;line-height:1.4;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden}
+
+/* ---------- top bar ---------- */
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
+  padding:10px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+.mark{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.mark i{width:8px;height:8px;border-radius:50%;background:var(--faint);font-style:normal}
+.live .mark i{background:var(--accent)}
+.spacer{margin-left:auto}
+/* A segmented control, like a system settings switch. */
+.tabs{display:flex;padding:2px;background:var(--sink);border-radius:9px}
+.tabs button{background-color:transparent;color:var(--muted);padding:6px 16px;border-radius:7px;
+  font-size:13px;font-weight:600}
+.tabs button[aria-selected=true]{background-color:var(--card);color:var(--text);
+  box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.tabs button:not([aria-selected=true]):hover{color:var(--text);background-color:transparent}
+.state{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+.state i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal}
+.live .state i{background:var(--accent);animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1120px;margin:24px auto;padding:0 24px 56px;display:grid;
+  grid-template-columns:320px minmax(0,1fr);gap:20px;align-items:start}
+.col-voice{display:flex;flex-direction:column;gap:20px;position:sticky;top:76px}
+.col-set{display:flex;flex-direction:column;gap:14px;min-width:0}
 @media(max-width:900px){
-  .wrap{grid-template-columns:minmax(0,1fr);padding:0 16px 56px}
+  .wrap{grid-template-columns:minmax(0,1fr);padding:0 16px 48px}
   .col-voice{position:static}
 }
+.pane{background:var(--card);border:1px solid var(--line);border-radius:14px}
+.bar.pane{border-radius:0;border-width:0 0 1px}
+.tag{font-size:13px;font-weight:600;color:var(--muted);margin:0}
 
-/* Hardware silkscreen, not a tracked-out uppercase eyebrow. */
-.tag{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:10.5px;
-  letter-spacing:.04em;color:var(--faint);margin:0}
-
-.pane{background:var(--glass);backdrop-filter:blur(22px) saturate(150%);
-  -webkit-backdrop-filter:blur(22px) saturate(150%);border:1px solid var(--edge);
-  border-radius:18px;box-shadow:var(--shadow),inset 0 1px 0 var(--sheen)}
-
-/* ---------- engine tabs ----------
-   The biggest choice on the page, so it is the first thing and it looks like a
-   switch on a device rather than a dropdown. Each engine is a different
-   machine: utau sings your words as notes, voice replays your delivery in her
-   timbre. Bahnschrift ships with Windows and is the one condensed face here -
-   it reads as panel silkscreen where Segoe would read as a web page. */
-.tabs{display:flex;gap:3px;padding:3px;background:var(--sink);border-radius:13px}
-.tabs button{font-family:Bahnschrift,"Segoe UI Semibold",system-ui,sans-serif;
-  font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  background-color:transparent;color:var(--muted);padding:8px 18px;border-radius:10px;
-  transition:filter .15s}
-.tabs button[aria-selected=true]{background-color:var(--crimson);color:#fff}
-.tabs button:not([aria-selected=true]):hover{color:var(--text)}
+/* ---------- buttons ---------- */
+button{font-family:inherit;font-size:14px;font-weight:600;border:0;border-radius:980px;
+  padding:8px 18px;cursor:pointer;background-color:var(--accent);color:#fff}
+button:hover{filter:brightness(1.06)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.live #toggle{background-color:var(--sink);color:var(--text)}
+.icon{background-color:transparent;color:var(--muted);padding:0;width:34px;height:34px;
+  border-radius:50%;display:grid;place-items:center}
+.icon:hover{background-color:var(--sink);color:var(--text);filter:none}
+.ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px}
+.ghost:hover{background-color:var(--sink);filter:none}
 
 /* ---------- the voice card ---------- */
-.voice{padding:16px 16px 18px;display:flex;flex-direction:column;gap:13px}
-.portrait{position:relative;aspect-ratio:1;border-radius:13px;overflow:hidden;
-  background-color:var(--sink);display:grid;place-items:center}
+.voice{padding:16px;display:flex;flex-direction:column;gap:12px}
+.portrait{aspect-ratio:1;border-radius:10px;overflow:hidden;background-color:var(--sink);
+  display:grid;place-items:center}
 .portrait img{width:100%;height:100%;object-fit:cover;display:block}
-/* The accent is read from this artwork, so letting it bleed up from the floor
-   ties the colour to its source instead of looking applied. */
-.portrait::after{content:"";position:absolute;inset:auto 0 0 0;height:38%;
-  background:linear-gradient(to top,var(--tint-a),transparent);pointer-events:none}
-.vname{font-family:Bahnschrift,"Segoe UI Semibold",system-ui,sans-serif;font-size:19px;
-  font-weight:600;letter-spacing:.01em;margin:0;line-height:1.2}
-.vmeta{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:10.5px;
-  color:var(--faint);margin:2px 0 0}
-.voice select{width:100%;background-color:var(--sink);border:1px solid var(--edge);
-  color:var(--text);font-family:inherit;font-size:13.5px;padding:10px 12px;
-  border-radius:11px;cursor:pointer}
+.vname{font-size:18px;font-weight:700;margin:0;line-height:1.25}
+.vmeta{font-size:13px;color:var(--muted);margin:3px 0 0}
+.voice select{width:100%;background-color:var(--sink);border:1px solid transparent;color:var(--text);
+  font:inherit;font-size:15px;padding:9px 12px;border-radius:10px;cursor:pointer}
 /* A file input is unstyleable and says "No file chosen"; the label is the
    button and the real input sits behind it. */
 .addvoice{position:relative;display:block}
 .addvoice input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
-.addvoice span{display:block;text-align:center;font-size:12.5px;color:var(--muted);
-  padding:9px;border:1px dashed var(--edge);border-radius:11px}
-.addvoice:hover span{color:var(--text);border-color:var(--crimson)}
+.addvoice span{display:block;text-align:center;font-size:14px;color:var(--muted);
+  padding:9px;border:1px dashed var(--line);border-radius:10px}
+.addvoice:hover span{color:var(--accent);border-color:var(--accent)}
 
-/* ---------- bar ---------- */
-.bar{position:sticky;top:14px;z-index:20;max-width:1000px;margin:14px auto 22px;
-  display:flex;align-items:center;gap:14px;padding:9px 9px 9px 18px;border-radius:16px}
-.mark{font-size:13.5px;font-weight:600;letter-spacing:.01em;display:flex;align-items:center;gap:9px;
-  white-space:nowrap}
-.mark i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal;
-  transition:background .3s}
-.live .mark i{background:var(--crimson);box-shadow:0 0 0 4px rgba(211,27,69,.16)}
-.picker{display:flex;align-items:center;gap:9px;margin-left:6px;padding:4px 10px 4px 4px;
-  background:var(--sink);border-radius:12px}
-.avatar{width:34px;height:34px;border-radius:9px;image-rendering:pixelated;flex:none;
-  background:var(--sink)}
-.live .avatar{box-shadow:0 0 0 1.5px var(--crimson)}
-.picker select{background:none;border:0;color:var(--text);font-family:inherit;font-size:13px;
-  cursor:pointer;padding:3px 2px}
-.spacer{margin-left:auto}
-/* background-color, never the `background` shorthand: transitioning the
-   shorthand pins it to the old value when the variable behind it changes, so
-   the button kept Teto's red after switching to a voice with its own colour.
-   Same trap as the light/dark ground. */
-button{font-family:inherit;font-size:13px;font-weight:600;border:0;border-radius:11px;
-  padding:11px 22px;cursor:pointer;background-color:var(--crimson);color:#fff;
-  transition:filter .15s}   /* no colour transition: a transitioned property
-     whose value is a var() gets pinned to the old colour when the var
-     changes, which is how the accent kept reverting to Teto's red */
-button:hover{filter:brightness(1.08)}
-button:disabled{opacity:.5;cursor:default}
-button:focus-visible{outline:2px solid var(--violet);outline-offset:3px}
-.live #toggle{background-color:var(--sink);color:var(--crimson);box-shadow:inset 0 0 0 1px var(--edge)}
-.icon{background-color:var(--sink);color:var(--muted);padding:0;width:38px;height:38px;border-radius:11px;
-  font-size:15px;line-height:1;display:grid;place-items:center}
-.icon:hover{color:var(--text);filter:none;background-color:var(--glass-strong)}
-.ghost{background-color:transparent;color:var(--muted);font-weight:400;padding:9px 14px}
-.ghost:hover{color:var(--text);background-color:var(--sink);filter:none}
-
-/* ---------- the utterance ---------- */
-.stage{padding:26px 28px 24px;margin-bottom:16px}
-.stagehead{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.state{margin-left:auto;display:flex;align-items:center;gap:7px;font-family:"Cascadia Mono",Consolas,
-  ui-monospace,monospace;font-size:10.5px;color:var(--muted)}
-.state i{width:6px;height:6px;border-radius:50%;background:var(--faint);font-style:normal}
-.live .state i{background:var(--crimson);animation:pulse 1.9s ease-in-out infinite}
-@keyframes pulse{50%{opacity:.25}}
-.heard{font-family:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
-  font-size:37px;font-weight:400;line-height:1.16;letter-spacing:-.021em;margin:0;
+/* ---------- what was heard and sung ---------- */
+.stage{padding:18px 20px 20px}
+.stagehead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.heard{font-size:24px;font-weight:600;line-height:1.25;letter-spacing:-.01em;margin:0;
   overflow-wrap:break-word}
-.kana{font-family:"Yu Gothic UI","Meiryo","MS Gothic",sans-serif;font-size:20px;line-height:1.55;
-  color:var(--muted);margin:13px 0 0;overflow-wrap:break-word}
-.sungtag{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:9.5px;
-  color:var(--crimson);background:rgba(211,27,69,.11);border-radius:5px;padding:3px 7px;
-  margin-left:10px;vertical-align:middle;white-space:nowrap}
-.idle{font-size:18px;font-weight:400;color:var(--faint);margin:0;line-height:1.55}
-.idle kbd{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:12.5px;
-  background:var(--sink);border-radius:6px;padding:3px 8px;color:var(--muted)}
-
-.roll{margin-top:24px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px}
-.roll::-webkit-scrollbar{height:5px}
-.roll::-webkit-scrollbar-thumb{background:var(--edge);border-radius:3px}
+.kana{font-family:"Yu Gothic UI","Meiryo",sans-serif;font-size:18px;line-height:1.5;
+  color:var(--muted);margin:8px 0 0;overflow-wrap:break-word}
+.sungtag{font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-weak);
+  border-radius:980px;padding:2px 8px;margin-left:8px;vertical-align:middle;white-space:nowrap}
+.idle{font-size:16px;color:var(--muted);margin:0;line-height:1.5}
+.idle kbd{font:inherit;font-size:13px;font-weight:600;background:var(--sink);border-radius:6px;
+  padding:2px 8px;color:var(--text);border:1px solid var(--line)}
+.roll{margin-top:18px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px}
 .rollinner{min-width:max-content;position:relative}
 .ribbon{position:absolute;left:0;top:6px;pointer-events:none;overflow:visible}
-.ribbon path{fill:none;stroke:var(--crimson);stroke-width:1.4;stroke-linejoin:round;
-  stroke-linecap:round;opacity:.55}
-/* The roll is the signature: every mora sits at the pitch it is sung at, so a
-   phrase reads as a melody instead of a list of numbers. Blocks are absolutely
-   positioned inside a fixed-height lane - x is note order (the payload carries
-   no durations, so pretending to show time would be a lie), y is the tone. */
+.ribbon path{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-linejoin:round;
+  stroke-linecap:round;opacity:.6}
+/* Every note sits at the pitch it is sung at, so a phrase reads as a melody.
+   x is note order (the payload carries no durations), y is the tone. */
 .notes{position:relative;height:132px;margin-top:6px}
-.lane{position:absolute;left:0;right:0;height:1px;background:var(--edge);opacity:.5}
-.lane s{position:absolute;left:0;top:-14px;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;
-  font-size:9px;color:var(--faint);text-decoration:none}
-.note{position:absolute;background-color:var(--sink);border-radius:8px;text-align:center;
-  padding:5px 0 4px;box-shadow:inset 0 0 0 1px var(--edge);animation:rise .3s backwards}
-@keyframes rise{from{opacity:0;transform:translateY(6px)}}
-.note b{font-family:"Yu Gothic UI","Meiryo",sans-serif;font-size:15px;font-weight:400;display:block;
+.lane{position:absolute;left:0;right:0;height:1px;background:var(--line)}
+.lane s{position:absolute;left:0;top:-15px;font-size:10px;color:var(--faint);text-decoration:none;
+  font-variant-numeric:tabular-nums}
+.note{position:absolute;background-color:var(--accent-weak);border-radius:7px;text-align:center;
+  padding:5px 0 4px;animation:rise .25s backwards}
+@keyframes rise{from{opacity:0;transform:translateY(5px)}}
+.note b{font-family:"Yu Gothic UI","Meiryo",sans-serif;font-size:15px;font-weight:500;display:block;
   line-height:1.15}
-.note s{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:9px;color:var(--faint);
-  display:block;text-decoration:none}
-.meters{display:flex;flex-wrap:wrap;gap:28px;margin:24px 0 0;padding-top:18px;
-  border-top:1px solid var(--edge)}
-.meters div{min-width:62px}
-.meters dt{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:10px;
-  color:var(--faint)}
-.meters dd{margin:5px 0 0;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:15px}
+.note s{font-size:10px;color:var(--muted);display:block;text-decoration:none;
+  font-variant-numeric:tabular-nums}
+.meters{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:14px;
+  margin:18px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+.meters dt{font-size:12px;color:var(--muted)}
+.meters dd{margin:3px 0 0;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* ---------- controls ---------- */
-.deckhead{padding:18px 28px 0}
-.deck{padding:6px 28px 24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));
-  gap:6px 28px}
+.deckhead{padding:16px 20px 0}
+.deck{padding:4px 20px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:4px 24px}
 .ctl{padding:12px 0}
-.ctl label{display:block;font-size:13.5px;font-weight:600;color:var(--text);margin-bottom:9px}
-.ctl .help{display:block;font-size:12px;color:var(--muted);margin-top:7px;line-height:1.45}
-/* -/+ beside a slider: one exact step, which a 3px track makes fiddly. */
+.ctl label{display:block;font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
+.ctl .help{display:block;font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4}
+.slide{display:flex;align-items:center;gap:10px}
+.readout{font-size:15px;font-weight:600;min-width:58px;text-align:center;
+  font-variant-numeric:tabular-nums}
+/* -/+ beside a slider: one exact step, which a thin track makes fiddly. */
 .step{background-color:var(--sink);color:var(--text);padding:0;width:30px;height:30px;
-  border-radius:9px;font-size:16px;font-weight:600;line-height:1;flex:none;
-  box-shadow:inset 0 0 0 1px var(--edge)}
-.step:hover{background-color:var(--glass-strong);filter:none}
-.slide{display:flex;align-items:center;gap:13px}
-.readout{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:14px;
-  min-width:58px;text-align:center;color:var(--text)}
-input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:20px;background:none;
+  border-radius:50%;font-size:17px;line-height:1;flex:none}
+.step:hover{filter:brightness(.95)}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:22px;background:none;
   cursor:pointer;min-width:0}
-input[type=range]::-webkit-slider-runnable-track{height:3px;border-radius:2px;
-  background:linear-gradient(90deg,var(--crimson) var(--pct,0%),var(--edge) var(--pct,0%))}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;
-  border-radius:50%;background:#fff;margin-top:-6px;border:0;
-  box-shadow:0 1px 4px rgba(0,0,0,.35),0 0 0 1px var(--edge)}
-input[type=range]:focus-visible{outline:2px solid var(--violet);outline-offset:4px}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+  background:linear-gradient(90deg,var(--accent) var(--pct,0%),var(--line) var(--pct,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;
+  border-radius:50%;background:#fff;margin-top:-8px;border:0;
+  box-shadow:0 1px 4px rgba(0,0,0,.3),0 0 0 .5px rgba(0,0,0,.1)}
+input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
 input[type=text],input[type=number],select.box{width:100%;background:var(--sink);color:var(--text);
-  border:1px solid transparent;border-radius:10px;padding:10px 11px;font-family:inherit;font-size:13px}
+  border:1px solid transparent;border-radius:10px;padding:9px 12px;font:inherit;font-size:15px}
 select.box{cursor:pointer}
-/* The popup list is opaque even though the closed control is glass - a
-   translucent list over a blurred page is unreadable. */
-select option{background:var(--solid);color:var(--text)}
-input:focus-visible,select.box:focus-visible{outline:0;border-color:var(--violet)}
-input[type=checkbox]{appearance:none;width:38px;height:21px;border-radius:11px;background:var(--sink);
-  position:relative;cursor:pointer;margin:0;flex:none}
-input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:15px;height:15px;
-  border-radius:50%;background:var(--faint);transition:transform .2s,background .2s}
-input[type=checkbox]:checked{background-color:rgba(211,27,69,.18)}
-input[type=checkbox]:checked::after{transform:translateX(17px);background:var(--crimson)}
+select option{background:var(--card);color:var(--text)}
+input:focus-visible,select.box:focus-visible{outline:0;border-color:var(--accent)}
+/* A switch, like a system toggle. */
+input[type=checkbox]{appearance:none;width:44px;height:26px;border-radius:13px;background:var(--line);
+  position:relative;cursor:pointer;margin:0;flex:none;transition:background .2s}
+input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;
+  border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+input[type=checkbox]:checked{background-color:var(--accent)}
+input[type=checkbox]:checked::after{transform:translateX(18px)}
 
-/* ---------- advanced ---------- */
-.advbar{margin-top:18px;display:flex;align-items:center;gap:12px}
-.adv{display:none;margin-top:16px;padding:6px 28px 24px}
+/* ---------- all settings ---------- */
+.advbar{display:flex;align-items:center;gap:6px}
+.adv{display:none;padding:4px 20px 18px}
 .open .adv{display:block}
-.advtoggle span{display:inline-block;transition:transform .22s;margin-right:9px;font-size:10px}
+.advtoggle span{display:inline-block;transition:transform .2s;margin-right:8px;font-size:10px}
 .open .advtoggle span{transform:rotate(90deg)}
-.group{padding:20px 0;border-top:1px solid var(--edge)}
+.group{padding:16px 0;border-top:1px solid var(--line)}
 .group:first-child{border-top:0}
-details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:12px;
+details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:10px;
   flex-wrap:wrap}
 details.group>summary::-webkit-details-marker{display:none}
 details.group>summary::before{content:"\25B6";font-size:10px;color:var(--muted);
   transition:transform .2s;display:inline-block}
 details.group[open]>summary::before{transform:rotate(90deg)}
-.gtitle{font-family:Bahnschrift,"Segoe UI Semibold",system-ui,sans-serif;font-size:16px;
-  font-weight:600;color:var(--text)}
-.gnote{font-size:12.5px;color:var(--muted)}
-details.group[open]>.grouprows{margin-top:10px}
-.grouprows{display:grid;grid-template-columns:repeat(auto-fit,minmax(224px,1fr));gap:0 28px}
-#log{margin:12px 0 0;background:var(--sink);border-radius:12px;padding:14px;height:200px;
-  overflow:auto;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:11px;
-  line-height:1.7;white-space:pre-wrap;color:var(--muted)}
-.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(8px);z-index:60;
-  padding:12px 20px;font-size:13px;border-radius:12px;opacity:0;pointer-events:none;
-  transition:opacity .22s,transform .22s;background:var(--glass-strong);
-  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
-  border:1px solid var(--edge);box-shadow:var(--shadow)}
+.gtitle{font-size:17px;font-weight:700;color:var(--text)}
+.gnote{font-size:13px;color:var(--muted)}
+details.group[open]>.grouprows{margin-top:6px}
+.grouprows{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 24px}
+#log{margin:10px 0 0;background:var(--sink);border-radius:10px;padding:12px;height:200px;
+  overflow:auto;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:12px;
+  line-height:1.6;white-space:pre-wrap;color:var(--muted)}
+/* A snackbar: dark on light, light on dark. */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);z-index:60;
+  padding:11px 18px;font-size:14px;border-radius:10px;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;background:var(--text);color:var(--bg);
+  box-shadow:0 6px 20px rgba(0,0,0,.25)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* Problems the relay is having right now, and the setup check. */
-.alert{margin:0 0 16px;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.5;
-  background:rgba(230,150,20,.14);border:1px solid rgba(230,150,20,.45)}
+.alert{margin:0;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
+  background:var(--warn-bg);border:1px solid var(--warn-line)}
 .alert p{margin:0}.alert p+p{margin-top:6px}
 .checks{margin:10px 0 0;font:12px/1.55 "Cascadia Mono",Consolas,ui-monospace,monospace;
   white-space:pre-wrap;max-height:320px;overflow:auto}
 @media (max-width:720px){
-  .wrap{padding:0 16px 48px} .bar{margin:10px 16px 18px;padding-left:14px}
-  .heard{font-size:26px} .kana{font-size:17px}
-  .stage,.deck,.adv{padding-left:18px;padding-right:18px}
+  .bar{padding:10px 16px;gap:10px}
+  .heard{font-size:21px} .kana{font-size:16px}
+  .stage,.deck,.adv,.deckhead{padding-left:16px;padding-right:16px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
-
-<div class="lamp a"></div><div class="lamp b"></div>
 
 <div id="app">
 <header class="bar pane">
@@ -438,14 +366,15 @@ function showBank(key){
   $('vmeta').textContent=b?(b.flavour+' · '+b.entries+' samples · sings '+b.lyrics):'';
   applyAccent(b&&b.accent);
 }
-/* Each voice tints the panel with the colour of its own artwork, so a bank you
-   add brings its own look instead of borrowing Teto's red. */
+/* Each voice colours the panel with the main colour of its own artwork, so a
+   bank you add brings its own look instead of borrowing Teto's red. One solid
+   colour, plus a pale version of it for note blocks and tags. */
 function applyAccent(hex){
   const root=document.documentElement;
-  if(!hex){root.style.removeProperty('--crimson'); root.style.removeProperty('--tint-a'); return;}
-  root.style.setProperty('--crimson',hex);
+  if(!hex){root.style.removeProperty('--accent'); root.style.removeProperty('--accent-weak'); return;}
+  root.style.setProperty('--accent',hex);
   const n=parseInt(hex.slice(1),16);
-  root.style.setProperty('--tint-a','rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+',.32)');
+  root.style.setProperty('--accent-weak','rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+',.14)');
 }
 
 /* Devices are a name substring in config, so whatever is saved stays an option
