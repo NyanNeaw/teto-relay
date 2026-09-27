@@ -103,6 +103,13 @@ def musicalize(notes: list, cfg, state: dict | None = None) -> list:
         + n.shift + cfg.transpose
         for n in notes
     ]
+    # Speech moves in small steps - a spoken phrase spans a few semitones, a
+    # sung one many more. Widen each interval around the phrase's centre
+    # before snapping, so the tune has room to move (1.0 keeps your own).
+    widen = float(getattr(cfg, "sung_melody_range", 1.0))
+    if widen != 1.0 and len(exact) > 1:
+        centre = float(sorted(exact)[len(exact) // 2])
+        exact = [centre + (p - centre) * widen for p in exact]
 
     fixed = key_from_config(cfg.scale_key)
     if fixed is not None:

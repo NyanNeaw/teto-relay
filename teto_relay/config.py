@@ -200,6 +200,9 @@ class Config:
     scale: str = "major"  # major | minor | pentatonic | chromatic
     scale_key: str = "auto"  # "auto", or a note name such as "C", "F#", "Bb"
     sung_contour_amount: float = 0.35  # how much spoken inflection survives
+    # How much wider than you spoke the sung melody's intervals are: speech
+    # moves within a few semitones, a song much further. 1.0 keeps yours.
+    sung_melody_range: float = 1.0
     vibrato_min_seconds: float = 0.35  # notes this long or longer get vibrato
     vibrato_depth_cents: float = 25.0
     vibrato_period_ms: float = 175.0
@@ -520,6 +523,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "keep_files": (0, 100_000),
     "render_timeout_seconds": (1.0, 600.0),
     "sung_contour_amount": (0.0, 1.0),
+    "sung_melody_range": (0.5, 3.0),
     "vibrato_min_seconds": (0.05, 10.0),
     "vibrato_depth_cents": (0.0, 200.0),
     "vibrato_period_ms": (40.0, 1000.0),

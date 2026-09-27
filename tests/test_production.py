@@ -2407,6 +2407,21 @@ class TestHardwareFindings(unittest.TestCase):
             estimate = estimate_pitch(bank, Config(pitch_method="pyin"))
         self.assertAlmostEqual(estimate, 57.0, delta=0.5)
 
+    def test_melody_range_widens_intervals_around_the_phrase(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.singing import musicalize
+
+        def tones(widen):
+            notes = [Note("a", 0.0, 0.3, 60, detected_midi=60.0), Note("b", 0.3, 0.6, 62, detected_midi=62.0),
+                     Note("c", 0.6, 0.9, 64, detected_midi=64.0)]
+            musicalize(notes, Config(singing_style="sung", scale_key="C", scale="chromatic",
+                                     sung_melody_range=widen), {})
+            return [n.tone for n in notes]
+
+        self.assertEqual(tones(1.0), [60, 62, 64])
+        self.assertEqual(tones(2.0), [58, 62, 66])  # twice the steps, same centre
+
     def test_an_unsure_phrase_is_sung_not_thrown_away(self):
         # The user's accented Japanese decoded at avg_logprob -0.97 on one run
         # and just below -1.0 on another, and the whole phrase vanished.
