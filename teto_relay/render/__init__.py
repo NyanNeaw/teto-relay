@@ -33,9 +33,10 @@ def make_renderer(cfg, bank=None) -> Renderer:
             # baffling, and a bare traceback does not say what to do.
             log.error(
                 "OpenUtau could not start, so you will hear plain tones instead of "
-                "Teto. Reason: %s. Run `python -m teto_relay --doctor` to check "
+                "Teto. Reason: %s Run `python -m teto_relay --doctor` to check "
                 "OpenUtau, .NET 8 and the voicebank.",
-                exc,
+                # Reasons are written as sentences; don't end on "..".
+                f"{str(exc).rstrip('.')}.",
             )
             log.debug("OpenUtau start failure", exc_info=True)
             from .null import NullRenderer

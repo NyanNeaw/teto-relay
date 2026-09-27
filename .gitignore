@@ -37,3 +37,7 @@ _main_report.json
 build/
 dist/
 panel_smoke.png
+
+# Per-utterance latency rows (written to the data folder, which is this
+# folder in a source checkout).
+latency.csv
