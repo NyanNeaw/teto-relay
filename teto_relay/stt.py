@@ -23,9 +23,11 @@ _CJK_PUNCTUATION = "。、！？：；「」『』（）〈〉《》〔〕・…
 _STRIP = str.maketrans("", "", string.punctuation + _CJK_PUNCTUATION)
 # Everything except the apostrophe, which carries meaning inside a word.
 _STRIP_OUTER = string.punctuation.replace("'", "") + _CJK_PUNCTUATION
-# Marks that only lengthen the kana before them: the long-vowel mark and the
-# sokuon. Alone they are no sound; see Transcriber.transcribe.
-_MODIFIER_MARKS = "ーｰっッ"
+# Marks that only modify the kana before them: the long-vowel mark, the
+# sokuon and the small kana (ミュ is one mora, ュ alone has no sample). Whisper
+# splits katakana into single characters, and alone they are no sound; see
+# Transcriber.transcribe.
+_MODIFIER_MARKS = "ーｰっッゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
 # A segment below min_avg_logprob is dropped only if it is also this likely to
 # be no speech at all, or if it is GARBAGE_MARGIN further below (see transcribe).
 UNSURE_NO_SPEECH = 0.3

@@ -1305,7 +1305,7 @@ class TestNumbersAreSung(unittest.TestCase):
         notes = build_notes([Word("i am", 0.0, 0.6), Word("twenty one", 0.8, 1.6)],
                             _flat_track(), cfg, japanese_lyrics=True)
         lyrics = "".join(n.lyric for n in notes)
-        self.assertEqual(lyrics, "あいあむとうえんちいわん")
+        self.assertEqual(lyrics, "あいあむとうえんち+わん")  # ちい: the い holds ち's vowel
 
 
 class TestSmallKana(unittest.TestCase):
@@ -2354,10 +2354,17 @@ class TestHardwareFindings(unittest.TestCase):
         words = transcriber.transcribe(np.zeros(16000, np.float32), 16000)
         self.assertEqual([(w.text, w.start, w.end) for w in words], [("ムー", 0.0, 0.4), ("リー", 0.4, 0.8)])
 
+        # Small kana too: whisper split ミュウリ into ミ ュ ウ リ, and ュ alone
+        # was a note with no sample.
+        segment.words = [word("ミ", 0.0, 0.1), word("ュ", 0.1, 0.2), word("ウ", 0.2, 0.4), word("リ", 0.4, 0.6)]
+        self.assertEqual([w.text for w in transcriber.transcribe(np.zeros(16000, np.float32), 16000)],
+                         ["ミュ", "ウ", "リ"])
+
         cfg = Config(auto_octave=False, language="ja")
         notes = build_notes(words, _flat_track(), cfg, japanese_lyrics=True)
         self.assertNotIn("ー", [n.lyric for n in notes])
-        self.assertEqual([n.lyric for n in notes], ["む", "う", "り", "い"])
+        # Sung as the held vowel: an extension of む and り, not a new sample.
+        self.assertEqual([n.lyric for n in notes], ["む", "+", "り", "+"])
 
     def test_sung_phrases_are_told_from_spoken_ones(self):
         import numpy as np

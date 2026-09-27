@@ -1238,7 +1238,8 @@ class TestJapaneseConversion(unittest.TestCase):
         words = [Word("understand", 0.0, 0.4), Word("love", 1.6, 1.8)]
         notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True)
 
-        understand = [n for n in notes if n.lyric in "あんだあすたんど"][:8]
+        # だあ is sung だ + an extension of its vowel ("+").
+        understand = [n for n in notes if n.lyric in "あんだあすたんど+"][:8]
         self.assertEqual(len(understand), 8)
         # Its own 0.4 s, or as long as 8 morae must take at the floor, plus a
         # release - not half of the 1.2 s pause.

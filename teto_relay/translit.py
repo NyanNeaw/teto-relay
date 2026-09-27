@@ -102,6 +102,13 @@ _ENDS_ON = {kana: vowel for vowel, group in _VOWEL_OF.items() for kana in group}
 _SMALL_ENDS_ON = {"ゃ": "a", "ゅ": "u", "ょ": "o"}
 
 
+def vowel_of(mora: str) -> str | None:
+    """The vowel a mora ends on (a/i/u/e/o), or None (ん, っ, not kana)."""
+    if not mora:
+        return None
+    return _SMALL_ENDS_ON.get(mora[-1]) or _ENDS_ON.get(mora[-1])
+
+
 _SMALL_TO_FULL = {
     "ぁ": "あ", "ぃ": "い", "ぅ": "う", "ぇ": "え", "ぉ": "お", "ゎ": "わ",
     "ァ": "あ", "ィ": "い", "ゥ": "う", "ェ": "え", "ォ": "お", "ヮ": "わ",

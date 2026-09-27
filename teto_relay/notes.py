@@ -19,7 +19,10 @@ from .stt import Word
 
 log = logging.getLogger(__name__)
 
-MIN_NOTE_SECONDS = 0.06  # below this a note is inaudible and confuses the resampler
+MIN_NOTE_SECONDS = 0.06
+#: The lyric of a note that holds the previous note's vowel (OpenUtau's
+#: extender): sung as one sample across both notes, pitch moving between.
+EXTEND = "+"  # below this a note is inaudible and confuses the resampler
 
 
 @dataclass
@@ -93,7 +96,7 @@ def required_seconds(lyric: str, cfg) -> float:
     identical length. Preserving the measured rhythm is what makes it sound
     like the speaker rather than a metronome.
     """
-    if _KANA.search(lyric):
+    if _KANA.search(lyric) or lyric == EXTEND:
         # Kana notes are already sized from the aligner in `build_notes`; all
         # that is wanted here is the floor, so the measurement survives.
         return syllables(lyric) * cfg.min_mora_seconds
@@ -341,6 +344,7 @@ def build_notes(
     # its final frame is the end of the audio rather than the end of the speech.
     utterance_end = float(track.times[-1]) if getattr(track.times, "size", 0) else 0.0
 
+    vowel = None  # the vowel the last mora ended on, carried across words
     for position, w in enumerate(ordered):
         if japanese_lyrics:
             # A Japanese bank sings one mora per note - that is how Japanese
@@ -383,12 +387,27 @@ def build_notes(
             pause = max(0.0, next_onset - w.end)
             allowance = (w.end - w.start) + (pause if pause < cfg.phrase_gap_ms / 1000.0 else 0.0)
             step = min(cfg.max_mora_seconds, max(floor, allowance / len(morae)))
+            # A pause ends the vowel: after a rest a vowel is sung afresh.
+            if position and w.start - ordered[position - 1].end >= cfg.phrase_gap_ms / 1000.0:
+                vowel = None
             for index, mora in enumerate(morae):
                 start = w.start + index * step
+                # A long vowel (ムー, こーひー, かあ) holds the vowel before it,
+                # even when whisper made it a word of its own (ミュ | ウ). As
+                # its own う/い/あ note a CV bank starts a fresh sample with a
+                # glottal attack - a restart in the middle of the vowel. "+"
+                # extends the previous note's sample instead.
+                own = translit.vowel_of(mora)
+                extends = use_legato and mora in "あいうえお" and own is not None and own == vowel
+                if extends:
+                    mora = EXTEND
+                else:
+                    vowel = own
                 respelled.append(Word(text=mora, start=start, end=start + step))
                 word_hints.append(None)
-                # The morae of one word are sung connected (with `legato`).
-                joined.append(use_legato and index > 0)
+                # The morae of one word are sung connected (with `legato`),
+                # and an extension always joins the note it extends.
+                joined.append(use_legato and (index > 0 or extends))
             continue
 
         # A non-English source on an English bank is romanised and sung from
