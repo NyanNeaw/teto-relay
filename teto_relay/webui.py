@@ -203,7 +203,7 @@ LABELS: dict[str, list[str]] = {
     "capture_mode": ["Recording", "Push-to-talk, or split automatically on silence."],
     "whisper_model": ["Speech model", "Bigger hears better and takes longer."],
     "whisper_device": ["Listen on", "cuda is much faster than cpu, if it starts."],
-    "whisper_compute_type": ["Listening precision", "int8 is fastest; float16 hears best on cuda."],
+    "whisper_compute_type": ["Listening precision", "int8 is fastest; float16 needs a GTX 16xx/RTX card (older ones use int8)."],
     "rvc_f0_method": ["Pitch tracking", "crepe is accurate; pm is fastest and rougher."],
     "rvc_index_rate": ["Voice likeness", "Higher leans on the model's index: closer to her, less like you."],
     "rvc_protect": ["Protect consonants", "Higher keeps your breath and consonants intact."],
