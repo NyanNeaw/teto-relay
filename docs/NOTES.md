@@ -256,7 +256,10 @@ English reading.
 
 Three things decide whether the output is understandable, and all three bit us:
 
-- **Notes must never touch, but the gap must be tiny.** Two notes that meet are
+- *(Superseded: the collapse below was the relay sending touching notes to the
+  phonemizer as one group - see "Hardware testing and tuning log". Notes now
+  touch within a phrase.)*
+  **Notes must never touch, but the gap must be tiny.** Two notes that meet are
   treated as one legato phrase and the phoneme sequence collapses — both banks
   do it. Only *literal zero* breaks it, though: one tick is enough.
 
@@ -704,3 +707,144 @@ in [ROADMAP.md](../ROADMAP.md); this section records *why*.
   when it initialises, so after an unplug/replug the old device index can stay
   invalid. Re-initialising PortAudio from the capture thread would also close
   the output stream mid-phrase, so it isn't done. Stop/Start recovers it.
+
+## Hardware testing and tuning log
+
+The `productionize` branch was then run on the target PC: Windows 10, a
+GTX 1060 6 GB (Pascal), 8 GB of RAM, OpenUtau in `D:\Work\OpenUtau`, the three
+Teto banks plus a Miku English bank, VB-Cable. Everything below was found by
+running it there, measured, and fixed with a regression test where one could
+be written. The user recorded 14 phrases (English, Japanese, sung) that the
+tuning was scored on with `tools/tuning_eval.py`.
+
+### How the tuning was judged
+
+`tools/tuning_eval.py` runs recorded phrases through exactly what the relay
+does (`TetoRelay.analyse`, then the renderer) and scores the singing:
+
+- **intelligibility**: a second whisper model (`small`, not the relay's)
+  transcribes her, compared with what the relay heard (word or kana error,
+  capped at 1 per phrase - a judge looping on a held vowel scored 4);
+- **stretch** and **pauses kept**, against the recording's noise floor;
+- **missing** phonemes (no sample in the bank).
+
+Plus, as scratch scripts: loudness similarity and **dropouts** (the user is
+singing, Teto is silent), and **onset correlation** (do her syllables start
+where theirs did). The judge's run-to-run noise on 16 phrases is about
++-0.03 word error, so every decision below was taken on two runs or more, and
+the user listened to each round and said what was wrong.
+
+### Bugs that affected every phrase
+
+- **The pitch curve was written in cents; OpenUtau reads tenths of a
+  semitone.** Measured: a tone-60 note with its curve held at y=30 sings
+  MIDI 63.05, at y=100 70.05. Every inflection was ten times too big - a
+  "hello" shown as tone 62 was sung at MIDI 86.7. (`a0c795d`)
+- **The pitch was sung late by the part's start time.** In a hosted project
+  OpenUtau places phonemes relative to the part but reads the pitch at
+  project time, and every part starts where the first word was said (0.2-
+  0.5 s in). A staircase of notes: 0.2 semitones mean error with the part at
+  0 s, 3.6 at 1 s. The hosted part now sits at 0. The user's Senbonzakura had
+  the right notes and the wrong pitch because of this. (`26f2b0e`,
+  `tests/test_hardware.py`)
+- **Touching notes "collapsed" because the relay grouped them.** OpenUtau's
+  phonemizer groups are one note plus its `+` extensions; the relay sent each
+  run of touching notes as one group, so only the first lyric of each run
+  was sung. This was the "notes must never touch" rule in this file and the
+  reason for `note_gap_ms`. (`e69b847`)
+- **A one-tick gap between touching notes** (start and length rounded
+  separately) was heard as a rest: "to sing" came out "to -" + "- sing", a
+  hard stop mid-phrase. (`f8c0098`)
+
+### Timing
+
+- Onsets are the rhythm. Each note used to get 0.22 s a syllable first and
+  push the rest along; a phrase could end 0.6 s late. Onsets now stay where
+  they were said; a squeezed word may borrow at most `onset_push_ms` (60 ms)
+  from the next one. (`5165d44`, `27c3bad`)
+- A pause is a rest. Half of every pause used to be spread over the word
+  before it ("it just stretches a word when you leave a gap"). The release
+  into a rest is at most 0.15 s; the utterance's last word gets it too.
+- Word spans come from the recording's sound, not whisper's timestamps:
+  trimmed to the last block of sound (whisper folds a pause into the start
+  of the next word; a click inside a 1.7 s pause kept it inside "that") and
+  extended while the sound goes on (a held ら of 桜 ran past whisper's end
+  of the word and Teto stopped while the user was still singing). (`09d560d`,
+  `d09ad85`)
+- `legato` is on: words said without a pause (`phrase_gap_ms`, 250 ms) touch,
+  so the bank joins them (VCV/CVVC transitions).
+- Each word's vowel is on the beat and its consonant before it
+  (`vowel_on_beat`), as parts are written. (`4f52bfb`)
+- **Japanese syllables are timed from the forced aligner** (`align_morae`):
+  morae romanised, aligned sound by sound, each note starting at its vowel.
+  Evenly spread morae put the user's sung syllables off the melody. Onset
+  correlation with the recording 0.418 -> 0.439 (Senbonzakura 0.253 ->
+  0.337). The aligner had never run on this PC: torchaudio's loader needs
+  ~2.5 GB of RAM at once; it is now built on the meta device with the
+  checkpoint memory-mapped (0.4 GB). (`7465a6d`)
+- **English word alignment is off** (`use_alignment`): on the user's accented
+  English it made the singing less clear (0.07 -> 0.12 word error, twice);
+  it aligns by spelling. (`6b23ee9`)
+
+### Sound
+
+- Performance (`teto_relay/performance.py`), sung style: a scoop into each
+  phrase (1.5 semitones below, held 25 ms, then up), portamento scaled to the
+  interval and mostly after the boundary, overshoot on leaps, a fall at each
+  phrase end, vibrato that waits then grows. Several of these came from a
+  VOCALOID tuning guide the user shared.
+- Dynamics follow the singer's own phrasing (upper envelope over 200 ms,
+  compressed by half); a fixed -12 dB fade at every phrase end made a sung
+  line sound as if it faded out. Following every 40 ms copied their
+  consonant dips onto hers.
+- Breathiness and voicing touch only the last moment of each phrase. With
+  points only at phrase ends they had ramped across the whole next phrase.
+- WORLDLINE-R's curve units were measured before use: `dyn` is tenths of a
+  dB and clips above ~+5 dB, `brec` +50 costs ~6 dB of harmonics-to-noise,
+  `tenc` distorts near +100 (not used), `voic` 0 is a whisper.
+- Long vowels (ムー, こーひー, ミュ|ウ) are `+` extension notes: one sample
+  held, instead of a new う sample with a glottal attack. (`bbd8bbe`)
+- Doubling (`double_voice`, `double_when`): quiet detuned, delayed copies
+  under the lead, only on phrases that were sung by default. A phrase counts
+  as sung when 38% of its voiced time is held notes; the user's speech
+  scored at most 0.34, their singing at least 0.41. (`d53a819`)
+- Tried and rejected, measured: consonant velocity (VEL) on crowded words -
+  word error 0.09 -> 0.14 on this OpenUtau build; a wider melody - the user:
+  "tries too much"; a `-` tail note - "word not found" on this build.
+
+### Recognition and reading
+
+- Whisper `small` (multilingual) on the GPU: 2.8% word error on the user's
+  English, 0.4 s. `base.en` got 42% (it invents words); the default is now
+  `base`. `float16` doesn't run on Pascal and falls back to `int8`.
+- Output tokens are bounded by the audio length: a repetitive phrase looped
+  to 448 tokens at every fallback temperature (17.7 s for 2 s of speech).
+- A phrase is dropped only if unsure *and* probably not speech: accented
+  Japanese at avg_logprob -0.97/-1.02 used to vanish.
+- `lyrics_hint`: sung Japanese is misheard by every model size; with the
+  lyric as the prompt all of them heard Senbonzakura exactly.
+- Japanese is read as a phrase (pykakasi with katakana made hiragana first,
+  readings shared back to whisper's words), with `READING_FIXES` for lone
+  kanji it misreads (君 くん, 人 にん, 月 がつ, 日 にち, 今日は, 愛し). Split
+  kanji are rejoined (明|日 あした); a lone ー / small kana joins the word
+  before it. MeCab/UniDic was compared and not used (249 MB, and 私 わたくし,
+  明日 あす).
+
+### Voicebanks
+
+- ARPAsing banks (the Miku English bank: "- hh", "aa", "aa -") are a flavour
+  of their own and use OpenUtau's ARPAbet phonemizer; they sang nothing
+  before. That bank has no "w" and almost no transitions, so it is far less
+  clear than Teto (about 3 in 4 words wrong to the judge).
+- A bank's recorded pitch is sampled across all its files: the first 12 by
+  name were Miku's consonants, read an octave low, and she was aimed an
+  octave below her voice.
+
+### Voice mode
+
+- Streaming: the push-to-talk gate was read when a frame was dequeued, so a
+  lagging converter dropped the end of the phrase. On the GTX 1060, crepe
+  with the index takes ~800 ms per 300 ms block; `pm` without the index
+  keeps up (~250 ms, ~0.8 s delay).
+- `harvest` reused the first utterance's pitch (rvc's lru_cache keyed on a
+  fixed path) and crashed on a different length.

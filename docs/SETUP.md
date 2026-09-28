@@ -88,13 +88,26 @@ the tray menu opens it.
 
 ## 6. Options worth knowing
 
-- **Singing (experimental)**: *Singing style: sung* puts what you say into a
-  key, adds vibrato to long notes and holds the last one. It sounds more like
-  singing and less like speaking. *Connect syllables* joins up the syllables
-  of each word on Japanese banks.
-- **Voice engine**: converts your own voice to Teto's timbre with an RVC
-  model instead of singing through a voicebank. *Convert while I talk* makes
-  it real-time.
+On the main screen:
 
-These are new and haven't been tested much. Turn them off again if they sound
-wrong.
+- **Singing style**: *Speech* follows your voice exactly - your rhythm,
+  your intonation. *Sung* puts it in a key, with scoops into phrases, glides
+  between notes, vibrato on long notes and a held last note.
+- **Double voice**: a fuller, layered sound. *When singing* (the default)
+  doubles only the phrases you sing, not the ones you speak.
+- **Song lyrics**: singing a song? Paste the lines you're about to sing, and
+  they'll be heard right - speech models mishear singing badly. Clear it
+  when you go back to talking, or it keeps leaning towards those words.
+
+Under **All settings**:
+
+- **Singing**: *Connect words* (on) sings each phrase joined up; a pause you
+  leave stays a rest. *Follow your loudness* (on) copies your swells and
+  fades.
+- **Listening**: *Measure syllable timing* (on) times each Japanese syllable
+  from where you sang it. *Measure word timing* does the same for English
+  words; it's off because on accented English it made things worse.
+- **Voice engine**: converts your own voice to Teto's timbre with an RVC
+  model instead of singing through a voicebank. *Convert while I talk*
+  makes it real-time; on a GTX 10xx card set *Pitch tracking* to *pm* and
+  *Voice likeness* to 0, or it falls behind.

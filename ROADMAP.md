@@ -52,11 +52,11 @@ GPU. The manual checklist at the end covers those.
 | P1-4 | **Errors are tracebacks, not instructions.** The CLI lets exceptions escape for a missing voicebank folder, no banks found, an unknown bank key, a missing output device, OpenUtau not found, the port already in use, and so on. The rule is: say what happened, why, and what to do next. | `__main__.py`, `voicebank.py`, `devices.py`, `webui.serve` | done |
 | P1-5 | **Paths assume a source checkout.** Config, `out/`, the log, `.cache/`, `.openutau-host/` and `pronunciations.json` are all resolved relative to the package folder. In a PyInstaller build that folder is a temporary extraction directory (for onefile) or a read-only install folder (Program Files), so settings would not persist or could not be written. | `config.py`, `__init__.py`, `dotnet.py`, `pronunciations.py`, `voicebank.py` | done: `paths.py`: portable vs installed data folders |
 | P1-6 | **No per-stage latency numbers.** The log records analyse time and render time, but not queue waits, output-stream open, or the time from releasing the key to hearing sound, so it can't show where the ~2 s goes. | `app.py`, `playback.py` | done: one `Latency` line per utterance |
-| P1-7 | **Rendered audio starts with silence.** `_mix` places each phrase at its absolute project position. The part starts at the first word's onset inside the chunk (pre-roll plus your reaction time after pressing the key, typically 0.2–0.5 s), so every WAV begins with that much silence, which plays straight into VB-Cable as extra latency. It also clamps a negative first offset to 0 without shifting the others, which can misalign the first phrase by its preutterance. | `render/openutau.py` `_mix` | done (partly hardware): trims to the first sound; untested against real WORLDLINE output |
+| P1-7 | **Rendered audio starts with silence.** `_mix` places each phrase at its absolute project position. The part starts at the first word's onset inside the chunk (pre-roll plus your reaction time after pressing the key, typically 0.2–0.5 s), so every WAV begins with that much silence, which plays straight into VB-Cable as extra latency. It also clamps a negative first offset to 0 without shifting the others, which can misalign the first phrase by its preutterance. | `render/openutau.py` `_mix` | done: `lead_silence` measured 0.00 s on real WORLDLINE output |
 | P1-8 | **Voicebank discovery walks the whole tree.** `rglob` over `voicebank_root` has no depth limit while walking (the depth check happens afterwards). The default root `D:\Claude` contains this repo, its venv and its model caches, so startup, the panel's `/api/config` and each bank-image request walk thousands of files. | `voicebank.py` `_find_singer_roots`, `discover` | done: depth-limited walk that skips venvs and caches |
 | P1-9 | **No dependency or setup check.** A new user has no way to learn that .NET 8, VB-Cable, OpenUtau, a voicebank, CUDA, `cmudict` or `pykakasi` is missing, except by reading tracebacks. | new `doctor.py`, `--doctor` | done |
 | P1-10 | **`webui.py` is over-coupled.** 750 lines of HTML, CSS and JS live in a Python string alongside the HTTP handler, the controller, the settings metadata and voicebank image handling. That makes it hard to change the page, impossible to lint the JS, and awkward to package. | `webui.py` | done: page moved to `teto_relay/web/index.html` |
-| P1-11 | **`render/openutau.py` repeats work on every render.** Each render re-runs `Assembly.LoadFrom`, reflection lookups, and compiles a new `System.Linq.Expressions` setter. The UI callback queue is only drained 256 items at a time, so it can grow without bound. | `render/openutau.py`, `dotnet.py` | done (partly hardware): cached; untested on OpenUtau |
+| P1-11 | **`render/openutau.py` repeats work on every render.** Each render re-runs `Assembly.LoadFrom`, reflection lookups, and compiles a new `System.Linq.Expressions` setter. The UI callback queue is only drained 256 items at a time, so it can grow without bound. | `render/openutau.py`, `dotnet.py` | done: cached; renders on OpenUtau (phonemize ~0.7 s, synth ~0.9 s per phrase) |
 | P1-12 | **The process-wide `chdir` breaks relative paths.** `dotnet.start` calls `os.chdir(openutau_dir)`, so any relative path in the config silently resolves under the OpenUtau folder after the renderer starts. | `dotnet.py`, `config.py` | done: paths made absolute at load |
 | P1-13 | **Control panel startup.** A port already in use shows a raw `OSError`. The browser isn't opened, so a double-clicked exe appears to do nothing. | `webui.serve` | done |
 
@@ -75,14 +75,14 @@ GPU. The manual checklist at the end covers those.
 | P2-9 | **`ptt_key` is inserted into the page with `innerHTML`.** | done |
 | P2-10 | **Ticks can collide.** Note positions and durations are rounded to ticks separately, so a small `note_gap_ms` could round two notes into touching or overlapping, which collapses the phonemizer. Now enforced in the tick domain. | done |
 | P2-11 | **No versioning.** Added `--version`, a version line in the log, and a version on the panel's status; `CHANGELOG.md`. | done |
-| P2-12 | **A new output stream per utterance** (`sd.play`) adds device-open time to every phrase and uses sounddevice's global stream. | done (partly hardware): `persistent_output` flag, off by default |
+| P2-12 | **A new output stream per utterance** (`sd.play`) adds device-open time to every phrase and uses sounddevice's global stream. | done: `persistent_output` flag, off by default - on hardware it made no measurable difference (`output` ~0.02 s either way) |
 | P2-13 | **`out/` trimming counts files, not utterances** (each utterance is a `.ustx` and a `.wav`). | done |
 
 ## P3 — nice to have
 
 | # | Finding | Status |
 |---|---|---|
-| P3-1 | Real-time streaming voice conversion (see singing analysis, limitation 1). | done (partly hardware): streaming engine and crossfade, tested with a stand-in converter; the RVC hookup is behind `voice_streaming` and untested |
+| P3-1 | Real-time streaming voice conversion (see singing analysis, limitation 1). | done: works with RVC on the GTX 1060 with `pm` and no index (~0.8 s delay); crepe + index is too slow there. A push-to-talk gate bug found and fixed |
 | P3-2 | Phoneme recognition instead of word ASR (limitation 2). | proposed |
 | P3-3 | A DiffSinger render backend through OpenUtau (limitation 3). | proposed |
 | P3-4 | Play the first rendered phrase while the rest render. | proposed |
@@ -179,10 +179,10 @@ default**, and listen on real hardware. Propose C (P3-3).
 
 | Flag | What it does | Verified here | Needs real hardware |
 |---|---|---|---|
-| `singing_style: "sung"` | snaps notes to `scale` (auto-detected key, or `scale_key`), adds vibrato to notes of at least `vibrato_min_seconds`, holds the last note for `final_hold_seconds`, and narrows the speech contour | unit tests on notes and `.ustx` | vibrato applied to OpenUtau's `UNote` |
-| `legato: true` | morae/syllables of one word touch; the gap stays between words | unit tests on note spacing and ticks | the hosted phonemizer with touching notes |
-| `voice_streaming: true` | `mode: voice` converts in blocks while you talk, with an overlap crossfade | unit tests with an identity converter (the output reconstructs the input at a fixed delay) | RVC speed per block on your GPU |
-| `persistent_output: true` | one output stream stays open instead of one per phrase | unit tests with a mocked `sounddevice` | real WASAPI / VB-Cable |
+| `singing_style: "sung"` | snaps notes to `scale`, adds scoops, glides, overshoot, falls and vibrato (`performance.py`), holds the last note | unit tests; vibrato measured in OpenUtau's output | **tested**: the user prefers speech as the default and switches to sung on the main screen |
+| `legato: true` | words said without a pause touch; a pause is a rest | unit tests; phonemes checked on OpenUtau | **tested, now on by default** - the "collapse" was a grouping bug (fixed) |
+| `voice_streaming: true` | `mode: voice` converts in blocks while you talk, with an overlap crossfade | unit tests with an identity converter | **tested**: keeps up with `pm` and no index on a GTX 1060 |
+| `persistent_output: true` | one output stream stays open instead of one per phrase | unit tests with a mocked `sounddevice` | **tested**: works, no measurable gain |
 
 ---
 
@@ -248,13 +248,44 @@ fixes were checked by hand (a second panel launch, the Linux frozen build).
   close the output stream mid-phrase. The relay keeps retrying and says so in
   the panel. Stop and Start picks the device up again.
 
+## Found on real hardware
+
+Running the branch on the target PC (Windows 10, GTX 1060, 8 GB RAM, OpenUtau,
+VB-Cable) found the bugs below; each is fixed, with a regression test where
+one could be written, and the details and measurements are in NOTES.md
+("Hardware testing and tuning log").
+
+- The pitch curve was written in cents; OpenUtau reads tenths of a semitone
+  (every inflection 10x too big).
+- The pitch was sung late by the part's start time (0.2-0.5 s on every
+  phrase) - OpenUtau reads pitch at project time.
+- Touching notes lost their phonemes: the relay grouped them for the
+  phonemizer. And a one-tick rounding gap between touching notes cut them.
+- ARPAsing banks (Miku English) sang nothing; a bank's pitch was estimated
+  from its first 12 files (an octave off for Miku).
+- whisper `float16` on a Pascal GPU failed every phrase; repetitive phrases
+  took 17 s to transcribe; unsure but real phrases were thrown away.
+- Japanese: a lone ー or small kana was a silent note; 明日 was read めいにち;
+  katakana okurigana and lone kanji were misread (紛レ, 君).
+- Voice mode: `harvest` reused the first phrase's pitch; streaming dropped
+  the end of a phrase when conversion lagged.
+- The forced aligner could not load on 8 GB of RAM (it now memory-maps).
+- The production tests assumed Linux paths and deletable open files.
+
+And the tuning was rebuilt around the user's own recordings (timing,
+performance, dynamics, reading) - see NOTES.md.
+
 ## Next steps
 
-1. Build on Windows with `packaging/build.ps1` and go through the manual
-   checklist in `docs/RELEASE.md`.
-2. Collect a session of `latency.csv` rows and decide on ASR settings (whisper
-   on CUDA, `beam_size` 1) from the numbers.
-3. Listen to `singing_style: sung`, `legato` and `voice_streaming`, and make
-   the good ones defaults.
-4. Then P3-2 (phoneme recognition) or P3-3 (DiffSinger), depending on whether
-   intelligibility or naturalness bothers you more.
+1. **Untested items** in `docs/RELEASE.md`: the installer (needs Inno Setup),
+   unplugging the mic, tray mode, Ctrl+C.
+2. **Settings the user asked for**: speech is the default and the main screen
+   now has switches for singing style, doubling and language; more
+   customisation (per-voice presets, doubling amount on the main screen) is
+   the next step.
+3. **Render is the slowest stage** (1.3-2.1 s of a ~1.9 s total with whisper
+   on the GPU). P3-4 (play the first phrase while the rest render) is the
+   biggest latency win left.
+4. **English intelligibility** is limited by fast speech on a CVVC bank
+   ("kasane" in 0.22 s for three syllables). P3-2 (phoneme recognition) or a
+   DiffSinger voice (P3-3) are the routes past it.

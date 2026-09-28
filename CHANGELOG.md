@@ -3,6 +3,57 @@
 Teto Relay uses [semantic versioning](https://semver.org/): the minor number
 goes up for new features, the patch number for fixes.
 
+## 0.3.0 — tested on real hardware, retuned
+
+The branch was run on the target PC (Windows, GTX 1060, OpenUtau, VB-Cable)
+and retuned on the user's own recordings. How it sounds has changed a lot:
+see "Hardware testing and tuning log" in docs/NOTES.md for the measurements.
+
+### Upgrading from 0.2.0
+
+A `config.json` from an older version lists every setting, so new defaults
+don't reach it. To get the new tuning, set these in the panel (or delete them
+from the file): **Connect words** (`legato`) on, **Measure word timing**
+(`use_alignment`) off. On an NVIDIA GPU, **Listen on: cuda** with
+**Speech model: small** is the most accurate and still fast.
+
+### Fixed
+- Pitch curves were written in cents but OpenUtau reads tenths of a semitone:
+  every inflection was ten times too big.
+- Pitch was sung 0.2–0.5 s late against the syllables on every phrase.
+- Touching notes lost their syllables; a rounding gap cut connected words
+  ("to sing" → "to… sing").
+- ARPAsing voicebanks (e.g. a Miku English bank) sang nothing, and a bank's
+  recorded pitch could be an octave off.
+- `float16` on GTX 10xx GPUs made every phrase fail; now falls back to `int8`.
+- A repetitive phrase could take 17 s to transcribe; an accented phrase could
+  be thrown away as "not speech".
+- Japanese: long-vowel marks and small kana sang as silence; 明日, 君, 今日は
+  and katakana okurigana (紛レ) were misread.
+- Voice mode: `harvest` reused the first phrase's pitch; streaming dropped the
+  end of a phrase when the GPU lagged.
+- The word aligner never loaded on 8 GB PCs; it now needs ~0.4 GB of RAM.
+
+### Changed
+- Timing keeps your rhythm: syllables start where you said them, pauses stay
+  silent, phrases are sung connected, held notes last as long as you hold
+  them, Japanese syllables are timed from the aligner.
+- Loudness, breath and phrase endings follow your own delivery.
+- Sung style: scoops, glides, overshoot, falls and delayed vibrato.
+- Doubled voice on sung phrases (Off / When singing / Always).
+- Long vowels are held instead of re-attacked.
+- Default speech model: multilingual `base` (the `.en` models misheard
+  accented English badly).
+- The panel: plain look, most-used settings first, switches for singing
+  style / doubling / language, every change applies at once.
+
+### Added
+- **Song lyrics** on the main screen: paste the lines you'll sing and they're
+  heard correctly.
+- `keep_input_audio` (Keep what I said), `tools/tuning_eval.py`, and
+  `tests/test_hardware.py` (renders through OpenUtau when
+  `TETO_RELAY_HARDWARE_TESTS=1`).
+
 ## 0.2.0 — productionize
 
 Nothing about how the default pipeline sounds has changed. Everything below
