@@ -139,6 +139,32 @@ def _curve_blocks(curves: dict | None, part_start: float, cfg) -> list[dict]:
     return blocks
 
 
+def _match_aliases(notes: list[Note], blocks: list[dict], bank: Voicebank) -> None:
+    """Spell each lyric the way the bank does, for the plain phonemizer.
+
+    It looks a lyric up exactly, so a kana lyric sang silence on a bank
+    spelled "sa" / "- sa" / "a sa" (most banks made outside Japan). A note
+    that follows another without a rest gets the "vowel + mora" alias when the
+    bank has one, a phrase start gets "- mora".
+    """
+    from .translit import vowel_of
+
+    vowel = None
+    previous_end = None
+    for note, block in zip(notes, blocks):
+        touching = previous_end is not None and block["position"] == previous_end
+        if not touching:
+            vowel = None
+        lyric = block["lyric"]
+        if lyric.startswith("+"):
+            # An extender carries the previous vowel on.
+            previous_end = block["position"] + block["duration"]
+            continue
+        block["lyric"] = bank.alias_for(lyric, vowel)
+        vowel = vowel_of(lyric) or ("n" if lyric in ("ん", "ン") else None)
+        previous_end = block["position"] + block["duration"]
+
+
 def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None = None) -> dict:
     """Assemble the .ustx document as a plain dict."""
     if not notes:
@@ -148,6 +174,8 @@ def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None =
     note_blocks = _space_in_ticks(notes, [_note_block(n, part_start, cfg) for n in notes], cfg)
     part_duration = max(b["position"] + b["duration"] for b in note_blocks)
     phonemizer = cfg.phonemizer or bank.phonemizer
+    if phonemizer.endswith("DefaultPhonemizer"):
+        _match_aliases(notes, note_blocks, bank)
 
     return {
         "name": "Teto Relay",

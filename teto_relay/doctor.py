@@ -185,6 +185,11 @@ def check_voicebanks(cfg) -> list[Check]:
     try:
         chosen = voicebank.select(banks, cfg.voicebank)
         out.append(Check(OK, "Selected voicebank", f"{chosen.key} ({chosen.flavour})"))
+        if chosen.flavour == "unknown":
+            out.append(Check(WARN, "Voicebank language",
+                             f"could not tell what language {chosen.key} sings",
+                             "Teto Relay sings Japanese (kana or romaji aliases) and English "
+                             "(ARPAsing or X-SAMPA) UTAU banks; others may sing silence."))
         mode = (cfg.lyric_mode or "auto").lower()
         if mode == "japanese" and not chosen.flavour.startswith("ja-"):
             out.append(Check(WARN, "Lyrics", f"lyric_mode is japanese but {chosen.key} is {chosen.flavour}",

@@ -30,8 +30,14 @@ PHONEMIZERS = {
     # ARPAbet aliases ("- hh", "aa", "aa -", "eh r"): OpenUtau's "EN ARPA".
     "en-arpa": "OpenUtau.Plugin.Builtin.ArpasingPhonemizer",
     "ja-vcv": "OpenUtau.Plugin.Builtin.JapaneseVCVPhonemizer",
+    # Kana CV plus romaji VC aliases ("- か", "か", "a k").
+    "ja-cvvc": "OpenUtau.Plugin.Builtin.JapaneseCVVCPhonemizer",
     "ja-cv": "OpenUtau.Core.DefaultPhonemizer",
 }
+DEFAULT_PHONEMIZER = PHONEMIZERS["ja-cv"]
+
+#: Files that mark a singer root. OpenUtau-era banks may have only the yaml.
+CHARACTER_FILES = ("character.txt", "character.yaml")
 
 
 def _read_text(path: Path) -> str:
@@ -119,11 +125,47 @@ class Voicebank:
     name: str  # human name from character.txt
     root: Path  # the singer root OpenUtau should load
     subbanks: list[SubBank] = field(default_factory=list)
-    flavour: str = "unknown"  # en-cvvc | en-arpa | ja-vcv | ja-cv | unknown
+    flavour: str = "unknown"  # en-cvvc | en-arpa | ja-vcv | ja-cvvc | ja-cv | unknown
+    # Every alias, with prefix.map / subbank prefixes and suffixes taken off -
+    # what a lyric has to match. Empty when not measured.
+    aliases: frozenset = frozenset()
+    # Japanese spelled "ka", "- ka", "a ka" rather than in kana.
+    romaji: bool = False
 
     @property
     def phonemizer(self) -> str:
-        return PHONEMIZERS.get(self.flavour, PHONEMIZERS["ja-cv"])
+        # OpenUtau's Japanese phonemizers read kana aliases only; a romaji
+        # bank is sung through the plain phonemizer with its aliases looked
+        # up here (see `alias_for`).
+        if self.romaji:
+            return DEFAULT_PHONEMIZER
+        return PHONEMIZERS.get(self.flavour, DEFAULT_PHONEMIZER)
+
+    @property
+    def character_file(self) -> Path | None:
+        for name in CHARACTER_FILES:
+            if (self.root / name).exists():
+                return self.root / name
+        return None
+
+    def alias_for(self, lyric: str, prev_vowel: str | None = None) -> str:
+        """The alias this bank really has for a kana `lyric`.
+
+        Only needed where the plain phonemizer looks a lyric up as it is:
+        banks spelled in romaji ("sa", "- sa", "a sa"), and banks with only
+        "- さ" / "* さ" heads. A lyric the bank has is left alone, so a bank
+        that already worked sings exactly as before.
+        """
+        if not self.aliases or not lyric or lyric in self.aliases or lyric.startswith(("+", "-")):
+            return lyric
+        spellings = [lyric] + (romaji_spellings(lyric) if self.romaji else [])
+        for s in spellings:
+            candidates = [f"{prev_vowel} {s}"] if prev_vowel else []
+            candidates += [s, f"- {s}", f"* {s}", f"-{s}"]
+            for c in candidates:
+                if c in self.aliases:
+                    return c
+        return lyric
 
     @property
     def entry_count(self) -> int:
@@ -136,12 +178,96 @@ class Voicebank:
 
 def _character_name(root: Path) -> str:
     char = root / "character.txt"
-    if not char.exists():
-        return root.name
-    for line in _read_text(char).splitlines():
-        if line.lower().startswith("name="):
-            return line.partition("=")[2].strip()
-    return root.name
+    if char.exists():
+        for line in _read_text(char).splitlines():
+            if line.lower().startswith("name="):
+                return line.partition("=")[2].strip() or root.name
+    info = _character_yaml(root)
+    return str(info.get("name") or root.name)
+
+
+def _character_yaml(root: Path) -> dict:
+    path = root / "character.yaml"
+    if not path.exists():
+        return {}
+    try:
+        import yaml
+
+        data = yaml.safe_load(_read_text(path))
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001 - a broken yaml must not hide the bank
+        log.debug("could not read %s", path, exc_info=True)
+        return {}
+
+
+def _affixes(root: Path, oto_dirs: list[Path]) -> tuple[set[str], set[str]]:
+    """Prefixes and suffixes the bank's pitch/colour sub-banks add to aliases.
+
+    From prefix.map ("C4<TAB>prefix<TAB>suffix") and character.yaml's
+    `subbanks`; OpenUtau adds them itself, so a lyric is matched without.
+    """
+    prefixes, suffixes = set(), set()
+    for folder in {root, *oto_dirs}:
+        pm = folder / "prefix.map"
+        if pm.exists():
+            for line in _read_text(pm).splitlines():
+                parts = line.split("\t")
+                if len(parts) >= 3:
+                    prefixes.add(parts[1].strip())
+                    suffixes.add(parts[2].strip())
+    for sub in _character_yaml(root).get("subbanks") or []:
+        if isinstance(sub, dict):
+            prefixes.add(str(sub.get("prefix") or "").strip())
+            suffixes.add(str(sub.get("suffix") or "").strip())
+    prefixes.discard("")
+    suffixes.discard("")
+    return prefixes, suffixes
+
+
+def _strip_affixes(alias: str, prefixes: set[str], suffixes: set[str]) -> str:
+    for p in sorted(prefixes, key=len, reverse=True):
+        if alias.startswith(p) and len(alias) > len(p):
+            alias = alias[len(p):]
+            break
+    for s in sorted(suffixes, key=len, reverse=True):
+        if alias.endswith(s) and len(alias) > len(s):
+            alias = alias[: -len(s)]
+            break
+    return alias
+
+
+# Hepburn is what pykakasi writes; banks spell some morae the kunrei way.
+_ROMAJI_VARIANTS = {
+    "shi": ["si"], "chi": ["ti"], "tsu": ["tu"], "fu": ["hu"], "ji": ["zi", "di"],
+    "sha": ["sya"], "shu": ["syu"], "sho": ["syo"], "she": ["sye"],
+    "cha": ["tya", "cya"], "chu": ["tyu", "cyu"], "cho": ["tyo", "cyo"], "che": ["tye"],
+    "ja": ["zya", "jya"], "ju": ["zyu", "jyu"], "jo": ["zyo", "jyo"], "je": ["zye"],
+    "zu": ["du"], "wo": ["o"], "n": ["N", "nn"], "ye": ["ie"],
+}
+
+
+def romaji_spellings(kana: str) -> list[str]:
+    """Ways a romaji bank may spell the mora `kana`, most usual first."""
+    from .translit import to_hiragana
+
+    try:
+        import pykakasi
+
+        global _KAKASI
+        if _KAKASI is None:
+            _KAKASI = pykakasi.kakasi()
+        hep = "".join(item["hepburn"] for item in _KAKASI.convert(to_hiragana(kana)))
+    except Exception:  # noqa: BLE001
+        return []
+    if not hep:
+        return []
+    return [hep] + _ROMAJI_VARIANTS.get(hep, [])
+
+
+_KAKASI = None
+_ROMAJI_MORA = re.compile(
+    r"^(?:[kgsztdnhbpmyrwfjvc]|sh|ch|ts|[kgnhbpmrszdtc]y)?[aiueo]$|^(?:n|N|nn)$"
+)
 
 
 # Aliases like "a い" (VCV) vs "- あ" / "* あ" (CV with a prefix marker) vs
@@ -151,7 +277,30 @@ _KANA_HINT = re.compile(r"[぀-ヿ]")
 # A genuine VCV alias is "<vowel> <mora>". The leading token must be a vowel or
 # n - a "-" or "*" marker means CV, which is what tripped the first version of
 # this heuristic on the tandoku bank.
-_VCV_ALIAS = re.compile(r"^[aiueon]\s+\S")
+_VCV_ALIAS = re.compile(r"^[aiueonN]\s+[぀-ヿ]")
+# A Japanese CVVC bank's vowel-to-consonant links: "a k", "o ts", "n s".
+_VC_ALIAS = re.compile(r"^[aiueonN]\s+[a-z]{1,3}$")
+
+
+def _core(alias: str) -> str:
+    """An alias without its "- " / "* " head marker or VCV vowel."""
+    a = alias.strip()
+    for head in ("- ", "* ", "-", "*"):
+        if a.startswith(head):
+            return a[len(head):].strip()
+    parts = a.split()
+    if len(parts) == 2 and parts[0] in ("a", "i", "u", "e", "o", "n", "N"):
+        return parts[1]
+    return a
+
+
+def _looks_romaji(aliases: list[str]) -> bool:
+    """Mostly Japanese morae written in latin letters: "ka", "- shi", "a tsu"."""
+    tokens = [_core(a) for a in aliases if a.strip()]
+    # A few stray kana (a "ka゜" nasal, a breath sample) don't make it a kana bank.
+    if not tokens or sum(1 for t in tokens if _KANA_HINT.search(t)) > len(tokens) * 0.2:
+        return False
+    return sum(1 for t in tokens if _ROMAJI_MORA.match(t)) > len(tokens) * 0.6
 # ARPAbet, as ARPAsing banks spell their aliases: "- hh", "aa", "aa -", "eh r".
 _ARPABET = frozenset(
     "aa ae ah ao aw ax ay eh er ey ih iy ow oy uh uw "
@@ -187,7 +336,14 @@ def _detect_flavour(bank_dir: Path, aliases: list[str]) -> str:
         return "ja-cv"
     if _KANA_HINT.search(blob):
         vcv = sum(1 for a in aliases if _VCV_ALIAS.match(a.strip()))
-        return "ja-vcv" if vcv > len(aliases) * 0.15 else "ja-cv"
+        if vcv > len(aliases) * 0.15:
+            return "ja-vcv"
+        vc = sum(1 for a in aliases if _VC_ALIAS.match(a.strip()))
+        return "ja-cvvc" if vc > len(aliases) * 0.1 else "ja-cv"
+    if _looks_romaji(aliases):
+        # Sung through the plain phonemizer either way; `alias_for` picks
+        # "a ka" or "- ka" or "ka", whichever the bank has.
+        return "ja-cv"
     return "unknown"
 
 
@@ -250,11 +406,12 @@ def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
     roots: list[Path] = []
     seen: set[Path] = set()
 
-    for char in _find_files(search_root, "character.txt", max_depth):
-        root = char.parent
-        if root not in seen:
-            seen.add(root)
-            roots.append(root)
+    for marker in CHARACTER_FILES:
+        for char in _find_files(search_root, marker, max_depth):
+            root = char.parent
+            if root not in seen:
+                seen.add(root)
+                roots.append(root)
 
     # Banks with no character.txt at all - fall back to oto.ini directories that
     # are not already covered by a discovered singer root.
@@ -313,13 +470,25 @@ def discover(search_root: Path | str) -> list[Voicebank]:
 
         key = _make_key(root if root.name != "重音テト音声ライブラリー" else root.parent, taken)
         taken.add(key)
+        prefixes, suffixes = _affixes(root, oto_dirs)
+        stripped = [_strip_affixes(a.strip(), prefixes, suffixes) for a in all_aliases]
+        flavour = _detect_flavour(root, stripped)
+        if flavour == "unknown":
+            # Debug only: the panel rediscovers often. The doctor warns.
+            log.debug(
+                "%s: could not tell what language this voicebank sings - Teto Relay "
+                "sings Japanese (kana or romaji) and English (ARPAsing, X-SAMPA) UTAU banks.",
+                root,
+            )
         banks.append(
             Voicebank(
                 key=key,
                 name=_character_name(root),
                 root=root,
                 subbanks=subbanks,
-                flavour=_detect_flavour(root, all_aliases),
+                flavour=flavour,
+                aliases=frozenset(stripped),
+                romaji=flavour.startswith("ja-") and _looks_romaji(stripped),
             )
         )
 
