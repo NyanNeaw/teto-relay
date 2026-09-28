@@ -91,17 +91,12 @@ if ($LASTEXITCODE -gt 1) { Fail "the built program crashed running --doctor" }
 # ---------------------------------------------------------------- 5. zip
 Step "Making the portable zip"
 $PortableName = "TetoRelay-$Version-portable"
-$Staging = Join-Path $Root "dist\$PortableName"
-if (Test-Path $Staging) { Remove-Item $Staging -Recurse -Force }
-Copy-Item $App $Staging -Recurse
-Set-Content -Path (Join-Path $Staging "portable.txt") -Value "Settings, logs and downloaded models are kept in the data folder next to this file. Delete this file to use %LOCALAPPDATA%\TetoRelay instead."
-Copy-Item (Join-Path $Root "docs\SETUP.md") (Join-Path $Staging "SETUP.md")
-Copy-Item (Join-Path $Root "README.md") (Join-Path $Staging "README.md")
-Copy-Item (Join-Path $Root "CHANGELOG.md") (Join-Path $Staging "CHANGELOG.md")
 $Zip = Join-Path $Root "dist\$PortableName.zip"
-if (Test-Path $Zip) { Remove-Item $Zip -Force }
-Compress-Archive -Path $Staging -DestinationPath $Zip
-Remove-Item $Staging -Recurse -Force
+# Streamed from the app folder: a staging copy needed the app's size again in
+# free space, and filled the disk on the test PC.
+& $Py (Join-Path $Root "packaging\portable_zip.py") $App $Zip $PortableName `
+    (Join-Path $Root "docs\SETUP.md") (Join-Path $Root "README.md") (Join-Path $Root "CHANGELOG.md")
+if ($LASTEXITCODE -ne 0) { Fail "could not write the portable zip" }
 
 # ---------------------------------------------------------------- 6. installer
 $Iscc = @(
