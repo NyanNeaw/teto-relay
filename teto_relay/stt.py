@@ -203,6 +203,47 @@ def speech_envelope(audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, fl
 CODA_GRACE = 0.25
 
 
+def last_sound(rms: np.ndarray, level: float) -> float:
+    """When the speaker stopped, in seconds.
+
+    Taken from the median loudness over 150 ms, held clear of the room's own
+    noise: a noisy tail (push-to-talk held after speaking) spikes above the
+    sound level now and then, and read frame by frame it put the end of the
+    speech at the end of the recording. A median ignores a click or a key
+    press, which an average would spread over its window.
+    """
+    if not rms.size:
+        return 0.0
+    width = 15
+    padded = np.pad(rms, (width // 2, width - 1 - width // 2), mode="edge")
+    smooth = np.median(np.lib.stride_tricks.sliding_window_view(padded, width), axis=1)
+    floor = float(np.percentile(smooth, 10))
+    loud = np.nonzero(smooth > max(level, 3.0 * floor))[0]
+    return (loud[-1] + 1) / 100.0 if loud.size else 0.0
+
+
+#: A later segment this much less sure than the first, starting after the
+#: speech with a word whisper itself barely believes, was invented.
+INVENTED_LOGPROB_GAP = 0.3
+INVENTED_FIRST_WORD = 0.3
+
+
+def invented_segment(segment, first_logprob: float | None, speech_end: float) -> bool:
+    """Whether a whole later segment is whisper talking to itself.
+
+    The Thai model tacks a video intro onto a real sentence ("... สวัสดี ครับ
+    คลิป นี้ เป็น รายการ เกี่ยวกับ ข้อมูล"). On noisy test phrases it always
+    came as a second segment starting after the speech, at avg_logprob -0.6
+    against -0.2 for the sentence, its first letter at probability 0.05.
+    """
+    words = list(getattr(segment, "words", None) or [])
+    if first_logprob is None or segment.avg_logprob is None or not words:
+        return False
+    return (segment.start >= speech_end - 0.3
+            and segment.avg_logprob < first_logprob - INVENTED_LOGPROB_GAP
+            and (words[0].probability or 0.0) < INVENTED_FIRST_WORD)
+
+
 def invented(start: float, end: float, rms: np.ndarray, level: float, speech_end: float,
              text: str = "") -> bool:
     """Whether whisper made this word up after the speaker stopped.
@@ -402,8 +443,8 @@ class Transcriber:
 
         words: list[Word] = []
         rms, level = speech_envelope(audio, sample_rate)
-        loud = np.nonzero(rms > level)[0]
-        speech_end = (loud[-1] + 1) / 100.0 if loud.size else 0.0
+        speech_end = last_sound(rms, level) if level > 1e-7 else len(audio) / sample_rate
+        first_logprob = None
         made_up: list[str] = []
         tokens = 0
         dropped = 0
@@ -429,6 +470,11 @@ class Transcriber:
                 dropped += 1
                 log.debug("dropped segment (avg_logprob=%.2f): %r", segment.avg_logprob, segment.text)
                 continue
+            if invented_segment(segment, first_logprob, speech_end):
+                made_up.append(segment.text.strip())
+                continue
+            if first_logprob is None:
+                first_logprob = segment.avg_logprob
 
             for w in segment.words or []:
                 lyric = clean_lyric(w.word)

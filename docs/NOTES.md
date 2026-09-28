@@ -897,6 +897,18 @@ whisper `medium`, which the relay does not use:
   over silence, so words there are dropped (except a letter or two right
   after the voice: a final บ is a silent closure), and a loop that ran out of
   budget is cut to one copy. (`stt.invented`, `stt._trim_loop`)
+- That did not catch what the user met next: a video intro tacked onto a
+  real sentence ("... หนึ่ง สวัสดี ครับ คลิป นี้ เป็น รายการ เกี่ยวกับ
+  ข้อมูล"). Reproduced by making the 20 test phrases quieter with room noise
+  and a 1.5 s noisy tail: 2 of 22 phrases grew such endings. Each was a
+  second segment starting after the speech, at avg_logprob -0.6 against
+  -0.2 for the sentence, its first letter at probability ~0.05 - and the
+  noise tail's spikes had put "the end of the speech" at the end of the
+  recording, so the silence check passed it. The end of speech is now the
+  150 ms median loudness against the room's noise floor, and such a segment
+  is dropped (`stt.invented_segment`). Noisy set: 0 phrases with invented
+  endings (was 2), letter error 0.084 -> 0.033; nothing dropped from the
+  user's English or Japanese recordings.
 - Tone is not carried by the lyrics. In *Speech* style the pitch follows the
   speaker, who carries it; *Sung* style replaces it with a melody.
 

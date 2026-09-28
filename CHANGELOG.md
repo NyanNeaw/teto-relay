@@ -36,8 +36,10 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
 - Switching voicebank while running changed the lyrics but not the voice.
 - Whisper's invented words are dropped: words timed after you stopped
   speaking, over silence, and a phrase repeated until the token budget ran
-  out ("... สวัสดี ครับ สวัสดี ครับ สวัสดี ครั"). The Thai model is also run
-  with a repetition penalty, which stopped its loops on every test phrase.
+  out ("... สวัสดี ครับ สวัสดี ครับ สวัสดี ครั"), and a much less confident
+  second segment tacked on after the speech (a video intro: "สวัสดี ครับ
+  คลิป นี้ เป็น รายการ ..."). The Thai model is also run with a repetition
+  penalty, which stopped its loops on every test phrase.
 - Other people's voicebanks: romaji-alias banks sang silence; banks with no
   character.txt played tones; Japanese zips installed with garbled file
   names; a multi-pitch bank inside an author folder installed one pitch;

@@ -3242,6 +3242,48 @@ class TestInventedWords(unittest.TestCase):
         words = self._transcribe([("ครั", 0.0, 0.5), ("บ", 0.52, 0.6)], audio)
         self.assertEqual(words, ["ครับ"])
 
+    def test_a_noisy_tail_does_not_move_the_end_of_speech(self):
+        # Room noise after speaking spikes over the sound level now and then;
+        # read frame by frame, speech "ended" at the end of the recording.
+        import numpy as np
+
+        from teto_relay.stt import last_sound, speech_envelope
+
+        rng = np.random.default_rng(1)
+        audio = self._speech_then_silence(2.0, 4.5)
+        audio[int(2.0 * 16000):] += rng.normal(0, 0.004, len(audio) - int(2.0 * 16000))
+        audio[int(3.5 * 16000):int(3.5 * 16000) + 80] += 0.3  # a click
+        rms, level = speech_envelope(audio.astype(np.float32), 16000)
+        self.assertAlmostEqual(last_sound(rms, level), 2.0, delta=0.15)
+
+    def test_a_video_intro_tacked_on_after_the_sentence_is_dropped(self):
+        # "... เว้ย" then a second segment "สวัสดี ครับ คลิป นี้ เป็น ..." -
+        # the shape of every invented ending on the noisy test phrases.
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        def seg(start, logprob, words):
+            return types.SimpleNamespace(
+                start=start, no_speech_prob=0.0, avg_logprob=logprob, text="".join(w[0] for w in words),
+                tokens=[0], words=[types.SimpleNamespace(word=w, start=a, end=b, probability=pr)
+                                   for w, a, b, pr in words])
+
+        real = seg(0.0, -0.19, [("ตลอด", 0.2, 0.9, 0.99), ("เว้ย", 0.9, 1.4, 0.95)])
+        made_up = seg(1.9, -0.65, [("ส", 1.9, 2.4, 0.05), ("วัสดี", 2.4, 2.9, 0.9), ("ครับ", 2.9, 3.0, 0.9)])
+        t = Transcriber(Config(language="th"))
+        t._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([real, made_up], None))
+        audio = self._speech_then_silence(1.5, 3.2).astype(np.float32)
+        self.assertEqual([w.text for w in t.transcribe(audio, 16000)], ["ตลอด", "เว้ย"])
+        # A second segment that is as sure as the first is speech.
+        sure = seg(1.9, -0.25, [("ส", 1.9, 2.4, 0.9), ("วัสดี", 2.4, 2.9, 0.9)])
+        t._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([real, sure], None))
+        audio = self._speech_then_silence(3.0, 3.2).astype(np.float32)
+        self.assertEqual(len(t.transcribe(audio, 16000)), 3)
+
     def test_a_loop_that_ran_out_of_budget_is_cut_to_one_copy(self):
         from teto_relay.stt import Word, _trim_loop
 
