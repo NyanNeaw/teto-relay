@@ -18,6 +18,13 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
 **Speech model: small** is the most accurate and still fast.
 
 ### Fixed
+- The packaged app: a double-click opened no window (Edge inherited the
+  bundle's DLL path), and TetoRelay.exe with options ran invisibly.
+- Much smaller: installer 1.6 GB -> 511 MB, portable zip 2.6 GB -> 856 MB,
+  installed 4.2 GB -> 1.6 GB. Whisper keeps the GPU; pitch tracking and
+  alignment run on the CPU, where they measured as fast and as accurate.
+- Without CUDA, crepe ran its full model on the CPU (4.8 s a phrase); it
+  uses the tiny one there (0.28 s).
 - Pitch curves were written in cents but OpenUtau reads tenths of a semitone:
   every inflection was ten times too big.
 - Pitch was sung 0.2–0.5 s late against the syllables on every phrase.
