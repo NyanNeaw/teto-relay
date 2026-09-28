@@ -503,7 +503,16 @@ class TetoRelay:
 
     def set_voicebank(self, key: str) -> None:
         """Switch banks at runtime; takes effect on the next utterance."""
-        self.bank = vb_mod.select(self.banks, key)
+        try:
+            bank = vb_mod.select(self.banks, key)
+        except ValueError:
+            # Installed or copied in since the relay started.
+            self.banks = vb_mod.discover(self.cfg.voicebank_path())
+            bank = vb_mod.select(self.banks, key)
+        set_bank = getattr(self.renderer, "set_bank", None)
+        if set_bank is not None:
+            set_bank(bank)
+        self.bank = bank
         self.cfg.voicebank = self.bank.key
         # Each bank is recorded at its own pitch, so retarget and let the shift
         # settle again rather than carrying the previous bank's offset over.

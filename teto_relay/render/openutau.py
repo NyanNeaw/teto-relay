@@ -197,6 +197,27 @@ def _wait_for_runner() -> None:
         log.debug("could not wait for PhonemizerRunner", exc_info=True)
 
 
+def _add_character_file(bank: Voicebank) -> Path:
+    """Give a bank that has only oto.ini files the character.txt OpenUtau needs.
+
+    OpenUtau (re)loads a bank from the folder its character file is in, so a
+    stand-in kept anywhere else loads no samples at all. One line with the
+    name is what UTAU itself would write; nothing else in the bank changes.
+    """
+    path = Path(bank.root) / "character.txt"
+    try:
+        # cp932, as every UTAU tool reads it.
+        path.write_bytes(f"name={bank.name}\r\n".encode("cp932", errors="replace"))
+    except OSError as exc:
+        raise RenderError(
+            f"{bank.root} has no character.txt and one could not be added ({exc}). "
+            "Create a text file named character.txt in that folder containing "
+            f"name={bank.name}, or copy the bank somewhere you can write to."
+        ) from exc
+    log.info("%s had no character.txt; added one with its name so OpenUtau can load it", bank.root)
+    return path
+
+
 class OpenUtauRenderer:
     name = "openutau"
 
@@ -223,9 +244,45 @@ class OpenUtauRenderer:
         # load, which would otherwise cost ~1.3s on every single utterance.
         self._phonemizer = self._make_phonemizer(cfg.phonemizer or bank.phonemizer)
         self._xsampa = (cfg.phonemizer or bank.phonemizer).endswith("EnXSampaPhonemizer")
+        # Every bank used this session, so switching back is instant.
+        self._voices = {self._voice_key(bank): (self.singer, self._phonemizer, self._xsampa)}
+        # A switch must not swap the singer out from under a phrase being sung.
+        import threading
+
+        self._lock = threading.Lock()
         log.info("OpenUtau backend ready: singer=%s renderer=%s", self.singer.Name, self.renderer)
 
     # ------------------------------------------------------------ singer
+    def _voice_key(self, bank: Voicebank) -> tuple[str, str]:
+        return (str(Path(bank.root).resolve()), self.cfg.phonemizer or bank.phonemizer)
+
+    def set_bank(self, bank: Voicebank) -> None:
+        """Sing with `bank` from the next phrase on.
+
+        The singer is bound to the track and the phonemizer when a project is
+        built, so switching only the lyrics (as the relay once did) kept the
+        first bank's voice - and a bank installed while running was not known
+        at all. Loading happens before the swap: a bank that fails to load
+        leaves the current one singing.
+        """
+        key = self._voice_key(bank)
+        voice = self._voices.get(key)
+        if voice is None:
+            singer = self._load_singer(bank)
+            previous, self.singer = self.singer, singer
+            try:
+                # _make_phonemizer binds whatever self.singer is.
+                with self._lock:
+                    phonemizer = self._make_phonemizer(key[1])
+            finally:
+                self.singer = previous
+            voice = (singer, phonemizer, key[1].endswith("EnXSampaPhonemizer"))
+            self._voices[key] = voice
+        with self._lock:
+            self.bank = bank
+            self.singer, self._phonemizer, self._xsampa = voice
+        log.info("OpenUtau now sings with %s", self.singer.Name)
+
     def _register_singer_path(self, bank: Voicebank) -> None:
         """Point OpenUtau's singer search at the bank's parent directory.
 
@@ -262,9 +319,9 @@ class OpenUtauRenderer:
         """
         from OpenUtau.Classic import ClassicSinger, Voicebank, VoicebankLoader
 
-        character = bank.root / "character.txt"
-        if not character.exists():
-            raise RenderError(f"{bank.root} has no character.txt")
+        # OpenUtau reads the bank's details from this file and finds the oto
+        # sets beside it. Plenty of banks have only oto.ini files.
+        character = bank.character_file or _add_character_file(bank)
 
         voicebank = Voicebank()
         voicebank.BasePath = str(bank.root)
@@ -870,6 +927,10 @@ class OpenUtauRenderer:
 
     # -------------------------------------------------------------- render
     def render(self, ustx_path: Path, out_wav: Path) -> Path:
+        with self._lock:
+            return self._render(ustx_path, out_wav)
+
+    def _render(self, ustx_path: Path, out_wav: Path) -> Path:
         from System.Threading import CancellationTokenSource
 
         began = time.monotonic()
