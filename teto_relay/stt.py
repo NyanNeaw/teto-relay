@@ -182,6 +182,48 @@ THAI_MODEL = {
     "sha256": "8cef6d502277c94f2e403a8b23ecd6fe385bb262d7044621297c496b6c473470",
 }
 THAI_MODEL_NAME = "thai-small"
+#: The Thai model, unsure, repeats a stock phrase until the token budget runs
+#: out ("... สวัสดีครับ สวัสดีครับ สวัสดีครั" after a real sentence). With this
+#: penalty it stopped on every test phrase, at the same accuracy.
+THAI_REPETITION_PENALTY = 1.15
+#: A frame counts as sound above this share of the phrase's loud frames.
+SOUND_SHARE = 0.1
+
+
+def speech_envelope(audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, float]:
+    """10 ms loudness frames and the level that counts as sound."""
+    hop = max(1, sample_rate // 100)
+    frames = audio[: len(audio) // hop * hop].reshape(-1, hop) if len(audio) >= hop else audio[None, :]
+    rms = np.sqrt((frames.astype(np.float64) ** 2).mean(axis=1))
+    return rms, float(np.percentile(rms, 90)) * SOUND_SHARE if rms.size else 0.0
+
+
+#: After the last sound, a word may still be finishing: a Thai final บ is a
+#: silent closure, and whisper times it (and a quiet ง) after the voice stops.
+CODA_GRACE = 0.25
+
+
+def invented(start: float, end: float, rms: np.ndarray, level: float, speech_end: float,
+             text: str = "") -> bool:
+    """Whether whisper made this word up after the speaker stopped.
+
+    Invented words (a looped "สวัสดีครับ", "thanks for watching") were all
+    timed after the last sound, over silence, often squeezed to no length at
+    the very end. A real last word starts while there is still sound - except
+    the end of one: a piece that continues the word (no leading space, a
+    letter or two, brief) just after the voice stops is its final consonant.
+    """
+    if level <= 1e-7 or start < speech_end - 0.05:
+        # No sound at all (a muted or synthetic buffer) says nothing about
+        # which words are real; whisper's own silence checks apply.
+        return False
+    if (start < speech_end + CODA_GRACE and text and not text[0].isspace()
+            and len(text.strip()) <= 2 and end - start <= 0.2):
+        return False
+    i = int(start * 100)
+    j = max(int(end * 100), i + 5)
+    window = rms[i:j]
+    return window.size == 0 or float((window > level).mean()) < 0.2
 
 
 def effective_model(cfg) -> str:
@@ -219,6 +261,34 @@ def _thai_model_path() -> str:
         except OSError:
             pass
     return str(folder)
+
+
+def _trim_loop(words: list[Word], out_of_budget: bool = False) -> list[Word]:
+    """Cut a phrase that ends in one to three words said over and over.
+
+    Whisper, unsure, loops a stock phrase until its token budget runs out, so
+    the last copy is usually cut short (สวัสดี ครับ สวัสดี ครับ สวัสดี ครั).
+    The first copy is kept - it may be what was said. One word has to come
+    three times to count ("ไป ไป" is speech), a longer unit twice. Only a
+    loop that ran out of budget is cut - its last copy cut short, or the
+    token limit reached: a sung "la la la la" ends where the singer stopped.
+    """
+    texts = [w.text for w in words]
+    for n in (1, 2, 3):
+        if len(texts) < 2 * n:
+            continue
+        unit, last = texts[-2 * n:-n], texts[-n:]
+        if not (last[:-1] == unit[:-1] and unit[-1].startswith(last[-1])):
+            continue
+        if last[-1] == unit[-1] and not out_of_budget:
+            continue
+        end, copies = len(texts) - n, 1
+        while end - n >= 0 and texts[end - n:end] == unit:
+            copies += 1
+            end -= n
+        if copies >= (3 if n == 1 else 2):
+            return words[: end + n]
+    return words
 
 
 def _regroup_thai(words: list[Word]) -> list[Word]:
@@ -305,6 +375,7 @@ class Transcriber:
             raise ValueError(f"whisper expects 16 kHz audio, got {sample_rate}")
         self.load()
 
+        budget = max_new_tokens(len(audio) / sample_rate)
         segments, _info = self._model.transcribe(
             audio.astype(np.float32),
             language=self.cfg.language or None,
@@ -325,12 +396,19 @@ class Transcriber:
             # 448-token limit, fails the compression check, and retries at
             # every fallback temperature: 17.7 s for a 2 s phrase on the
             # CPU, with the next phrase queued behind it. Capped: ~5 s.
-            max_new_tokens=max_new_tokens(len(audio) / sample_rate),
+            max_new_tokens=budget,
+            repetition_penalty=THAI_REPETITION_PENALTY if effective_model(self.cfg) == THAI_MODEL_NAME else 1.0,
         )
 
         words: list[Word] = []
+        rms, level = speech_envelope(audio, sample_rate)
+        loud = np.nonzero(rms > level)[0]
+        speech_end = (loud[-1] + 1) / 100.0 if loud.size else 0.0
+        made_up: list[str] = []
+        tokens = 0
         dropped = 0
         for segment in segments:
+            tokens += len(getattr(segment, "tokens", None) or [])
             # Whisper answers near-silence with confident nonsense rather than
             # nothing, so discard segments it is not actually confident about.
             if segment.no_speech_prob is not None and segment.no_speech_prob > self.cfg.no_speech_threshold:
@@ -357,6 +435,9 @@ class Transcriber:
                 if not lyric:
                     continue
                 start, end = float(w.start), float(w.end)
+                if invented(start, end, rms, level, speech_end, w.word):
+                    made_up.append(lyric)
+                    continue
                 if end <= start:
                     # Thai vowel and tone marks often come back with no
                     # duration of their own; dropped, ชื่อ was sung as ช-อ.
@@ -374,7 +455,15 @@ class Transcriber:
                     continue
                 words.append(Word(text=lyric, start=start, end=end))
 
+        if made_up:
+            log.info("Ignored %d word(s) heard after you stopped speaking (whisper invents "
+                     "text in silence): %s", len(made_up), "".join(made_up)[:80])
         words = _regroup_thai(words)
+        trimmed = _trim_loop(words, out_of_budget=tokens >= budget - 2)
+        if len(trimmed) < len(words):
+            log.info("Ignored a repeated ending whisper looped on: %s",
+                     " ".join(w.text for w in words[len(trimmed):]))
+            words = trimmed
         if dropped:
             log.info("Discarded %d low-confidence segment(s)", dropped)
         log.info("Transcribed %d word(s): %s", len(words), " ".join(w.text for w in words))
