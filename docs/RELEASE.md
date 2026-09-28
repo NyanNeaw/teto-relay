@@ -45,9 +45,9 @@ named), `[ ]` not tested yet. The log and `latency.csv` are in the data
 folder.
 
 ### Install and first run
-- [ ] Installer runs without an admin prompt and warns if the .NET 8 Desktop Runtime is missing. *(Inno Setup is not installed on the test PC; not built.)*
-- EXE_PORTABLE
-- EXE_PANEL
+- [ ] Installer runs without an admin prompt and warns if the .NET 8 Desktop Runtime is missing. *(Built with Inno Setup 6; not yet run on a clean PC.)*
+- [!] `build.ps1 -WithGpu`: tests pass in the build venv, `TetoRelayConsole.exe --version` and `--doctor` run. The portable zip step filled the disk twice (a 3.4 GB staging copy plus Compress-Archive); the zip is now streamed from the app folder (`c682f65`) and passes an integrity check. `pythainlp` was missing from requirements.txt, so the exe had no Thai (`b215fd8`).
+- [x] `TetoRelay.exe` with the user's config: the panel opens, Start loads OpenUtau, the Miku singer and whisper, and switching Miku -> tandoku -> Miku changes the singer. [ ] Singing a phrase from the microphone in the exe: user to confirm.
 - [x] **Check setup** reports OpenUtau, .NET 8, VB-Cable, the mic, the voicebanks and the GPU correctly. With OpenUtau pointed at a missing folder it says `[FAIL] OpenUtau: OpenUtau.Core.dll is not in ...` with the fix.
 - [x] Setup → OpenUtau folder / Voicebank folder: when set, they are used. When empty, the usual places are searched and listed in the message; this PC keeps both in non-standard folders (`D:\Work\OpenUtau`, `D:\Claude`), so they are not found - as documented.
 - [x] Quit in the panel stops everything: the relay stops within 0.6 s, the process exits (exit code 0) and Windows shows the microphone released.
