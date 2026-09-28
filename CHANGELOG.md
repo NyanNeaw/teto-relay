@@ -33,6 +33,11 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
 - Voice mode: `harvest` reused the first phrase's pitch; streaming dropped the
   end of a phrase when the GPU lagged.
 - The word aligner never loaded on 8 GB PCs; it now needs ~0.4 GB of RAM.
+- Switching voicebank while running changed the lyrics but not the voice.
+- Other people's voicebanks: romaji-alias banks sang silence; banks with no
+  character.txt played tones; Japanese zips installed with garbled file
+  names; a multi-pitch bank inside an author folder installed one pitch;
+  Japanese CVVC banks were sung as VCV.
 
 ### Changed
 - Timing keeps your rhythm: syllables start where you said them, pauses stay
@@ -40,12 +45,16 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   them, Japanese syllables are timed from the aligner.
 - Loudness, breath and phrase endings follow your own delivery.
 - Sung style: scoops, glides, overshoot, falls and delayed vibrato.
-- Doubled voice on sung phrases (Off / When singing / Always).
+- Doubled voice on sung phrases: an On/Off switch in the panel.
 - Long vowels are held instead of re-attacked.
 - Default speech model: multilingual `base` (the `.en` models misheard
   accented English badly).
 - The panel: plain look, most-used settings first, switches for singing
-  style / doubling / language, every change applies at once.
+  style / doubling / language, every change applies at once - settings the
+  relay reads only at start restart it by themselves. Springy motion
+  (sliding switches, cards and words that pop in); off with the system's
+  reduce-motion setting, or with the sparkle button beside the theme button.
+  The voicebank picture stays still.
 
 ### Added
 - **Song lyrics** on the main screen: paste the lines you'll sing and they're

@@ -38,37 +38,46 @@ the first Windows build; the console exe's traceback names the module.
 
 ## Manual test checklist (real hardware)
 
-None of these can be tested without Windows, audio devices, OpenUtau and a
-GPU, so they're untested. Go through them on the target PC before calling a
-build a release. The log and `latency.csv` are in the data folder.
+Run on the target PC on 2026-09-27/28: Windows 10, GTX 1060 6 GB, 8 GB RAM,
+OpenUtau in `D:\Work\OpenUtau`, VB-Cable, Teto english/tandoku/renzokubeta
+and a Miku English bank. `[x]` passed, `[!]` failed and was fixed (commit
+named), `[ ]` not tested yet. The log and `latency.csv` are in the data
+folder.
 
 ### Install and first run
-- [ ] Installer runs without an admin prompt and warns if the .NET 8 Desktop Runtime is missing.
-- [ ] Portable zip runs from a normal folder; `data\` appears next to the exe.
-- [ ] Double-clicking `TetoRelay.exe` opens the panel in the browser; double-clicking again just shows the same panel.
-- [ ] **Check setup** reports OpenUtau, .NET 8, VB-Cable, the mic, the voicebanks and the GPU correctly, and each `[FAIL]` fix works.
-- [ ] Setup → OpenUtau folder / Voicebank folder, when left empty, find your install; when set, are used.
-- [ ] Quit in the panel stops everything (no `TetoRelay.exe` left in Task Manager).
+- [ ] Installer runs without an admin prompt and warns if the .NET 8 Desktop Runtime is missing. *(Inno Setup is not installed on the test PC; not built.)*
+- EXE_PORTABLE
+- EXE_PANEL
+- [x] **Check setup** reports OpenUtau, .NET 8, VB-Cable, the mic, the voicebanks and the GPU correctly. With OpenUtau pointed at a missing folder it says `[FAIL] OpenUtau: OpenUtau.Core.dll is not in ...` with the fix.
+- [x] Setup → OpenUtau folder / Voicebank folder: when set, they are used. When empty, the usual places are searched and listed in the message; this PC keeps both in non-standard folders (`D:\Work\OpenUtau`, `D:\Claude`), so they are not found - as documented.
+- [x] Quit in the panel stops everything: the relay stops within 0.6 s, the process exits (exit code 0) and Windows shows the microphone released.
 
 ### The default pipeline (UTAU)
-- [ ] Hold F8, speak, release: Teto sings the phrase through CABLE Input, and Discord/OBS hears it on CABLE Output.
-- [ ] A `Latency ...` line is logged per phrase, and `latency.csv` gets a row. Note the `total` for a typical 2 s phrase: ______ s.
-- [ ] `lead_silence` in the latency line is near 0 (the leading-silence trim works with real WORLDLINE output). If it is 0.2–0.5 s, WORLDLINE's positions are relative after all; report it.
-- [ ] Numbers ("I have 2 cats at 5:30"), "I'm", and a loanword on a Japanese bank are sung, not silent.
-- [ ] Switching voicebank in the panel while running takes effect on the next phrase.
-- [ ] Unplug the USB mic while running: the panel shows the microphone banner. Plug it back in: note whether it recovers on its own (it may not - PortAudio only lists devices at start; see ROADMAP); Stop and Start must bring it back.
-- [ ] Rename the OpenUtau folder and start: plain tones play, and the panel banner and Check setup say why.
+- [x] Hold the key, speak, release: Teto sings the phrase. Routed to CABLE Input, the audio was recorded back from CABLE Output.
+- [x] A `Latency ...` line is logged per phrase and `latency.csv` gets a row. Typical `total` for a 2-3 s phrase: **~1.9 s** with whisper on the GPU (`int8`, beam 1), **3.1-4.3 s** with the old CPU `base`/beam 5 setting. The biggest stage is **render** (OpenUtau, 1.3-2.1 s: phonemize ~0.7 s + synth ~0.9 s).
+- [x] `lead_silence` is 0.00 on every phrase: the leading-silence trim works with real WORLDLINE output (its positions are absolute).
+- [x] Numbers ("I have 2 cats at 5:30"), "I'm", and loanwords on a Japanese bank are sung, not silent.
+- [!] Switching voicebank in the panel while running: only the lyrics and pitch target followed; OpenUtau kept the first bank's voice, and a bank installed while running was unknown. Fixed (`bfa6ed2`); after a switch the output now equals a fresh render with that bank (defoko → tandoku → miku → a romaji bank).
+- [x] Other people's voicebanks (`e803584`, `b8eb9e2`): copies of Defoko rearranged as a romaji bank, pitch-suffixed with prefix.map, character.yaml only, no character file, nested in an author folder, and a Shift-JIS zip all install and sing through OpenUtau. Before: the romaji bank sang silence, the two without character.txt played tones, the Shift-JIS zip installed with garbled names that matched no sample.
+- [ ] Unplug the USB mic while running: the panel shows the microphone banner; note whether it recovers on its own; Stop and Start must bring it back.
+- [x] OpenUtau not found: plain tones play, and the panel banner and Check setup say why. (Tested by pointing `openutau_dir` at a missing folder rather than renaming the install.)
 - [ ] Tray mode (`TetoRelayConsole.exe --tray` or `pythonw -m teto_relay --tray`): red icon when live; with a broken setup, amber icon, the reason in the menu, and Retry / Open log work.
 
-### Latency options
-- [ ] `persistent_output: true`: audio still plays correctly; compare the `output` stage with it off.
-- [ ] `whisper_device: cuda`, `whisper_compute_type: float16`, `beam_size: 1`: the relay still starts (the cuDNN load-order trap), and `asr` in the latency line drops.
+- [x] Changing a start-only setting in the panel while running (push-to-talk key, microphone, whisper model...) restarts the relay by itself: "restarting..." for ~3 s, then listening again with the new value (`8ab3883`). Only the OpenUtau folder still asks to reopen the program.
+- [x] Double voice is an On/Off switch; On layers the voice on the phrases that are sung, not the spoken ones.
 
-### Singing options (off by default)
-- [ ] `singing_style: sung`: notes sound in a key, long notes have audible vibrato **in OpenUtau's output** (not only the tone renderer), and the last note is held.
-- [ ] `legato: true` on the tandoku bank: words sound joined up and **no phonemes go missing** (touching notes collapsed the hosted phonemizer in early tests; watch the log for "no sample" / missing phonemes).
-- [ ] Voice mode with `voice_streaming: true`: you hear yourself in Teto's voice while still talking; no "falling behind" warning at the default 300 ms blocks; no clicks at block edges. Note the delay: ______ s.
+### Latency options
+- [x] `persistent_output: true`: audio plays correctly; the `output` stage is ~0.02 s with it and without, so it gains nothing measurable on this PC.
+- [!] `whisper_device: cuda`, `whisper_compute_type: float16`: the GTX 1060 (Pascal) has no fast float16 and every phrase failed. Now falls back to `int8` with a warning (`e149020`). With `int8`, beam 1: `asr` 0.9 s → 0.16 s, and crepe on CUDA still works after whisper on CUDA.
+
+### Singing options
+- [x] `singing_style: sung`: notes in a key, vibrato measurable **in OpenUtau's output** (a 25-cent vibrato moves the sung pitch ±20 cents), the last note held.
+- [!] `legato`: touching notes lost their phonemes (18 morae → 7) because the relay grouped them (`e69b847`); now on by default. Connected phrases also lost a tick to rounding and cut hard (`f8c0098`).
+- [x] Voice mode with `voice_streaming: true`, after fixing the gate (`d37d996`): with the default crepe + index a 300 ms block takes ~800 ms on the GTX 1060 and falls behind; `rvc_f0_method: pm`, `rvc_index_rate: 0` keeps up (~250 ms a block, ~0.8 s delay). Tested with recorded audio; the user did not listen to it.
+
+### Tuning (added during testing)
+- [x] Scored on the user's own recordings with `tools/tuning_eval.py`; see "Hardware testing and tuning log" in NOTES.md. English word error 0.37 → ~0.06-0.10, Japanese kana error 0.63 → ~0.2-0.3; dropouts (singing while Teto is silent) 5.5% → 0.3%.
 
 ### Shutdown
-- [ ] Stop and Quit leave no microphone or output stream open (Windows privacy indicator goes off).
+- [x] Stop and Quit leave no microphone or output stream open (the Windows microphone consent store shows the app's use ended).
 - [ ] Ctrl+C in the console exits within a few seconds, even with the panel open in a browser.
