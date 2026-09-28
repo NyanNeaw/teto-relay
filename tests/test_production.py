@@ -3349,5 +3349,103 @@ class TestRenamingVoicebanks(unittest.TestCase):
         self.assertEqual((entry["name"], entry["custom_name"], entry["own_name"]), ("Kasane", "Kasane", "Someone"))
 
 
+class TestReleaseReview(unittest.TestCase):
+    """Found reviewing the 0.3.0 build."""
+
+    def test_crepe_without_cuda_uses_the_tiny_model(self):
+        # crepe full on the CPU took 4.8 s for a 3 s phrase; tiny 0.28 s and
+        # within 10 cents of full on the user's recordings.
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import torch
+
+        from teto_relay import pitch
+        from teto_relay.config import Config
+
+        seen = {}
+
+        def predict(audio, rate, hop, **kw):
+            seen.update(kw)
+            n = audio.shape[-1] // hop + 1
+            return torch.full((1, n), 220.0), torch.ones((1, n))
+
+        fake = types.SimpleNamespace(predict=predict)
+        with unittest.mock.patch.dict(sys.modules, {"torchcrepe": fake}), \
+                unittest.mock.patch.object(torch.cuda, "is_available", return_value=False):
+            track = pitch._track_crepe(np.zeros(16000, np.float32), 16000,
+                                       Config(crepe_model="full", crepe_device="cuda"))
+        self.assertEqual((seen["model"], seen["device"]), ("tiny", "cpu"))
+        self.assertEqual(track.method, "crepe/tiny@cpu")
+
+    def test_edge_is_started_without_the_packaged_apps_dll_path_or_variables(self):
+        # From the packaged TetoRelay.exe, Edge inherited PyInstaller's DLL
+        # directory and exited without a window: double-click showed nothing.
+        import os
+        import unittest.mock
+
+        from teto_relay import appwindow
+
+        calls = []
+
+        class Kernel:
+            def GetDllDirectoryW(self, size, buf):
+                buf.value = r"C:\app\_internal"
+                return len(buf.value)
+
+            def SetDllDirectoryW(self, value):
+                calls.append(value)
+
+        env = {"PATH": "x", "_PYI_APPLICATION_HOME_DIR": "y", "_MEIPASS2": "z"}
+        with unittest.mock.patch.object(appwindow.sys, "frozen", True, create=True), \
+                unittest.mock.patch.dict(os.environ, env, clear=True), \
+                unittest.mock.patch("ctypes.windll", unittest.mock.Mock(kernel32=Kernel()), create=True), \
+                unittest.mock.patch.object(appwindow.subprocess, "Popen") as popen:
+            appwindow._launch(["edge.exe", "--app=http://127.0.0.1:8765/"])
+        passed = popen.call_args.kwargs["env"]
+        self.assertIn("PATH", passed)
+        self.assertFalse([k for k in passed if k.startswith(("_PYI", "_MEI"))])
+        self.assertEqual(calls, [None, r"C:\app\_internal"])  # cleared, then restored
+
+    def test_the_windowed_exe_always_opens_the_panel(self):
+        # TetoRelay.exe --config x.json ran an invisible headless relay.
+        import runpy
+        import unittest.mock
+
+        seen = {}
+        fake_main = types_module(main=lambda args: seen.setdefault("args", args) and 0)
+        launcher = str(ROOT / "packaging" / "launcher.py")
+        for exe, argv, expected in (
+            (r"C:\app\TetoRelay.exe", ["--config", "x.json"], ["--web", "--config", "x.json"]),
+            (r"C:\app\TetoRelay.exe", ["--tray"], ["--tray"]),
+            (r"C:\app\TetoRelayConsole.exe", ["--doctor"], ["--doctor"]),
+            (r"C:\app\TetoRelay.exe", [], ["--web"]),
+        ):
+            seen.clear()
+            with unittest.mock.patch.object(sys, "executable", exe), \
+                    unittest.mock.patch.object(sys, "argv", ["launcher", *argv]), \
+                    unittest.mock.patch.dict(sys.modules, {"teto_relay.__main__": fake_main}):
+                with self.assertRaises(SystemExit):
+                    runpy.run_path(launcher, run_name="__main__")
+            self.assertEqual(seen["args"], expected, exe)
+
+    def test_thai_is_warmed_before_the_first_phrase(self):
+        import inspect
+
+        from teto_relay.app import TetoRelay
+
+        source = inspect.getsource(TetoRelay._warmup)
+        self.assertIn('stage("thai", warm_thai)', source)
+
+
+def types_module(**attrs):
+    import types
+
+    module = types.ModuleType("teto_relay.__main__")
+    module.__dict__.update(attrs)
+    return module
+
+
 if __name__ == "__main__":
     unittest.main()
