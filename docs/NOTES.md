@@ -886,6 +886,17 @@ whisper `medium`, which the relay does not use:
   sang silence.
 - てぃ / でぃ / ふぁ are one mora; the small vowel alone had no sample. A bank
   without one sings the nearest basic mora (でぃ -> ぢ).
+- **Invented words.** Unsure, the Thai model repeats a stock phrase
+  ("สวัสดีครับ", "ขอบคุณที่ติดตาม") until the token budget runs out - the
+  user's "... ตลอด เว้ย" came back with "สวัสดี ครับ" three times after it.
+  Tested on phrases with a noise tail: without the English vocabulary prompt
+  it looped on half of them, so the prompt stays; faster-whisper's
+  `hallucination_silence_threshold` made it far worse (invented text on
+  almost every phrase); a repetition penalty of 1.15 stopped every loop at
+  the same accuracy. The invented words were all timed after the last sound,
+  over silence, so words there are dropped (except a letter or two right
+  after the voice: a final บ is a silent closure), and a loop that ran out of
+  budget is cut to one copy. (`stt.invented`, `stt._trim_loop`)
 - Tone is not carried by the lyrics. In *Speech* style the pitch follows the
   speaker, who carries it; *Sung* style replaces it with a melody.
 

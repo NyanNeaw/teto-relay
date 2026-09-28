@@ -34,6 +34,10 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   end of a phrase when the GPU lagged.
 - The word aligner never loaded on 8 GB PCs; it now needs ~0.4 GB of RAM.
 - Switching voicebank while running changed the lyrics but not the voice.
+- Whisper's invented words are dropped: words timed after you stopped
+  speaking, over silence, and a phrase repeated until the token budget ran
+  out ("... สวัสดี ครับ สวัสดี ครับ สวัสดี ครั"). The Thai model is also run
+  with a repetition penalty, which stopped its loops on every test phrase.
 - Other people's voicebanks: romaji-alias banks sang silence; banks with no
   character.txt played tones; Japanese zips installed with garbled file
   names; a multi-pitch bank inside an author folder installed one pitch;
@@ -63,6 +67,9 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   unreleased stops as short rests, ท as t. Before, Thai was sung from
   whisper's character fragments through a spelling that read ท as English
   "th", and an ARPAsing bank sang it as silence.
+- **Rename a voicebank** from the panel (the pencil beside its name). The
+  name is kept in Teto Relay's data folder; the bank's files are not touched,
+  and an empty name goes back to the bank's own.
 - **App window**: the panel opens as a window of its own (Edge/Chrome app
   mode) and can be installed from Edge or Chrome. *Open the panel as* in
   Setup switches back to a browser tab.

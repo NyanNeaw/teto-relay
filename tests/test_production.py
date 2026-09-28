@@ -3202,5 +3202,110 @@ class TestAppWindow(unittest.TestCase):
             self.assertTrue(static_file(icon["src"].lstrip("/")).startswith(b"\x89PNG"))
 
 
+class TestInventedWords(unittest.TestCase):
+    """Whisper writes words that were never said - the Thai model loops
+    "สวัสดีครับ" - in the silence after a phrase ("... ตลอด เว้ย สวัสดี ครับ
+    สวัสดี ครับ สวัสดี ครั" from the user's microphone)."""
+
+    def _transcribe(self, pieces, audio, budget_used=0):
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        seg = types.SimpleNamespace(
+            no_speech_prob=0.0, avg_logprob=-0.2, text="", tokens=[0] * budget_used,
+            words=[types.SimpleNamespace(word=w, start=a, end=b) for w, a, b in pieces])
+        t = Transcriber(Config(language="th"))
+        t._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([seg], None))
+        return [w.text for w in t.transcribe(np.asarray(audio, dtype=np.float32), 16000)]
+
+    @staticmethod
+    def _speech_then_silence(speech_s, total_s):
+        import numpy as np
+
+        rng = np.random.default_rng(0)
+        audio = rng.normal(0, 0.0005, int(total_s * 16000))
+        audio[: int(speech_s * 16000)] += 0.2 * np.sin(np.arange(int(speech_s * 16000)) * 0.05)
+        return audio
+
+    def test_words_over_the_silence_after_speech_are_dropped(self):
+        audio = self._speech_then_silence(0.6, 3.0)
+        words = self._transcribe([("ฮัลโหล", 0.0, 0.5), (" ฮัล", 0.68, 1.66), ("โหล", 3.04, 3.04)], audio)
+        self.assertEqual(words, ["ฮัลโหล"])
+
+    def test_a_final_consonant_just_after_the_voice_is_kept(self):
+        # A Thai final บ is a silent closure, timed after the sound stops.
+        audio = self._speech_then_silence(0.5, 2.0)
+        words = self._transcribe([("ครั", 0.0, 0.5), ("บ", 0.52, 0.6)], audio)
+        self.assertEqual(words, ["ครับ"])
+
+    def test_a_loop_that_ran_out_of_budget_is_cut_to_one_copy(self):
+        from teto_relay.stt import Word, _trim_loop
+
+        def trim(text, budget=False):
+            return [w.text for w in _trim_loop([Word(x, i, i + 1) for i, x in enumerate(text.split())], budget)]
+
+        self.assertEqual(trim("เว้ย สวัสดี ครับ สวัสดี ครับ สวัสดี ครั"), ["เว้ย", "สวัสดี", "ครับ"])
+        self.assertEqual(trim("hello hello hello hello", budget=True), ["hello"])
+        # Sung repeats that end where the singer stopped are lyrics.
+        self.assertEqual(trim("la la la la"), ["la", "la", "la", "la"])
+        self.assertEqual(trim("ไป ไป"), ["ไป", "ไป"])
+
+    def test_the_thai_model_is_asked_not_to_repeat_itself(self):
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import THAI_REPETITION_PENALTY, Transcriber
+
+        seen = {}
+
+        def fake(*a, **k):
+            seen.update(k)
+            return [], None
+
+        for language, expected in (("th", THAI_REPETITION_PENALTY), ("en", 1.0)):
+            t = Transcriber(Config(language=language))
+            t._model = types.SimpleNamespace(transcribe=fake)
+            t.transcribe(np.zeros(16000, dtype=np.float32), 16000)
+            self.assertEqual(seen["repetition_penalty"], expected)
+
+
+class TestRenamingVoicebanks(unittest.TestCase):
+    """A voicebank can be given a name of the user's own; the bank's files
+    are not touched and an empty name goes back to its own."""
+
+    def test_rename_and_back(self):
+        from teto_relay import voicebank as vb
+
+        with _TempHome() as home:
+            _bank(home / "banks" / "mine", ["あ", "い"])
+            bank = vb.discover(home / "banks")[0]
+            before = (bank.root / "character.txt").read_bytes()
+            self.assertEqual(vb.rename(bank, "  My   Teto  "), "My Teto")
+            self.assertEqual(vb.custom_name(bank), "My Teto")
+            self.assertEqual((bank.root / "character.txt").read_bytes(), before)
+            self.assertIsNone(vb.rename(bank, ""))
+            self.assertIsNone(vb.custom_name(bank))
+            with self.assertRaises(ValueError):
+                vb.rename(bank, "x" * (vb.MAX_NAME + 1))
+
+    def test_the_panel_shows_the_new_name(self):
+        from teto_relay import voicebank as vb
+        from teto_relay.config import Config
+        from teto_relay.webui import _meta
+
+        with _TempHome() as home:
+            _bank(home / "banks" / "mine", ["あ", "い"])
+            cfg = Config(voicebank_root=str(home / "banks"))
+            vb.rename(vb.discover(home / "banks")[0], "Kasane")
+            entry = _meta(cfg)["banks"][0]
+        self.assertEqual((entry["name"], entry["custom_name"], entry["own_name"]), ("Kasane", "Kasane", "Someone"))
+
+
 if __name__ == "__main__":
     unittest.main()
