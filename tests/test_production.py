@@ -3029,5 +3029,178 @@ class TestOtherPeoplesVoicebanks(unittest.TestCase):
         self.assertEqual(relay.bank.key, "newcomer")
 
 
+class TestThai(unittest.TestCase):
+    """Thai speech to a Japanese or English voicebank.
+
+    Checked on 20 Thai phrases (tools/tuning_eval.py, judged by whisper
+    medium): Thai was sung from whisper's character fragments, spelled
+    through a romanisation that read ท as English "th".
+    """
+
+    def test_whisper_pieces_are_joined_into_thai_words(self):
+        from teto_relay.stt import Word, _regroup_thai
+
+        pieces = [Word("ส", 0.0, 0.3), Word("วั", 0.3, 0.42), Word("สดี", 0.42, 0.58),
+                  Word("ครับ", 0.58, 0.82), Word("teto", 0.9, 1.2)]
+        words = _regroup_thai(pieces)
+        self.assertEqual([w.text for w in words], ["สวัสดี", "ครับ", "teto"])
+        self.assertEqual((words[0].start, words[0].end), (0.0, 0.58))
+        self.assertEqual((words[1].start, words[1].end), (0.58, 0.82))
+
+    def test_a_mark_with_no_duration_stays_with_its_consonant(self):
+        # ื่ came back with start == end and was dropped: ชื่อ sang as ช-อ.
+        import types
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        seg = types.SimpleNamespace(
+            no_speech_prob=0.0, avg_logprob=-0.2, text="ชื่อ",
+            words=[types.SimpleNamespace(word="ช", start=1.0, end=1.2),
+                   types.SimpleNamespace(word="ื่", start=1.2, end=1.2),
+                   types.SimpleNamespace(word="อ", start=1.2, end=1.28)])
+        t = Transcriber(Config(language="th"))
+        t._model = types.SimpleNamespace(transcribe=lambda *a, **k: ([seg], None))
+        import numpy as np
+
+        words = t.transcribe(np.zeros(16000, dtype=np.float32), 16000)
+        self.assertEqual([w.text for w in words], ["ชื่อ"])
+
+    def test_thai_listens_with_the_thai_model(self):
+        from teto_relay.config import Config
+        from teto_relay.stt import THAI_MODEL_NAME, effective_model
+
+        self.assertEqual(effective_model(Config(language="th", whisper_model="small")), THAI_MODEL_NAME)
+        self.assertEqual(effective_model(Config(language="th", thai_speech_model=False,
+                                                whisper_model="small")), "small")
+        self.assertEqual(effective_model(Config(language="en", whisper_model="small")), "small")
+
+    def test_syllables_become_the_sounds_a_japanese_bank_has(self):
+        from teto_relay import thai
+
+        def kana(ipa):
+            return "".join(thai.syllable_kana(s) for s in thai.parse(ipa))
+
+        self.assertEqual(kana("kʰ w aː m ˧ . r a k̚ ˦˥"), "くわあんらっ")   # ความรัก
+        self.assertEqual(kana("kʰ r a p̚ ˦˥"), "くらっ")                   # ครับ; っ is a rest
+        self.assertEqual(kana("kʰ aː w ˥˩"), "かあお")                    # ข้าว
+        self.assertEqual(kana("r i a̯ n ˧"), "りあん")                     # เรียน
+        self.assertEqual(kana("tʰ ɤː ˧"), "たあ")                          # เธอ: ท is t, not "th"
+        self.assertEqual(kana("d iː ˧"), "でぃい")                         # ดี, not ぢ
+        self.assertEqual(kana("f aː ˦˥"), "ふぁあ")                        # ฟ้า
+
+    def test_english_banks_get_the_whole_syllable(self):
+        from teto_relay import thai
+
+        found = thai.parse("kʰ r a p̚ ˦˥ . pʰ o m ˩˩˦")
+        self.assertEqual(" ".join(p for s in found for p in thai.syllable_xsampa(s)), "k r A p p oU m")
+
+    def test_a_looping_answer_is_not_used(self):
+        # The G2P model can repeat itself on a long word: kʰun kʰun nun nun ...
+        import unittest.mock
+
+        from teto_relay import thai
+
+        looped = "kʰ ɔː p̚ ˨˩ . kʰ u n ˧ . n u n ˧ . n u n ˧ . n u n ˧ . n u n ˧"
+        answers = {"ขอบคุณ": "kʰ ɔː p̚ ˨˩ . kʰ u n ˧", "มาก": "m aː k̚ ˥˩", "ครับ": "kʰ r a p̚ ˦˥"}
+
+        def fake(text, engine):
+            return answers.get(text, looped)
+
+        thai.syllables.cache_clear()
+        with unittest.mock.patch("pythainlp.transliterate.transliterate", fake):
+            found = thai.syllables("ขอบคุณมากครับ")
+        thai.syllables.cache_clear()
+        self.assertEqual(len(found), 4)
+
+    def test_an_unreleased_stop_is_a_short_silence(self):
+        # รัก: the vowel, then its stop's slot left silent; the next word
+        # starts afresh rather than joining over the gap.
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.pitch import F0Track
+        from teto_relay.stt import Word
+
+        times = np.arange(0, 1.2, 0.01)
+        track = F0Track(times=times, f0=np.full_like(times, 220.0), voiced=np.ones_like(times, bool),
+                        sample_rate=16000)
+        cfg = Config(language="th", align_morae=False, vowel_on_beat=False)
+        notes = build_notes([Word("รัก", 0.1, 0.5), Word("กัน", 0.5, 0.9)], track, cfg,
+                            japanese_lyrics=True)
+        from teto_relay.ustx import build_project
+        from teto_relay.voicebank import Voicebank
+
+        # The stop holds its slot through the layout, so the vowel is not
+        # stretched over it ...
+        ra = next(n for n in notes if n.lyric == "ら")
+        stop = notes[notes.index(ra) + 1]
+        self.assertEqual(stop.lyric, "っ")
+        self.assertGreater(stop.end - stop.start, 0.05)
+        # ... and is a rest in the project.
+        bank = Voicebank("t", "t", Path("."), flavour="ja-cv")
+        sung = build_project(notes, bank, cfg)["voice_parts"][0]["notes"]
+        self.assertEqual([n["lyric"] for n in sung], ["ら", "か", "ん"])
+        self.assertGreater(sung[1]["position"], sung[0]["position"] + sung[0]["duration"])
+
+    def test_arpasing_banks_get_their_own_phonemes(self):
+        # Thai reached Miku as "sawatdii" with no hint: silence.
+        from teto_relay.render.openutau import xsampa_to_arpabet
+
+        self.assertEqual(xsampa_to_arpabet("k r A p p oU m"), "k r aa p p ow m")
+        self.assertEqual(xsampa_to_arpabet("tS aI"), "ch ay")
+        self.assertIsNone(xsampa_to_arpabet("k Q"))
+
+    def test_teh_i_is_one_mora_and_falls_back_on_banks_without_it(self):
+        from teto_relay.japanese import split_morae
+        from teto_relay.translit import vowel_of
+        from teto_relay.voicebank import Voicebank
+
+        self.assertEqual(split_morae("でぃいふぁ"), ["でぃ", "い", "ふぁ"])
+        self.assertEqual(vowel_of("でぃ"), "i")
+        with_it = Voicebank("a", "a", Path("."), aliases=frozenset({"でぃ", "い"}))
+        without = Voicebank("b", "b", Path("."), aliases=frozenset({"ぢ", "い", "a い"}))
+        self.assertEqual(with_it.singable("でぃ"), "でぃ")
+        self.assertEqual(without.singable("でぃ"), "ぢ")
+
+
+class TestAppWindow(unittest.TestCase):
+    """The panel opens as a window of its own, and can be installed as an app."""
+
+    def test_edge_opens_the_panel_as_an_app_window(self):
+        import unittest.mock
+
+        from teto_relay import appwindow
+
+        with unittest.mock.patch.object(appwindow, "find_app_browser", return_value=Path("edge.exe")), \
+                unittest.mock.patch.object(appwindow.subprocess, "Popen") as popen, \
+                unittest.mock.patch.object(appwindow.webbrowser, "open") as tab:
+            self.assertEqual(appwindow.open_panel("http://127.0.0.1:8765/"), "app")
+        self.assertIn("--app=http://127.0.0.1:8765/", popen.call_args[0][0])
+        tab.assert_not_called()
+
+    def test_without_edge_or_chrome_a_browser_tab_opens(self):
+        import unittest.mock
+
+        from teto_relay import appwindow
+
+        with unittest.mock.patch.object(appwindow, "find_app_browser", return_value=None), \
+                unittest.mock.patch.object(appwindow.webbrowser, "open") as tab:
+            self.assertEqual(appwindow.open_panel("http://127.0.0.1:8765/"), "browser")
+        tab.assert_called_once()
+
+    def test_the_install_files_are_served(self):
+        import json
+
+        from teto_relay.webui import STATIC, static_file
+
+        manifest = json.loads(static_file("manifest.webmanifest"))
+        self.assertEqual(manifest["display"], "standalone")
+        for icon in manifest["icons"]:
+            self.assertIn(icon["src"].lstrip("/"), STATIC)
+            self.assertTrue(static_file(icon["src"].lstrip("/")).startswith(b"\x89PNG"))
+
+
 if __name__ == "__main__":
     unittest.main()
