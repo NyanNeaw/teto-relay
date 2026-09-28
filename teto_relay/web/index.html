@@ -2,6 +2,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Teto Relay</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<meta name="theme-color" content="#ffffff">
 <style>
 /* Flat and plain, the way system apps look: solid cards on a solid page, one
    accent colour, no blur, glow or gradients. The accent is the only colour on
@@ -910,4 +913,6 @@ document.querySelectorAll('.pane').forEach((el,i)=>{
   el.addEventListener('animationend',()=>el.classList.remove('enter'),{once:true});
 });
 load().then(poll); setInterval(poll,1000);
+/* Installable as an app from Edge/Chrome; see sw.js. */
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
 </script>

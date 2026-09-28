@@ -46,7 +46,7 @@ GROUPS: dict[str, list[str]] = {
     # Speed vs accuracy lives here: device and compute type are the two biggest
     # levers on how long whisper takes.
     "Listening": [
-        "whisper_model", "whisper_device", "whisper_compute_type", "beam_size",
+        "whisper_model", "thai_speech_model", "whisper_device", "whisper_compute_type", "beam_size",
         "initial_prompt", "align_morae", "use_alignment", "align_device", "no_speech_threshold",
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
@@ -57,7 +57,7 @@ GROUPS: dict[str, list[str]] = {
     ],
     # Where things are. Empty means "look in the usual places".
     "Setup": ["openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
-              "persistent_output", "keep_input_audio"],
+              "persistent_output", "keep_input_audio", "panel_window"],
     "Fine tuning: pitch": [
         "target_tone", "shift_mode", "stable_shift", "shift_tolerance", "max_shift",
         "fix_octave_errors", "contour_smooth_ms", "contour_points", "contour_range_cents",
@@ -225,6 +225,10 @@ LABELS: dict[str, list[str]] = {
     "renderer_backend": ["Renderer", "Tone synthesis is the fallback if OpenUtau fails."],
     "capture_mode": ["Recording", "Push-to-talk, or split automatically on silence."],
     "whisper_model": ["Speech model", "Bigger hears better and takes longer."],
+    "thai_speech_model": ["Thai speech model", "When the language is Thai, listen with a Whisper trained on Thai "
+                          "(Thonburian Whisper). It hears Thai far better; 0.5 GB download the first time."],
+    "panel_window": ["Open the panel as", "Its own window (like an app) or a tab in your browser. "
+                     "Takes effect the next time Teto Relay opens."],
     "whisper_device": ["Listen on", "cuda is much faster than cpu, if it starts."],
     "whisper_compute_type": ["Listening precision", "int8 is fastest; float16 needs a GTX 16xx/RTX card (older ones use int8)."],
     "rvc_f0_method": ["Pitch tracking", "crepe is accurate; pm is fastest and rougher."],
@@ -236,7 +240,8 @@ LABELS: dict[str, list[str]] = {
     "rvc_index": ["Voice index", "Optional. Improves timbre; missing is a warning, not an error."],
     "rvc_filter_radius": ["Smooth pitch", "Higher is smoother and less breathy."],
     "rvc_rms_mix_rate": ["Keep your dynamics", "0 uses her loudness curve, 1 keeps yours."],
-    "language": ["Language", "Needs a multilingual speech model - the .en ones only hear English."],
+    "language": ["Language", "The language you speak. Thai uses a Thai-trained speech model "
+                 "(0.5 GB download the first time); the .en models only hear English."],
     "lyrics_hint": ["Song lyrics", "Singing a song? Paste the lines you'll sing so every word is heard right. Clear it after."],
     "initial_prompt": ["Vocabulary hint", "Words to expect, so they are not misheard."],
     "beam_size": ["Search width", "Higher is more accurate and slower."],
@@ -322,6 +327,19 @@ def _character(root: Path) -> dict[str, str]:
     if notes:
         out["profile"] = " · ".join(notes[:2])
     return out
+
+#: Files beside the page that make it an installable app (see appwindow).
+STATIC = {
+    "manifest.webmanifest": "application/manifest+json",
+    "sw.js": "text/javascript; charset=utf-8",
+    "icon-192.png": "image/png",
+    "icon-512.png": "image/png",
+}
+
+
+def static_file(name: str) -> bytes:
+    return (Path(__file__).resolve().parent / "web" / name).read_bytes()
+
 
 def page() -> bytes:
     """The control panel page. Read from disk each time, so editing the HTML
@@ -571,6 +589,8 @@ def _meta(cfg: Config) -> dict:
         "option_labels": {
             "singing_style": {"speech": "Speech", "sung": "Sung"},
             "double_when": {"off": "Off", "singing": "On"},
+            "panel_window": {"app": "Its own window", "browser": "Browser tab"},
+            "language": {"en": "English", "th": "ไทย", "ja": "日本語"},
         },
         "choices": {
             "mode": ["utau", "voice"],
@@ -580,6 +600,7 @@ def _meta(cfg: Config) -> dict:
             "shift_mode": ["semitone", "octave"],
             "singing_style": ["speech", "sung"],
             "double_when": ["off", "singing"],
+            "panel_window": ["app", "browser"],
             "scale": ["major", "minor", "pentatonic", "chromatic"],
             "scale_key": ["auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
             "pitch_method": ["crepe", "pyin"],
@@ -642,6 +663,8 @@ def make_handler(controller: Controller):
             route = self.path.split("?")[0].strip("/")
             if route in ("", "index.html"):
                 self._send(page(), "text/html; charset=utf-8")
+            elif route in STATIC:
+                self._send(static_file(route), STATIC[route])
             elif route == "api/config":
                 cfg = Config.load(controller.config_path)
                 data = {f.name: getattr(cfg, f.name) for f in fields(cfg) if f.name not in HIDE}
@@ -780,6 +803,9 @@ def make_handler(controller: Controller):
                     # value is refused with a reason instead of crashing the
                     # relay on its next utterance.
                     cfg.validate("the settings you entered")
+                    from .stt import effective_model
+
+                    model_before = effective_model(controller.cfg)
                     changed = []
                     for key in updates:
                         value = getattr(cfg, key)
@@ -793,6 +819,8 @@ def make_handler(controller: Controller):
                         setattr(controller.cfg, key, value)
                     cfg.save(controller.config_path)
                     stale = set(changed) & LOADED_ONCE if controller.running else set()
+                    if controller.running and effective_model(controller.cfg) != model_before:
+                        stale.add("whisper_model")
                     # The relay restarts itself for these; only the OpenUtau
                     # folder needs the whole program restarted, because the
                     # .NET runtime is loaded once per process.
@@ -845,9 +873,10 @@ def _panel_already_running(host: str, port: int) -> bool:
 def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: bool = True,
           config_path: Path | None = None) -> int:
     """Run the control panel until interrupted."""
-    import webbrowser
+    from .appwindow import open_panel
 
     url = f"http://{host}:{port}/"
+    as_app = (getattr(cfg, "panel_window", "app") or "app") == "app"
     try:
         server = PanelServer((host, port), None)
     except OSError as exc:
@@ -856,7 +885,7 @@ def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: 
         if _panel_already_running(host, port):
             print(f"Teto Relay is already running: {url}")
             if open_browser:
-                webbrowser.open(url)
+                open_panel(url, as_app)
             return 0
         raise TetoRelayError(
             f"The control panel could not use port {port} ({exc.strerror or exc}). "
@@ -867,7 +896,7 @@ def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: 
     print(f"Teto Relay control panel: {url}")
     log.info("control panel on %s", url)
     if open_browser:
-        threading.Timer(0.5, webbrowser.open, (url,)).start()
+        threading.Timer(0.5, open_panel, (url, as_app)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

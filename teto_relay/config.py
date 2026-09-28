@@ -73,6 +73,14 @@ class Config:
     whisper_device: str = "cpu"
     whisper_compute_type: str = "int8"
     language: str = "en"
+    # With language "th": a Whisper trained on Thai (stt.THAI_MODEL, a 0.5 GB
+    # download on first use) instead of whisper_model. It halved the character
+    # errors of the standard small model on Thai at the same speed.
+    thai_speech_model: bool = True
+    # How the program shows its control panel: "app" is a window of its own
+    # (Edge or Chrome app mode, with its own taskbar button), "browser" a tab
+    # in the default browser.
+    panel_window: str = "app"
     beam_size: int = 5
     # Whisper's word timings come from attention and are systematically early -
     # measured at +0.06 to +0.20s per word against a forced aligner, and too
@@ -501,6 +509,7 @@ CHOICES: dict[str, set[str]] = {
     "singing_style": {"speech", "sung"},
     "scale": {"major", "minor", "pentatonic", "chromatic"},
     "double_when": {"off", "singing", "always"},
+    "panel_window": {"app", "browser"},
     "whisper_compute_type": {
         "default", "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
         "int16", "float16", "bfloat16", "float32",
