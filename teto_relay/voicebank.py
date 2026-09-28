@@ -449,6 +449,63 @@ def find_singer_roots(search_root: Path, max_depth: int = 3) -> list[Path]:
     return roots
 
 
+# ---------------------------------------------------------------- names
+#: The most a display name may be; the panel's card fits about this much.
+MAX_NAME = 60
+
+
+def _names_file() -> Path:
+    from . import paths
+
+    return paths.data_dir() / "voicebank_names.json"
+
+
+def load_names() -> dict[str, str]:
+    """Names the user gave voicebanks, by bank folder.
+
+    Kept in the data folder rather than written into the bank: a bank is
+    someone else's work, often in a read-only or shared folder, and its own
+    character.txt name is still there to go back to.
+    """
+    import json
+
+    try:
+        data = json.loads(_names_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _name_key(root: Path) -> str:
+    return str(Path(root).resolve()).casefold()
+
+
+def custom_name(bank: "Voicebank") -> str | None:
+    return load_names().get(_name_key(bank.root))
+
+
+def rename(bank: "Voicebank", name: str) -> str | None:
+    """Give `bank` a display name; an empty one goes back to its own name.
+
+    Returns the name now shown by the panel's picker (None: the bank's own).
+    """
+    import json
+
+    name = " ".join(str(name or "").split())
+    if len(name) > MAX_NAME:
+        raise ValueError(f"A voicebank name can be at most {MAX_NAME} characters.")
+    names = load_names()
+    key = _name_key(bank.root)
+    if name:
+        names[key] = name
+    else:
+        names.pop(key, None)
+    path = _names_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(names, ensure_ascii=False, indent=2), encoding="utf-8")
+    return name or None
+
+
 class VoicebankError(TetoRelayError):
     """No usable voicebank. The message says what to do about it."""
 

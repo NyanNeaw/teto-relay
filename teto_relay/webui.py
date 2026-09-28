@@ -554,15 +554,20 @@ def _meta(cfg: Config) -> dict:
     except Exception:
         log.debug("could not list audio devices", exc_info=True)
 
-    from .voicebank import discover
+    from .voicebank import _name_key, discover, load_names
 
+    names = load_names()
     details: list[dict] = []
     try:
         for b in discover(cfg.voicebank_path()):
             character = _character(b.root)
+            custom = names.get(_name_key(b.root))
             details.append({
                 "key": b.key,
-                "name": character.get("name") or b.name,
+                # The user's own name for it, else the bank's.
+                "name": custom or character.get("name") or b.name,
+                "custom_name": custom or "",
+                "own_name": character.get("name") or b.name,
                 "flavour": b.flavour,
                 "entries": b.entry_count,
                 "profile": character.get("profile", ""),
@@ -763,6 +768,19 @@ def make_handler(controller: Controller):
                 except Exception as exc:  # noqa: BLE001
                     log.exception("install failed")
                     self._json({"ok": False, "error": str(exc)}, 500)
+            elif route == "api/voicebank/rename":
+                from .voicebank import discover, rename, select
+
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    bank = select(discover(controller.cfg.voicebank_path()), str(body.get("bank") or ""))
+                    shown = rename(bank, str(body.get("name") or ""))
+                    _forget_library()
+                    log.info("Voicebank %s is now called %r", bank.key, shown or bank.name)
+                    self._json({"ok": True, "name": shown})
+                except (ValueError, TetoRelayError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/voicebank":
                 # Saved like any setting, but also applied to a running relay -
                 # a model picker that needed a restart would not be a picker.

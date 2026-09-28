@@ -94,6 +94,13 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .portrait img{width:100%;height:100%;object-fit:cover;display:block}
 .vname{font-size:18px;font-weight:700;margin:0;line-height:1.25}
 .vmeta{font-size:13px;color:var(--muted);margin:3px 0 0}
+.vname{display:flex;align-items:center;gap:6px}
+/* display:flex beats the hidden attribute; renaming swaps these two. */
+.vname[hidden],.renamebox[hidden]{display:none}
+.icon.rename{width:28px;height:28px;flex:none;opacity:.55}
+.icon.rename:hover{opacity:1}
+.renamebox{display:flex;gap:6px;align-items:center;margin:2px 0 0}
+.renamebox input{flex:1;min-width:0}
 .voice select{width:100%;background-color:var(--sink);border:1px solid transparent;color:var(--text);
   font:inherit;font-size:15px;padding:9px 12px;border-radius:10px;cursor:pointer}
 /* A file input is unstyleable and says "No file chosen"; the label is the
@@ -280,7 +287,13 @@ details.group>summary::before{transition:transform .45s var(--spring)}
     <section class="voice pane">
       <div class="portrait"><img id="avatar" alt=""></div>
       <div>
-        <p class="vname" id="vname">&nbsp;</p>
+        <p class="vname"><span id="vname">&nbsp;</span><button class="icon rename" id="rename"
+          title="Rename this voicebank" aria-label="Rename this voicebank"></button></p>
+        <form class="renamebox" id="renamebox" hidden>
+          <input type="text" id="renameinput" maxlength="60" aria-label="Voicebank name" autocomplete="off">
+          <button type="submit">Save</button>
+          <button type="button" class="ghost" id="renamecancel">Cancel</button>
+        </form>
         <p class="vmeta" id="vmeta"></p>
       </div>
       <select id="bank" aria-label="Choose voicebank"></select>
@@ -422,7 +435,8 @@ async function load(){
 function renderPicker(){
   const pick=$('bank'); pick.innerHTML='';
   for(const b of (meta.banks||[])){
-    const o=document.createElement('option'); o.value=b.key; o.textContent=b.key;
+    // A name the user gave the bank; otherwise its short key, as before.
+    const o=document.createElement('option'); o.value=b.key; o.textContent=b.custom_name||b.key;
     if(b.key===cfg.voicebank) o.selected=true; pick.appendChild(o);
   }
   showBank(cfg.voicebank);
@@ -437,6 +451,7 @@ function showBank(key){
   img.title='';
   /* The name and what it is were a tooltip nobody would find. */
   $('vname').textContent=b?b.name:key;
+  $('rename').hidden=!b;
   $('vmeta').textContent=b?(b.flavour+' · '+b.entries+' samples · sings '+b.lyrics):'';
   applyAccent(b&&b.accent);
 }
@@ -744,6 +759,38 @@ function renderMeters(s){
   }
 }
 
+/* ---------- renaming a voicebank ----------
+   The name lives in Teto Relay's data folder, not in the bank; an empty name
+   goes back to the bank's own. */
+const PENCIL='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/>'+
+  '<path d="M13.5 6.5l4 4"/></svg>';
+$('rename').innerHTML=PENCIL;
+function renaming(on){
+  $('renamebox').hidden=!on; $('vname').parentElement.hidden=on;
+  if(on){
+    const b=(meta.banks||[]).find(x=>x.key===cfg.voicebank);
+    $('renameinput').value=b?(b.custom_name||b.name):'';
+    $('renameinput').focus(); $('renameinput').select();
+  }
+}
+$('rename').onclick=()=>renaming(true);
+$('renamecancel').onclick=()=>renaming(false);
+$('renameinput').addEventListener('keydown',e=>{if(e.key==='Escape') renaming(false);});
+$('renamebox').onsubmit=async e=>{
+  e.preventDefault();
+  const key=cfg.voicebank, name=$('renameinput').value.trim();
+  const d=await (await fetch('api/voicebank/rename',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({bank:key,name})})).json();
+  if(!d.ok){ toast('Could not rename: '+d.error); return; }
+  renaming(false);
+  // Straight from the answer: reloading every setting (and the device list)
+  // took over a second and a half to show the new name.
+  const b=(meta.banks||[]).find(x=>x.key===key);
+  if(b){ b.custom_name=d.name||''; b.name=d.name||b.own_name||b.key; }
+  renderPicker();
+  toast(d.name?('Renamed to '+d.name):'Back to its own name');
+};
 $('bank').onchange=async e=>{
   const key=e.target.value;
   const d=await (await fetch('api/voicebank',{method:'POST',
