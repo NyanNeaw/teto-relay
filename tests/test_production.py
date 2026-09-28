@@ -2481,6 +2481,7 @@ class TestHardwareFindings(unittest.TestCase):
             self.assertFalse(doubled(False))
             self.assertTrue(doubled(False, double_when="always"))
             self.assertFalse(doubled(True, double_voice=0.0))
+            self.assertFalse(doubled(True, double_when="off"))  # the panel's Off switch
 
     def test_japanese_is_read_in_context(self):
         # Senbonzakura as whisper splits it: 紛|レ was sung ふん れ and 届|カ

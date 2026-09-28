@@ -645,7 +645,8 @@ class TetoRelay:
         """Effects on the rendered audio: the doubled lead, on sung phrases
         (or always, with double_when). Never costs the phrase."""
         amount = float(self.cfg.double_voice)
-        if amount <= 0 or not (job.sung or self.cfg.double_when == "always"):
+        when = self.cfg.double_when
+        if amount <= 0 or when == "off" or not (job.sung or when == "always"):
             return
         try:
             import soundfile as sf

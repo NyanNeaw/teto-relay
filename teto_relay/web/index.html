@@ -51,6 +51,8 @@ body{margin:0;color:var(--text);font-size:15px;line-height:1.4;
 .tabs button[aria-selected=true]{background-color:var(--card);color:var(--text);
   box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .tabs button:not([aria-selected=true]):hover{color:var(--text);background-color:transparent}
+.switch{display:inline-flex}
+.switch button{padding:7px 16px;font-size:14px}
 .state{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
 .state i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal}
 .live .state i{background:var(--accent);animation:pulse 1.9s ease-in-out infinite}
@@ -403,6 +405,24 @@ function control(k){
       if(cfg[k]===n) o.selected=true; inp.appendChild(o);
     }
     wrap.appendChild(inp);
+  } else if(meta.choices[k] && (meta.essentials||[]).includes(k) && meta.choices[k].length<=3){
+    /* A switch: one click, and you can see every option at once. */
+    const seg=document.createElement('div'); seg.className='tabs switch'; seg.setAttribute('role','radiogroup');
+    seg.setAttribute('aria-label',labelOf(k));
+    inp=document.createElement('input'); inp.type='hidden'; inp.value=cfg[k];
+    const names=(meta.option_labels||{})[k]||{};
+    for(const opt of meta.choices[k]){
+      const b=document.createElement('button'); b.type='button'; b.textContent=names[opt]||opt;
+      b.setAttribute('role','radio'); b.setAttribute('aria-selected',String(String(cfg[k])===String(opt)));
+      b.onclick=()=>{
+        if(inp.value===String(opt)) return;
+        inp.value=opt;
+        for(const other of seg.children) other.setAttribute('aria-selected',String(other===b));
+        inp.dispatchEvent(new Event('change'));
+      };
+      seg.appendChild(b);
+    }
+    wrap.appendChild(seg); wrap.appendChild(inp);
   } else if(meta.choices[k]){
     inp=document.createElement('select'); inp.className='box';
     // A value the list does not offer (e.g. "base.en" from an older config)
