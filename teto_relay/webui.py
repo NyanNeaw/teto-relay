@@ -144,6 +144,11 @@ def origin_allowed(origin: str | None, port: int) -> bool:
 # Everything else is read per utterance, so changing it applies immediately -
 # `language`, for one, is passed to whisper on every transcribe call. Only
 # these need the relay stopped and started again.
+#: Of LOADED_ONCE, the settings a relay restart cannot apply.
+NEEDS_PROGRAM_RESTART = {"openutau_dir"}
+#: Seconds after the last start-only setting changes before the relay restarts.
+RESTART_DELAY = 0.8
+
 LOADED_ONCE = {
     # Read when push-to-talk is armed and when the relay is built.
     "ptt_key", "openutau_dir", "voicebank_root",
@@ -258,7 +263,7 @@ LABELS: dict[str, list[str]] = {
     "scale": ["Scale", "Sung style: which notes are allowed."],
     "scale_key": ["Key", "Sung style: auto finds it from what you say, or pick one (C, F#, Bb...)."],
     "double_voice": ["Double her voice", "Layers a second take under her for a fuller sound. 0 is off."],
-    "double_when": ["Double voice", "A fuller, layered sound. When singing: only phrases you sing, not ones you speak."],
+    "double_when": ["Double voice", "A fuller, layered sound on the phrases you sing (not the ones you speak)."],
     "sung_melody_range": ["Melody range", "Sung style: 1 keeps your intervals; higher makes the tune move more."],
     "sung_contour_amount": ["Keep your inflection", "Sung style: 0 holds each note flat, 1 keeps all of it."],
     "vibrato_min_seconds": ["Vibrato from", "Sung style: notes at least this long get vibrato."],
@@ -357,6 +362,11 @@ class Controller:
         self.config_path = config_path
         self.relay = None
         self._lock = threading.Lock()
+        # Settings read only at start apply by restarting the relay behind
+        # the scenes (restart_soon): the panel shows "restarting" meanwhile.
+        self.restarting = False
+        self.restart_error = ""
+        self._restart_timer: threading.Timer | None = None
         self.buffer = _LogBuffer()
         self.buffer.setLevel(logging.INFO)
         logging.getLogger().addHandler(self.buffer)
@@ -385,11 +395,42 @@ class Controller:
             finally:
                 self.relay = None
 
+    def restart_soon(self, delay: float = RESTART_DELAY) -> None:
+        """Restart a running relay so settings it reads only at start apply.
+
+        Waits `delay` after the last change, so dragging through a list of
+        choices restarts once, not once per step.
+        """
+        with self._lock:
+            if self._restart_timer is not None:
+                self._restart_timer.cancel()
+            self.restarting = True
+            self.restart_error = ""
+            timer = threading.Timer(delay, self._restart)
+            timer.daemon = True
+            self._restart_timer = timer
+            timer.start()
+
+    def _restart(self) -> None:
+        try:
+            if self.relay is None:
+                return
+            log.info("Restarting the relay to apply new settings")
+            self.stop()
+            self.start()
+        except Exception as exc:  # noqa: BLE001 - shown in the panel, not raised
+            log.exception("could not restart the relay")
+            self.restart_error = describe(exc)
+        finally:
+            self.restarting = False
+
     def status(self) -> dict:
         relay = self.relay
         return {
             "version": __version__,
             "running": self.running,
+            "restarting": self.restarting,
+            "restart_error": self.restart_error,
             "last": getattr(relay, "last_text", "") if relay else "",
             "heard": getattr(relay, "last_source", "") if relay else "",
             "kana": getattr(relay, "last_kana", "") if relay else "",
@@ -529,7 +570,7 @@ def _meta(cfg: Config) -> dict:
         "labels": LABELS,
         "option_labels": {
             "singing_style": {"speech": "Speech", "sung": "Sung"},
-            "double_when": {"off": "Off", "singing": "When singing", "always": "Always"},
+            "double_when": {"off": "Off", "singing": "On"},
         },
         "choices": {
             "mode": ["utau", "voice"],
@@ -538,7 +579,7 @@ def _meta(cfg: Config) -> dict:
             "renderer_backend": ["openutau", "null"],
             "shift_mode": ["semitone", "octave"],
             "singing_style": ["speech", "sung"],
-            "double_when": ["off", "singing", "always"],
+            "double_when": ["off", "singing"],
             "scale": ["major", "minor", "pentatonic", "chromatic"],
             "scale_key": ["auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
             "pitch_method": ["crepe", "pyin"],
@@ -751,8 +792,15 @@ def make_handler(controller: Controller):
                         # changing the language mid-run used to do nothing.
                         setattr(controller.cfg, key, value)
                     cfg.save(controller.config_path)
-                    stale = sorted(set(changed) & LOADED_ONCE) if controller.running else []
-                    self._json({"ok": True, "restart": stale})
+                    stale = set(changed) & LOADED_ONCE if controller.running else set()
+                    # The relay restarts itself for these; only the OpenUtau
+                    # folder needs the whole program restarted, because the
+                    # .NET runtime is loaded once per process.
+                    process = stale & NEEDS_PROGRAM_RESTART
+                    if stale - process:
+                        controller.restart_soon()
+                    self._json({"ok": True, "restarting": bool(stale - process),
+                                "restart": sorted(process)})
                 except (ConfigError, json.JSONDecodeError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
                 except Exception as exc:  # noqa: BLE001

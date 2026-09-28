@@ -2366,6 +2366,40 @@ class TestHardwareFindings(unittest.TestCase):
         # Sung as the held vowel: an extension of む and り, not a new sample.
         self.assertEqual([n.lyric for n in notes], ["む", "+", "り", "+"])
 
+    def test_start_only_settings_restart_the_relay_once(self):
+        # The user: changing a setting should just apply. Settings read only
+        # at start now restart the relay behind the scenes - once, however
+        # many are changed in a row.
+        import time
+
+        from teto_relay.config import Config
+        from teto_relay.webui import Controller
+
+        controller = Controller(Config())
+        calls = []
+        controller.relay = object()                      # "running"
+        controller.stop = lambda: calls.append("stop") or setattr(controller, "relay", None)
+        controller.start = lambda: calls.append("start") or setattr(controller, "relay", object())
+        for _ in range(3):
+            controller.restart_soon(delay=0.05)
+        self.assertTrue(controller.restarting)
+        deadline = time.monotonic() + 3
+        while controller.restarting and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertEqual(calls, ["stop", "start"])
+        self.assertFalse(controller.restarting)
+        self.assertTrue(controller.running)
+
+        # A restart that fails says why instead of leaving it half-started.
+        def broken():
+            raise RuntimeError("no microphone")
+        controller.start = broken
+        controller.restart_soon(delay=0.01)
+        deadline = time.monotonic() + 3
+        while controller.restarting and time.monotonic() < deadline:
+            time.sleep(0.02)
+        self.assertIn("no microphone", controller.status()["restart_error"])
+
     def test_morae_start_at_their_measured_vowels_and_stay_connected(self):
         # Senbonzakura's pronunciation was out of time: morae were spread
         # evenly inside whisper's rough words. Timed from the aligner, each
