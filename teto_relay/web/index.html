@@ -580,8 +580,21 @@ async function saveOne(k){
     headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:value})})).json();
   if(!d.ok){ toast('Could not save: '+d.error); return; }
   if(k==='mode'){ paintEngine(); renderGroups(); }
+  // A new voicebank or OpenUtau folder means a different list of voices.
+  if(k==='voicebank_root'||k==='openutau_dir') refreshBanks();
   toast(labelOf(k)+(d.restarting ? ': applying \u2014 Teto is restarting'
     : d.restart&&d.restart.length ? ': saved \u2014 quit and reopen Teto Relay to use it' : ': applied'));
+}
+/* The voicebank list and pictures, fetched again without rebuilding the rest
+   of the page: after the voicebank folder changed they stayed empty until the
+   program was reopened. */
+async function refreshBanks(){
+  try{
+    const d=await (await fetch('api/config')).json();
+    meta.banks=d.meta.banks; meta.choices.voicebank=d.meta.choices.voicebank;
+    cfg.voicebank=d.config.voicebank;
+    renderPicker();
+  }catch(e){}
 }
 /* The two engines are different machines and most settings belong to exactly
    one of them. Showing RVC sliders while UTAU is singing - or note timing while
@@ -904,6 +917,10 @@ async function poll(){
     btn.dataset.state=d.running?'running':'stopped';
     btn.textContent=d.running?'Stop':'Start';
     app().classList.toggle('restarting',!!d.restarting);
+    // Start/Stop mid-restart started a second relay beside the one coming up.
+    btn.disabled=!!d.restarting;
+    if(wasRestarting&&!d.restarting) refreshBanks();
+    wasRestarting=!!d.restarting;
     $('stateText').textContent=d.restarting?'restarting\u2026':d.running?(d.paused?'paused':'listening'):'stopped';
     if(d.restart_error&&d.restart_error!==lastRestartError) toast('Could not restart: '+d.restart_error);
     lastRestartError=d.restart_error||'';
@@ -928,7 +945,7 @@ async function poll(){
 }
 
 /* ---------- motion helpers ---------- */
-let lastRestartError='';
+let lastRestartError='', wasRestarting=false;
 const calm=()=>document.documentElement.getAttribute('data-motion')==='off'||
   matchMedia('(prefers-reduced-motion:reduce)').matches;
 function placeThumb(seg){
@@ -960,6 +977,10 @@ document.querySelectorAll('.pane').forEach((el,i)=>{
   el.addEventListener('animationend',()=>el.classList.remove('enter'),{once:true});
 });
 load().then(poll); setInterval(poll,1000);
+/* Closing the window closes Teto Relay (the program waits a few seconds, so
+   a reload doesn't). sendBeacon, because it still goes out while the page is
+   being torn down. */
+addEventListener('pagehide',()=>{ try{ navigator.sendBeacon('api/closing'); }catch(e){} });
 /* Installable as an app from Edge/Chrome; see sw.js. */
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
 </script>

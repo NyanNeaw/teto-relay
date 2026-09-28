@@ -1,8 +1,20 @@
 """Teto Relay - real-time voice-to-UTAU pitch relay."""
 
 import os as _os
+import sys as _sys
 
 from . import paths as _paths
+
+# The packaged TetoRelay.exe (and pythonw) has no console: sys.stdout and
+# sys.stderr are None. Anything that writes to them then fails - Hugging
+# Face's download progress bar raised "'NoneType' object has no attribute
+# 'write'" loading the Thai model, and on the next try hung the relay's
+# restart for good; a first-time whisper download would have done the same.
+for _name in ("stdout", "stderr"):
+    if getattr(_sys, _name) is None:
+        setattr(_sys, _name, open(_os.devnull, "w", encoding="utf-8"))  # noqa: SIM115
+# Progress bars go to a console nobody can see, and they are what broke.
+_os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
 __version__ = "0.3.0"
 

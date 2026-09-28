@@ -46,3 +46,5 @@ latency.csv
 my_voice/
 # Names you gave voicebanks in the panel (teto_relay.voicebank.rename).
 voicebank_names.json
+# Where build.ps1 parks dist\TetoRelay\data during a rebuild.
+.kept-from-dist/

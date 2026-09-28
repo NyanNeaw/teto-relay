@@ -70,7 +70,10 @@ class Config:
     # I am not") against 5.8% for base and 2.8% for small, at the same speed.
     # small on a GPU (0.4 s) is the best choice when there is one.
     whisper_model: str = "base"
-    whisper_device: str = "cpu"
+    # "auto": the GPU when CUDA works, else the CPU. It was "cpu", so a new
+    # install on a PC with an NVIDIA card listened on the CPU (1.1 s a phrase
+    # instead of ~0.2 s) until someone found the setting.
+    whisper_device: str = "auto"
     whisper_compute_type: str = "int8"
     language: str = "en"
     # With language "th": a Whisper trained on Thai (stt.THAI_MODEL, a 0.5 GB

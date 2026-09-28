@@ -38,7 +38,43 @@ def openutau_candidates() -> list[Path]:
         Path.home() / "Downloads" / "OpenUtau",
         paths.install_dir() / "OpenUtau",
     ]
+    candidates += _on_other_drives("OpenUtau")
     return [c for c in candidates if c is not None]
+
+
+def _on_other_drives(name: str) -> list[Path]:
+    """`name` at the top of each drive, or one folder down (D:\Work\OpenUtau).
+
+    OpenUtau is a zip that people unpack wherever they keep tools; on the
+    test PC that was D:\Work\OpenUtau, which no fixed list found, so a
+    first start asked for it. Two levels of each drive is a few hundred
+    folder names - a directory listing, not a search.
+    """
+    import os
+    import string
+
+    if os.name != "nt":
+        return []
+    found: list[Path] = []
+    for letter in string.ascii_uppercase[2:]:  # not A:/B:
+        root = Path(f"{letter}:\\")
+        try:
+            if not root.exists():
+                continue
+            top = [e for e in os.scandir(root) if e.is_dir() and not e.name.startswith(("$", "."))]
+        except OSError:
+            continue
+        for entry in top:
+            if entry.name.lower() == name.lower():
+                found.append(Path(entry.path))
+                continue
+            candidate = Path(entry.path) / name
+            try:
+                if candidate.is_dir():
+                    found.append(candidate)
+            except OSError:
+                continue
+    return found
 
 
 def find_openutau(configured: str = "") -> Path | None:

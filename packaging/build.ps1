@@ -106,9 +106,25 @@ if (-not $SkipTests) {
 
 # ---------------------------------------------------------------- 4. exe
 Step "Building dist\TetoRelay with PyInstaller"
-& $Py -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging\teto_relay.spec
-if ($LASTEXITCODE -ne 0) { Fail "PyInstaller failed (see the output above)" }
+# PyInstaller empties dist\TetoRelay, and a portable copy run from there keeps
+# its settings and models in dist\TetoRelay\data (and portable.txt): a rebuild
+# wiped them, and the user had to set everything up again.
 $App = Join-Path $Root "dist\TetoRelay"
+$Kept = Join-Path $Root ".kept-from-dist"  # outside build\, which --clean may empty
+if (Test-Path $Kept) { Remove-Item $Kept -Recurse -Force }
+foreach ($Name in @("data", "portable.txt")) {
+    $Item = Join-Path $App $Name
+    if (Test-Path $Item) {
+        New-Item -ItemType Directory -Force $Kept | Out-Null
+        Move-Item $Item (Join-Path $Kept $Name)
+    }
+}
+& $Py -m PyInstaller --noconfirm --clean --distpath dist --workpath build packaging\teto_relay.spec
+$Built = $LASTEXITCODE
+if (Test-Path $Kept) {
+    Get-ChildItem $Kept | ForEach-Object { Move-Item $_.FullName (Join-Path $App $_.Name) -Force }
+}
+if ($Built -ne 0) { Fail "PyInstaller failed (see the output above)" }
 $Version = (Get-Content (Join-Path $Root "build\version.txt")).Trim()
 
 Step "Smoke test: TetoRelayConsole.exe --version and --doctor"

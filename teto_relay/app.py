@@ -87,6 +87,10 @@ def warm_thai() -> None:
     thai.syllables("ทดสอบ")
 
 
+#: How long stop() waits for the phrase being analysed or rendered to finish.
+STOP_WAIT_SECONDS = 30.0
+
+
 class TetoRelay:
     """Owns the whole pipeline. `start()` is non-blocking; `stop()` joins."""
 
@@ -434,8 +438,14 @@ class TetoRelay:
         if streamer is not None:
             attempt("streaming", streamer.stop)
             attempt("streaming", lambda: streamer.join(timeout=2.0))
+        # The phrase in progress is finished, not abandoned. After 2 s the old
+        # relay's analysis carried on beside the next relay's start - a
+        # settings restart while a slow phrase was being transcribed - and the
+        # two fought over the GPU: one phrase took 126 s to transcribe.
         for t in getattr(self, "_threads", []):
-            attempt(t.name, lambda t=t: t.join(timeout=2.0))
+            attempt(t.name, lambda t=t: t.join(timeout=STOP_WAIT_SECONDS))
+            if t.is_alive():
+                log.warning("%s did not finish within %.0fs of stopping", t.name, STOP_WAIT_SECONDS)
         if capture:
             attempt("microphone", lambda: capture.join(timeout=2.0))
         if player:
@@ -552,6 +562,8 @@ class TetoRelay:
                 chunk = self.chunk_q.get(timeout=0.2)
             except queue.Empty:
                 continue
+            if self._stop.is_set():
+                break  # stopping: nobody will play it
             try:
                 job = self.analyse(chunk)
                 if job is not None:
@@ -757,6 +769,8 @@ class TetoRelay:
                 job = self.ustx_q.get(timeout=0.2)
             except queue.Empty:
                 continue
+            if self._stop.is_set():
+                break  # stopping: nobody will play it
 
             began = time.monotonic()
             job.timeline.restart(job.queued_at or began)

@@ -3447,5 +3447,121 @@ def types_module(**attrs):
     return module
 
 
+class TestRestartsAndClosing(unittest.TestCase):
+    """The user: the app "glitches" when settings change while it restarts,
+    and closing its window left Python running."""
+
+    def test_no_console_does_not_break_model_downloads(self):
+        # TetoRelay.exe has no console: sys.stdout/stderr are None, and the
+        # Hugging Face progress bar raised on them loading the Thai model,
+        # then hung the next restart.
+        import tempfile
+
+        out = Path(tempfile.mkdtemp()) / "result.txt"
+        code = (
+            "import sys, os\n"
+            "sys.stdout = sys.stderr = None\n"
+            "import teto_relay\n"
+            "sys.stderr.write('progress bar\\r')\n"
+            f"open(r'{out}', 'w').write(str(sys.stderr is not None) + ' '"
+            " + os.environ.get('HF_HUB_DISABLE_PROGRESS_BARS', ''))\n"
+        )
+        subprocess.run([sys.executable, "-c", code], cwd=ROOT, timeout=60, check=True)
+        self.assertEqual(out.read_text(), "True 1")
+
+    def test_stopping_waits_for_the_phrase_in_progress(self):
+        # After 2 s the old relay's analysis carried on beside the next
+        # relay's start and they fought over the GPU (126 s for one phrase).
+        import threading
+        import time
+
+        from teto_relay.app import TetoRelay
+
+        relay = TetoRelay.__new__(TetoRelay)
+        relay._stop = threading.Event()
+        worker = threading.Thread(target=lambda: time.sleep(3.0), name="analyse", daemon=True)
+        worker.start()
+        relay._threads = [worker]
+        relay.stop()
+        self.assertFalse(worker.is_alive())
+
+    def test_a_setting_changed_during_a_restart_is_applied(self):
+        # Saved and shown as applied, but the relay coming up had already
+        # read the old value, and no restart followed.
+        import http.client
+        import json
+        import tempfile
+        import threading
+        import time
+        import unittest.mock
+
+        from teto_relay import webui
+        from teto_relay.config import Config
+
+        built = []
+
+        class FakeRelay:
+            def __init__(self, cfg):
+                self.cfg, self.bank, self.engine = cfg, None, "utau"
+
+            def start(self):
+                used = self.cfg.ptt_key  # read early, like the microphone
+                time.sleep(0.5)
+                built.append(used)
+
+            def stop(self):
+                pass
+
+        def post(port, body):
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            conn.request("POST", "/api/config", json.dumps(body),
+                         {"Content-Type": "application/json", webui.TOKEN_HEADER: "1"})
+            return json.loads(conn.getresponse().read())
+
+        path = Path(tempfile.mkdtemp()) / "config.json"
+        Config(ptt_key="f8").save(path)
+        # The real restart delay: the old code bound it as a default argument.
+        with unittest.mock.patch("teto_relay.app.TetoRelay", FakeRelay):
+            controller = webui.Controller(Config.load(path), path)
+            server = webui.PanelServer(("127.0.0.1", 0), webui.make_handler(controller))
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            try:
+                port = server.server_address[1]
+                controller.start()
+                built.clear()
+                post(port, {"ptt_key": "a"})
+                time.sleep(webui.RESTART_DELAY + 0.25)  # inside the restart's start
+                began = time.monotonic()
+                answer = post(port, {"ptt_key": "b"})
+                self.assertLess(time.monotonic() - began, 0.3)  # the save did not wait
+                self.assertTrue(answer["restarting"])
+                deadline = time.monotonic() + 5
+                while controller.restarting and time.monotonic() < deadline:
+                    time.sleep(0.02)
+            finally:
+                server.shutdown()
+        self.assertEqual(built[-1], "b")
+        self.assertTrue(controller.running)
+
+    def test_closing_the_panel_quits_unless_a_page_comes_back(self):
+        import time
+        import unittest.mock
+
+        from teto_relay import webui
+        from teto_relay.config import Config
+
+        with unittest.mock.patch.object(webui, "CLOSE_GRACE", 0.05):
+            controller = webui.Controller(Config())
+            controller.status()
+            self.assertFalse(controller.should_quit())
+            controller.page_closing()               # a reload...
+            controller.status()                     # ...comes straight back
+            time.sleep(0.1)
+            self.assertFalse(controller.should_quit())
+            controller.page_closing()               # the window closed
+            time.sleep(0.1)
+            self.assertTrue(controller.should_quit())
+
+
 if __name__ == "__main__":
     unittest.main()

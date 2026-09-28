@@ -13,6 +13,7 @@ import logging
 import socket
 import sys
 import threading
+import time
 from collections import deque
 from dataclasses import fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -148,6 +149,9 @@ def origin_allowed(origin: str | None, port: int) -> bool:
 NEEDS_PROGRAM_RESTART = {"openutau_dir"}
 #: Seconds after the last start-only setting changes before the relay restarts.
 RESTART_DELAY = 0.8
+#: After the panel says it is closing, how long a page has to come back (a
+#: reload does, within a second or two) before the program quits.
+CLOSE_GRACE = 4.0
 
 LOADED_ONCE = {
     # Read when push-to-talk is armed and when the relay is built.
@@ -229,7 +233,7 @@ LABELS: dict[str, list[str]] = {
                           "(Thonburian Whisper). It hears Thai far better; 0.5 GB download the first time."],
     "panel_window": ["Open the panel as", "Its own window (like an app) or a tab in your browser. "
                      "Takes effect the next time Teto Relay opens."],
-    "whisper_device": ["Listen on", "cuda is much faster than cpu, if it starts."],
+    "whisper_device": ["Listen on", "auto uses the NVIDIA graphics card when there is one; cuda is much faster than cpu."],
     "whisper_compute_type": ["Listening precision", "int8 is fastest; float16 needs a GTX 16xx/RTX card (older ones use int8)."],
     "rvc_f0_method": ["Pitch tracking", "crepe is accurate; pm is fastest and rougher."],
     "rvc_index_rate": ["Voice likeness", "Higher leans on the model's index: closer to her, less like you."],
@@ -385,6 +389,18 @@ class Controller:
         self.restarting = False
         self.restart_error = ""
         self._restart_timer: threading.Timer | None = None
+        # Restart bookkeeping has its own lock: start() holds _lock through
+        # the whole warm-up, and a settings save waiting on it hung the page.
+        self._restart_state = threading.Lock()
+        self._restart_wanted = False
+        # One restart at a time; a change made during one is applied by
+        # another straight after it (see _restart).
+        self._restart_running = threading.Lock()
+        # Closing the panel window quits the program (page_closing,
+        # should_quit): the window used to be only a view, and closing it left
+        # the program - relay, microphone and all - running unseen.
+        self.last_poll = 0.0
+        self.closing_at: float | None = None
         self.buffer = _LogBuffer()
         self.buffer.setLevel(logging.INFO)
         logging.getLogger().addHandler(self.buffer)
@@ -413,36 +429,61 @@ class Controller:
             finally:
                 self.relay = None
 
-    def restart_soon(self, delay: float = RESTART_DELAY) -> None:
+    @property
+    def busy(self) -> bool:
+        """Running, or on the way back up: settings changes need a restart."""
+        return self.running or self.restarting
+
+    def restart_soon(self, delay: float | None = None) -> None:
         """Restart a running relay so settings it reads only at start apply.
 
         Waits `delay` after the last change, so dragging through a list of
-        choices restarts once, not once per step.
+        choices restarts once, not once per step. Asked for while a restart
+        is already under way, it runs again once that one is up: the relay
+        reads most start-only settings early in its start, so a change made
+        later in it was saved, shown as applied, and not used.
         """
-        with self._lock:
+        with self._restart_state:
             if self._restart_timer is not None:
                 self._restart_timer.cancel()
+            self._restart_wanted = True
             self.restarting = True
             self.restart_error = ""
-            timer = threading.Timer(delay, self._restart)
+            timer = threading.Timer(RESTART_DELAY if delay is None else delay, self._restart)
             timer.daemon = True
             self._restart_timer = timer
             timer.start()
 
     def _restart(self) -> None:
-        try:
-            if self.relay is None:
-                return
-            log.info("Restarting the relay to apply new settings")
-            self.stop()
-            self.start()
-        except Exception as exc:  # noqa: BLE001 - shown in the panel, not raised
-            log.exception("could not restart the relay")
-            self.restart_error = describe(exc)
-        finally:
-            self.restarting = False
+        with self._restart_running:
+            try:
+                while True:
+                    with self._restart_state:
+                        if not self._restart_wanted:
+                            return
+                        self._restart_wanted = False
+                    log.info("Restarting the relay to apply new settings")
+                    self.stop()
+                    self.start()
+            except Exception as exc:  # noqa: BLE001 - shown in the panel, not raised
+                log.exception("could not restart the relay")
+                self.restart_error = describe(exc)
+            finally:
+                with self._restart_state:
+                    if not self._restart_wanted:
+                        self.restarting = False
+
+    def page_closing(self) -> None:
+        self.closing_at = time.monotonic()
+
+    def should_quit(self) -> bool:
+        """The panel was closed and no page has asked for status since."""
+        closing = self.closing_at
+        return (closing is not None and self.last_poll < closing
+                and time.monotonic() - closing > CLOSE_GRACE)
 
     def status(self) -> dict:
+        self.last_poll = time.monotonic()
         relay = self.relay
         return {
             "version": __version__,
@@ -620,7 +661,7 @@ def _meta(cfg: Config) -> dict:
             # English; the multilingual ones are needed for Thai or Japanese.
             "whisper_model": ["tiny.en", "base.en", "small.en", "medium.en",
                               "tiny", "base", "small", "medium", "large-v3"],
-            "whisper_device": ["cpu", "cuda"],
+            "whisper_device": ["auto", "cuda", "cpu"],
             "whisper_compute_type": ["int8", "float16", "float32"],
             "language": ["en", "th", "ja"],
             "voicebank": banks,
@@ -698,9 +739,17 @@ def make_handler(controller: Controller):
                 self._json({"error": "not found"}, 404)
 
         def do_POST(self):
+            route = self.path.split("?")[0].strip("/")
+            if route == "api/closing":
+                # Sent by the page as it goes away (navigator.sendBeacon),
+                # which cannot add the token header; the origin check still
+                # applies, and all it does is start the grace period.
+                if not self._refuse_foreign(changes_state=False):
+                    controller.page_closing()
+                    self._json({"ok": True})
+                return
             if self._refuse_foreign(changes_state=True):
                 return
-            route = self.path.split("?")[0].strip("/")
             if route == "api/start":
                 try:
                     controller.start()
@@ -836,8 +885,8 @@ def make_handler(controller: Controller):
                         # changing the language mid-run used to do nothing.
                         setattr(controller.cfg, key, value)
                     cfg.save(controller.config_path)
-                    stale = set(changed) & LOADED_ONCE if controller.running else set()
-                    if controller.running and effective_model(controller.cfg) != model_before:
+                    stale = set(changed) & LOADED_ONCE if controller.busy else set()
+                    if controller.busy and effective_model(controller.cfg) != model_before:
                         stale.add("whisper_model")
                     # The relay restarts itself for these; only the OpenUtau
                     # folder needs the whole program restarted, because the
@@ -916,6 +965,15 @@ def serve(cfg: Config, host: str = "127.0.0.1", port: int = 8765, open_browser: 
     if open_browser:
         threading.Timer(0.5, open_panel, (url, as_app)).start()
     try:
+        def watch() -> None:
+            while True:
+                time.sleep(1.0)
+                if controller.should_quit():
+                    log.info("The control panel was closed; quitting")
+                    server.shutdown()
+                    return
+
+        threading.Thread(target=watch, name="panel-watch", daemon=True).start()
         server.serve_forever()
     except KeyboardInterrupt:
         print()
