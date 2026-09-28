@@ -27,6 +27,11 @@ def build(app: Path, zip_path: Path, top: str, extras: list[Path]) -> int:
     try:
         with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for path in sorted(app.rglob("*")):
+                # Not the data folder: a portable copy run from the build
+                # folder keeps the builder's settings, recordings and models
+                # there, and they went into the zip (1.4 GB instead of 0.86).
+                if path.relative_to(app).parts[0] in ("data", "portable.txt"):
+                    continue
                 if path.is_file():
                     archive.write(path, f"{top}/{path.relative_to(app).as_posix()}")
                     count += 1

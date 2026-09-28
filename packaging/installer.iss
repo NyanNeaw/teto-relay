@@ -43,7 +43,9 @@ WizardStyle=modern
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
-Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Not data\ or portable.txt: a portable copy run from the build folder keeps
+; its settings, recordings and downloaded models there.
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Excludes: "\data\*,\portable.txt"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\docs\SETUP.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion

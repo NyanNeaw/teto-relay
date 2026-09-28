@@ -91,7 +91,11 @@ if ($WithGpu) {
         & $Py -m pip install nvidia-cublas-cu12==12.1.3.1 --no-deps
         if ($LASTEXITCODE -ne 0) { Fail "pip could not install cuBLAS" }
         # A cuDNN left by an earlier build would be bundled.
-        & $Py -m pip uninstall -y nvidia-cudnn-cu12 2>$null | Out-Null
+        # pip warns on stderr when it is not installed, and with
+        # ErrorActionPreference=Stop PowerShell 5.1 makes that fatal.
+        $ErrorActionPreference = "Continue"
+        & $Py -m pip uninstall -y nvidia-cudnn-cu12 2>&1 | Out-Null
+        $ErrorActionPreference = "Stop"
     }
     & $Py -m pip install -r requirements-gpu.txt
     if ($LASTEXITCODE -ne 0) { Fail "pip could not install requirements-gpu.txt" }
