@@ -44,3 +44,5 @@ latency.csv
 
 # Your own voice recordings for tuning (tools/tuning_eval.py) - personal.
 my_voice/
+# Names you gave voicebanks in the panel (teto_relay.voicebank.rename).
+voicebank_names.json
