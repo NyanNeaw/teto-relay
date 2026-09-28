@@ -57,6 +57,15 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   The voicebank picture stays still.
 
 ### Added
+- **Thai.** Speak Thai and Teto sings it, on a Japanese or an English bank:
+  heard with Thonburian Whisper (a Whisper trained on Thai), cut into real
+  words, and pronounced by sound with pythainlp's Thai G2P - long vowels held,
+  unreleased stops as short rests, ท as t. Before, Thai was sung from
+  whisper's character fragments through a spelling that read ท as English
+  "th", and an ARPAsing bank sang it as silence.
+- **App window**: the panel opens as a window of its own (Edge/Chrome app
+  mode) and can be installed from Edge or Chrome. *Open the panel as* in
+  Setup switches back to a browser tab.
 - **Song lyrics** on the main screen: paste the lines you'll sing and they're
   heard correctly.
 - `keep_input_audio` (Keep what I said), `tools/tuning_eval.py`, and

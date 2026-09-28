@@ -66,6 +66,12 @@ folder.
 - [x] Changing a start-only setting in the panel while running (push-to-talk key, microphone, whisper model...) restarts the relay by itself: "restarting..." for ~3 s, then listening again with the new value (`8ab3883`). Only the OpenUtau folder still asks to reopen the program.
 - [x] Double voice is an On/Off switch; On layers the voice on the phrases that are sung, not the spoken ones.
 
+### Thai and the app window (added 2026-09-28)
+- [x] Thai speech on Teto tandoku, Teto English and Miku (20 test phrases, whisper medium as judge): letter error 0.873 -> 0.589, 0.925 -> 0.660, 0.910 -> 0.832; no missing samples on Teto (`b215fd8`). See NOTES.md "Thai".
+- [ ] Thai spoken by the user into the mic, heard by the user.
+- [x] The panel opens as an Edge app window; Edge reports it installable (manifest, icons, service worker), apart from Playwright's private window (`e011695`).
+- [ ] Opened from the packaged exe; installed from Edge's menu.
+
 ### Latency options
 - [x] `persistent_output: true`: audio plays correctly; the `output` stage is ~0.02 s with it and without, so it gains nothing measurable on this PC.
 - [!] `whisper_device: cuda`, `whisper_compute_type: float16`: the GTX 1060 (Pascal) has no fast float16 and every phrase failed. Now falls back to `int8` with a warning (`e149020`). With `int8`, beam 1: `asr` 0.9 s → 0.16 s, and crepe on CUDA still works after whisper on CUDA.

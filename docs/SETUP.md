@@ -30,8 +30,12 @@ or deleted in one go.
 
 ## 3. First start
 
-1. Start **Teto Relay**. Your browser opens the control panel
-   (<http://127.0.0.1:8765/>). If it doesn't, open that address yourself.
+1. Start **Teto Relay**. The control panel opens in a window of its own
+   (Edge or Chrome's app mode - no tabs, its own taskbar button). If it
+   doesn't, open <http://127.0.0.1:8765/> in any browser. To keep it on the
+   Start menu, choose **Install Teto Relay** from that window's `...` menu;
+   the program still has to be running for it to work. Prefer a normal
+   browser tab? Set **Setup → Open the panel as** to *Browser tab*.
 2. Press **Check setup** (below the settings). Every line marked `[FAIL]` says
    what to do; fix those first. `[WARN]` lines are optional.
 3. Open **Show all settings → Setup**:
@@ -43,8 +47,9 @@ or deleted in one go.
      `Documents\OpenUtau\Singers`, `Documents\UTAU\voice`. With none, it is
      the `voicebanks` folder. You can also drop a bank's `.zip` onto **Add a
      voicebank** in the panel.
-   - Changing either folder takes effect when you press Stop and Start; the
-     OpenUtau folder only after quitting and restarting Teto Relay.
+   - Changing the voicebank folder takes effect by itself (a running relay
+     restarts for a moment); the OpenUtau folder only after quitting and
+     restarting Teto Relay.
 4. Pick your **Microphone** and set **Output** to **CABLE Input**, then press
    **Save settings**.
 5. Press **Start**. The first start downloads the speech model (about 150 MB)
@@ -93,8 +98,14 @@ On the main screen:
 - **Singing style**: *Speech* follows your voice exactly - your rhythm,
   your intonation. *Sung* puts it in a key, with scoops into phrases, glides
   between notes, vibrato on long notes and a held last note.
-- **Double voice**: a fuller, layered sound. *When singing* (the default)
-  doubles only the phrases you sing, not the ones you speak.
+- **Double voice**: a fuller, layered sound, *On* or *Off*. It doubles only
+  the phrases you sing, not the ones you speak.
+- **Language**: the language you speak - English, ไทย or 日本語. Teto sings
+  it with whatever voicebank is selected: a Japanese bank sings Thai or
+  English as Japanese syllables, an English bank as English sounds. Thai is
+  heard with a Whisper trained on Thai (Thonburian Whisper; about 0.5 GB,
+  downloaded the first time you pick Thai). Thai tones come from your own
+  voice in *Speech* style; *Sung* style puts the melody in a key instead.
 - **Song lyrics**: singing a song? Paste the lines you're about to sing, and
   they'll be heard right - speech models mishear singing badly. Clear it
   when you go back to talking, or it keeps leaning towards those words.

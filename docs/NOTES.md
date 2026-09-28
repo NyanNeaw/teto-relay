@@ -840,6 +840,55 @@ the user listened to each round and said what was wrong.
   name were Miku's consonants, read an octave low, and she was aimed an
   octave below her voice.
 
+### Thai
+
+Scored on 20 Thai phrases (two Thai text-to-speech voices; the user's own
+recordings are next) with `tools/tuning_eval.py`, letter error as heard by
+whisper `medium`, which the relay does not use:
+
+| bank | before | after |
+|---|---|---|
+| Teto tandoku (Japanese CV) | 0.873, 98 missing samples | 0.589, 0 missing |
+| Teto English (X-SAMPA) | 0.925, 98 missing | 0.660, 0 missing |
+| Miku English (ARPAsing) | 0.910, 96 missing | 0.832, 9 missing |
+
+- **Whisper hands Thai back in pieces**, a character or two each
+  ("ส | ว | ั | ส | ด | ี"), and gives vowel and tone marks no duration -
+  those were dropped as zero-length words, so ชื่อ became ช-อ. Each piece was
+  then converted on its own. Pieces with no duration now stay with the one
+  before, and a run of Thai pieces is re-cut into words (pythainlp), each
+  timed from the pieces it spans. (`b215fd8`)
+- **Listening**: with language `th` the relay uses Thonburian Whisper small
+  (Mahidol University's biodatlab, Apache-2.0): 1.9% character error on the
+  test phrases against 3.6% for whisper `small`, at the same speed (`medium`:
+  0.5%, 2.3x slower). The faster-whisper conversion is a third party's, so it
+  is pinned to a revision and its weights are hash-checked - they are
+  byte-identical to a conversion made here from biodatlab's release.
+- **Pronunciation by sound**: pythainlp's `thaig2p` model gives each word's
+  syllables with vowel length and finals (ความรัก: kʰwaːm . rak̚). It loops on
+  long inputs and sometimes drops syllables, so its answer is checked
+  (at most one syllable per two letters, no syllable three times running, no
+  fewer than the rule-based romanisation's vowel groups) and retried a word
+  or a dictionary syllable at a time. The old route romanised the spelling:
+  ท came out as English "th" (เธอ -> せ), finals grew a vowel (รัก -> らく),
+  ด was ぢ.
+- **Japanese banks**, each choice scored on tandoku: long vowels held (not
+  holding them: 0.731); an unreleased stop is a rest the length of a mora
+  (left out, the vowel ran into the next syllable: 0.683; a Japanese extra
+  mora ら-く: 0.705); clusters kept with an inserted vowel, ครับ くらっ
+  (dropping the r as in conversation: 0.683); ɤ (เธอ, เลย) as あ (as う:
+  0.647). The rest has to be a note through the layout - left as an empty
+  slot, the layout stretched the vowel over it - and is dropped when the
+  project is built.
+- **English banks** get whole syllables as X-SAMPA, stops included; ARPAsing
+  banks get the same converted to ARPAbet. Before, an ARPAsing bank got the
+  romanised word with no hint, looked it up in its English dictionary, and
+  sang silence.
+- てぃ / でぃ / ふぁ are one mora; the small vowel alone had no sample. A bank
+  without one sings the nearest basic mora (でぃ -> ぢ).
+- Tone is not carried by the lyrics. In *Speech* style the pitch follows the
+  speaker, who carries it; *Sung* style replaces it with a melody.
+
 ### Voice mode
 
 - Streaming: the push-to-talk gate was read when a frame was dequeued, so a
