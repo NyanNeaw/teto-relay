@@ -30,7 +30,12 @@ ArchitecturesInstallIn64BitMode=x64compatible
 OutputBaseFilename=TetoRelay-{#AppVersion}-setup
 SetupIconFile=teto_relay.ico
 UninstallDisplayIcon={app}\TetoRelay.exe
-Compression=lzma2/max
+; ultra64 over max: a bigger dictionary finds more in the large DLLs.
+Compression=lzma2/ultra64
+; In its own (64-bit) process: inside the 32-bit compiler, ultra64 with
+; several threads ran out of memory.
+LZMAUseSeparateProcess=yes
+LZMANumBlockThreads=2
 SolidCompression=yes
 WizardStyle=modern
 

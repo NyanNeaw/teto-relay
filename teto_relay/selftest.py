@@ -45,8 +45,12 @@ def run_selftest(cfg) -> int:
     def aligner():
         from .align import vowel_onsets
 
+        import torch
+
         onsets = vowel_onsets(["あ"], probe, rate, cfg)
-        return f"{len(onsets)} onset(s) on {cfg.align_device}"
+        # Where it ran, not where it was asked to: without CUDA it falls back.
+        cuda = str(cfg.align_device).startswith("cuda") and torch.cuda.is_available()
+        return f"{len(onsets)} onset(s) on {'cuda' if cuda else 'cpu'}"
 
     def thai():
         from pythainlp.tokenize import word_tokenize

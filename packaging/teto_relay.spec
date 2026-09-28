@@ -12,9 +12,10 @@
 # torch) to a temp folder on every start, which is slow and makes antivirus
 # unhappy. The installer and the portable zip both wrap this folder.
 #
-# UNTESTED: this has not been built on Windows yet. The notes below say which
-# packages are known to need help from PyInstaller; if the build or the first
-# start fails, the traceback in TetoRelayConsole.exe names the missing module.
+# Size: torch was 3.5 GB of a 4.2 GB build, almost all CUDA libraries that
+# only crepe, the aligner and RVC used. build.ps1 -WithGpu now installs a CPU
+# torch and gives whisper (the one stage the GPU speeds up) NVIDIA's cuBLAS
+# and cuDNN wheels, collected below; -CudaTorch keeps the old CUDA torch.
 
 import os
 import re
@@ -63,9 +64,46 @@ datas += optional(copy_metadata, "cmudict", "pykakasi", "faster_whisper", "libro
                   "torch", "torchaudio", "torchcrepe", "pythainlp")
 
 binaries = []
+
+
+def nvidia_dlls():
+    """cuBLAS from NVIDIA's pip wheel, beside the other DLLs.
+
+    CTranslate2 loads it by name, and the packaged app's own folder is on its
+    DLL search path. Whisper needs nothing else from CUDA: with every cuDNN
+    DLL hidden it transcribed the Thai test set identically and as fast.
+    """
+    import glob
+
+    try:
+        import nvidia
+    except ImportError:
+        return []
+    out = []
+    for base in nvidia.__path__:
+        for dll in glob.glob(os.path.join(base, "cublas", "bin", "*.dll")):
+            out.append((dll, "."))
+    return out
+
+
+binaries += nvidia_dlls()
 # ctranslate2 (faster-whisper) ships its own DLLs, including cuDNN/cuBLAS
 # loaders; pythonnet/clr_loader load the .NET host through native helpers.
 binaries += optional(collect_dynamic_libs, "ctranslate2", "clr_loader", "_sounddevice_data")
+
+# pythainlp ships 61 MB of data for taggers, NER, WordNet and Wikipedia titles.
+# The relay uses its word list (word_tokenize), syllable list and catalogue.
+PYTHAINLP_UNUSED = {
+    "wikipedia_titles_th.txt", "wordnet_th.db", "pos_orchid_perceptron.json",
+    "sentenceseg_crfcut.model", "tdtb-pt_tagger.json", "volubilis_words_th.txt",
+    "pos_tud_perceptron.json", "thai2rom_decoder.onnx", "thai2rom_encoder.onnx",
+    "phupha_word_freqs.txt", "pos_ud_perceptron-v0.2.json", "thainer_crf_1_5_1.model",
+    "words_th_thai2fit_201810.txt", "crfchunk_orchidpp.model", "orst_words_th.txt",
+    "pos_orchid_unigram.json", "tdtb-unigram_tagger.json", "han_solo.crfsuite",
+    "blackboard-cls_v1.0.crfsuite", "wikipedia_titles_th.txt",
+}
+datas = [(src, dst) for src, dst in datas
+         if not ("pythainlp" in dst and os.path.basename(src) in PYTHAINLP_UNUSED)]
 
 hiddenimports = [
     # pynput and pystray pick their Windows backend at run time.
@@ -88,6 +126,10 @@ a = Analysis(  # noqa: F821
     excludes=["tkinter", "matplotlib", "IPython", "jupyter", "pytest", "PyQt5", "PySide6"],
     noarchive=False,
 )
+# PyInstaller's own hook for the nvidia packages copies their DLLs again into
+# nvidia/<lib>/bin: 700 MB of duplicates of the ones placed above.
+a.binaries = [entry for entry in a.binaries  # noqa: F821
+              if not entry[0].replace("\\", "/").startswith("nvidia/")]
 pyz = PYZ(a.pure)  # noqa: F821
 
 common = dict(

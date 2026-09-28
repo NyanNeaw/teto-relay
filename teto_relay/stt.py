@@ -380,13 +380,13 @@ def _regroup_thai(words: list[Word]) -> list[Word]:
 
 
 def add_cuda_dll_dirs() -> list[str]:
-    """Let CTranslate2 find cuBLAS and cuDNN from NVIDIA's pip wheels.
+    """Let CTranslate2 find cuBLAS from NVIDIA's pip wheel.
 
-    The build ships whisper's GPU libraries as the nvidia-cublas-cu12 and
-    nvidia-cudnn-cu12 wheels rather than inside a CUDA build of torch - whisper
-    is the only stage that gains from the GPU (see packaging/build.ps1). Their
-    DLLs sit in nvidia/<lib>/bin, which Windows does not search. In the
-    packaged app they are copied next to the others and this finds nothing.
+    The build ships whisper's GPU library as the nvidia-cublas-cu12 wheel
+    rather than inside a CUDA build of torch - whisper is the only stage that
+    gains from the GPU (see packaging/build.ps1). Its DLLs sit in
+    nvidia/<lib>/bin, which Windows does not search. In the packaged app they
+    are copied next to the others and this finds nothing.
     """
     import os
 

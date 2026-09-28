@@ -10,8 +10,8 @@
 
     Steps:
       1. Makes a clean build virtualenv (.venv-build) with Python 3.11.
-      2. Installs the requirements, PyInstaller and, with -WithGpu, the CUDA
-         build of torch plus torchcrepe (adds about 2.5 GB).
+      2. Installs the requirements, PyInstaller and, with -WithGpu, torch
+         (CPU) plus torchcrepe, and NVIDIA's cuBLAS for whisper on the GPU.
       3. Runs the test suite. A failing test stops the build.
       4. Builds dist\TetoRelay\ with PyInstaller.
       5. Makes dist\TetoRelay-<version>-portable.zip (with portable.txt, so
@@ -22,8 +22,17 @@
     VB-Cable or voicebanks - those are the user's (see docs\SETUP.md).
 
 .PARAMETER WithGpu
-    Include torch (CUDA 12.1), torchaudio and torchcrepe for GPU pitch tracking
-    and word alignment. Without it the app uses pyin and whisper's timings.
+    The recommended build. Whisper runs on an NVIDIA GPU (cuBLAS 12.1 from
+    NVIDIA's pip wheel, the version torch 2.5.1+cu121 shipped); crepe pitch tracking, the syllable aligner and Thai
+    pronunciation run on torch's CPU build. Measured: crepe tiny on the CPU
+    takes 0.28 s for a 3 s phrase against 0.34 s for crepe full on a GTX 1060,
+    within 10 cents of it; the aligner is as fast on the CPU. The CUDA build of
+    torch added ~1.7 GB for no audible gain. Without -WithGpu there is no torch
+    at all: pyin pitch, whisper's own timings, rule-based Thai.
+
+.PARAMETER CudaTorch
+    With -WithGpu, use torch's CUDA 12.1 build instead (the app grows to about
+    4 GB). Only RVC voice conversion needs it, to convert on the GPU.
 
 .PARAMETER Python
     The Python launcher command to use. Default: "py -3.11".
@@ -33,6 +42,7 @@
 #>
 param(
     [switch]$WithGpu,
+    [switch]$CudaTorch,
     [string]$Python = "py -3.11",
     [switch]$SkipTests
 )
@@ -49,7 +59,12 @@ Step "Creating the build environment (.venv-build)"
 $Venv = Join-Path $Root ".venv-build"
 $Py = Join-Path $Venv "Scripts\python.exe"
 if (-not (Test-Path $Py)) {
-    $Exe, $PyArgs = $Python.Split(" ")
+    # As an array: "py -3.11".Split() gave -3.11 as a lone string, which
+    # PowerShell 5.1 splatted as nothing - and "py -m venv" was lost, so a
+    # clean build started an interactive Python instead of making the venv.
+    $Parts = @($Python -split " " | Where-Object { $_ })
+    $Exe = $Parts[0]
+    $PyArgs = @($Parts | Select-Object -Skip 1)
     & $Exe @PyArgs -m venv $Venv
     if ($LASTEXITCODE -ne 0) { Fail "could not create a virtualenv with '$Python'. Install Python 3.11 from python.org (tick 'py launcher')." }
 }
@@ -60,8 +75,24 @@ Step "Installing dependencies"
 & $Py -m pip install -r requirements.txt -r requirements-dev.txt
 if ($LASTEXITCODE -ne 0) { Fail "pip could not install requirements.txt" }
 if ($WithGpu) {
-    & $Py -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
-    if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CUDA 12.1)" }
+    if ($CudaTorch) {
+        & $Py -m pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+        if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CUDA 12.1)" }
+    } else {
+        # The +cpu builds by name: "torch==2.5.1" is satisfied by a CUDA torch
+        # left in the venv by an earlier -CudaTorch build, which would then be
+        # bundled whole.
+        & $Py -m pip install torch==2.5.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+        if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CPU)" }
+        # Whisper's GPU library: the cuBLAS torch 2.5.1+cu121 shipped. Not
+        # cuDNN: CTranslate2 transcribed the Thai test set identically, as
+        # fast, with every cuDNN DLL hidden - it never loaded one beyond the
+        # front end - and cuDNN was 1.1 GB of the build.
+        & $Py -m pip install nvidia-cublas-cu12==12.1.3.1 --no-deps
+        if ($LASTEXITCODE -ne 0) { Fail "pip could not install cuBLAS" }
+        # A cuDNN left by an earlier build would be bundled.
+        & $Py -m pip uninstall -y nvidia-cudnn-cu12 2>$null | Out-Null
+    }
     & $Py -m pip install -r requirements-gpu.txt
     if ($LASTEXITCODE -ne 0) { Fail "pip could not install requirements-gpu.txt" }
 }
@@ -87,6 +118,11 @@ if ($LASTEXITCODE -ne 0) { Fail "the built program does not start" }
 # voicebank, no VB-Cable...), which is fine for a build machine; a crash is not.
 & (Join-Path $App "TetoRelayConsole.exe") --doctor
 if ($LASTEXITCODE -gt 1) { Fail "the built program crashed running --doctor" }
+# Each model once, in the built program: a DLL or data file PyInstaller left
+# out only shows when a model is used. Models come from the download cache,
+# so on a new build PC this may fetch them; a failure is reported, not fatal.
+& (Join-Path $App "TetoRelayConsole.exe") --selftest
+if ($LASTEXITCODE -ne 0) { Write-Host "`nWARNING: --selftest reported a failed stage (see above)." -ForegroundColor Yellow }
 
 # ---------------------------------------------------------------- 5. zip
 Step "Making the portable zip"
