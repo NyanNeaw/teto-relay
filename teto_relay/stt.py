@@ -379,6 +379,34 @@ def _regroup_thai(words: list[Word]) -> list[Word]:
     return out
 
 
+def add_cuda_dll_dirs() -> list[str]:
+    """Let CTranslate2 find cuBLAS and cuDNN from NVIDIA's pip wheels.
+
+    The build ships whisper's GPU libraries as the nvidia-cublas-cu12 and
+    nvidia-cudnn-cu12 wheels rather than inside a CUDA build of torch - whisper
+    is the only stage that gains from the GPU (see packaging/build.ps1). Their
+    DLLs sit in nvidia/<lib>/bin, which Windows does not search. In the
+    packaged app they are copied next to the others and this finds nothing.
+    """
+    import os
+
+    if os.name != "nt":
+        return []
+    try:
+        import nvidia
+    except ImportError:
+        return []
+    added = []
+    for base in getattr(nvidia, "__path__", []):
+        for lib in ("cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"):
+            folder = Path(base) / lib / "bin"
+            if folder.is_dir():
+                os.add_dll_directory(str(folder))
+                os.environ["PATH"] = f"{folder}{os.pathsep}{os.environ.get('PATH', '')}"
+                added.append(str(folder))
+    return added
+
+
 class Transcriber:
     """Lazily-loaded faster-whisper wrapper. Safe to call from one worker thread."""
 
@@ -394,6 +422,8 @@ class Transcriber:
                 return
             from faster_whisper import WhisperModel
 
+            if str(self.cfg.whisper_device).startswith(("cuda", "auto")):
+                add_cuda_dll_dirs()
             compute_type = pick_compute_type(self.cfg.whisper_device, self.cfg.whisper_compute_type)
             name = effective_model(self.cfg)
             log.info("Loading whisper %r (%s, %s)...", name, self.cfg.whisper_device, compute_type)

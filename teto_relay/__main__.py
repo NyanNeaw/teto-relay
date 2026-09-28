@@ -106,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help="path to a config.json")
     p.add_argument("--doctor", action="store_true",
                    help="check the installation and settings, then exit")
+    p.add_argument("--selftest", action="store_true",
+                   help="run each model once on a test tone, say where it ran, then exit")
     p.add_argument("--no-browser", action="store_true",
                    help="with --web, do not open the panel in a browser")
     p.add_argument("--version", action="store_true", help="print the version and exit")
@@ -178,6 +180,11 @@ def _run(args, cfg: Config) -> int:
         from .doctor import run_doctor
 
         return run_doctor(cfg)
+
+    if args.selftest:
+        from .selftest import run_selftest
+
+        return run_selftest(cfg)
 
     if args.list_devices:
         from .devices import list_devices

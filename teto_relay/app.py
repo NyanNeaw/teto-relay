@@ -23,6 +23,7 @@ from . import align
 from . import devices as devices_mod
 from . import japanese as jp_mod
 from . import pitch as pitch_mod
+from . import translit
 from . import voicebank as vb_mod
 from .capture import MicCapture, calibrate_threshold, make_chunker
 from .config import Config
@@ -74,6 +75,16 @@ def _drop_oldest_put(q: queue.Queue, item, label: str) -> None:
             log.warning("%s queue full - dropped the oldest item", label)
         except (queue.Empty, queue.Full):
             pass
+
+
+def warm_thai() -> None:
+    """Load pythainlp's word list and Thai G2P model (see teto_relay.thai)."""
+    from pythainlp.tokenize import word_tokenize
+
+    from . import thai
+
+    word_tokenize("สวัสดีครับ", engine="newmm")
+    thai.syllables("ทดสอบ")
 
 
 class TetoRelay:
@@ -375,6 +386,10 @@ class TetoRelay:
         # and 0.00s on the second.
         if self._japanese_lyrics():
             stage("lyrics", lambda: jp_mod.english_to_kana("hello"))
+        # Thai: the word list and the pronunciation model load (and, the first
+        # time, download) on first use - which was the first Thai phrase.
+        if translit.source_language(self.cfg) == "th":
+            stage("thai", warm_thai)
 
         elapsed = time.monotonic() - began
         if failed:
