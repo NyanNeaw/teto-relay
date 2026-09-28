@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 
@@ -54,19 +55,47 @@ def find_app_browser() -> Path | None:
     return next((p for p in candidates if p.exists()), None)
 
 
+def _launch(args: list[str]) -> None:
+    """Start another program as if we were not a packaged app.
+
+    PyInstaller's bootloader points the DLL search at its own folder
+    (SetDllDirectory) and sets variables of its own, and a child process
+    inherits both. Edge started from the packaged TetoRelay.exe loaded our
+    bundled DLLs instead of its own and exited without a window - the panel
+    never appeared on a double-click. So the DLL directory is cleared just for
+    the launch, and the child gets an environment without PyInstaller's.
+    """
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("_PYI", "_MEI"))}
+    previous = None
+    kernel32 = None
+    if getattr(sys, "frozen", False) and os.name == "nt":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        buf = ctypes.create_unicode_buffer(32768)
+        if kernel32.GetDllDirectoryW(len(buf), buf):
+            previous = buf.value
+        kernel32.SetDllDirectoryW(None)
+    try:
+        subprocess.Popen(args, env=env, close_fds=True,
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+    finally:
+        if kernel32 is not None:
+            kernel32.SetDllDirectoryW(previous)
+
+
 def open_panel(url: str, as_app: bool = True) -> str:
     """Show the panel; returns "app" or "browser", whichever was used."""
     if as_app:
         browser = find_app_browser()
         if browser is not None:
             try:
-                subprocess.Popen(
-                    [str(browser), f"--app={url}", f"--window-size={WINDOW_SIZE}"],
-                    close_fds=True,
-                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
-                )
+                _launch([str(browser), f"--app={url}", f"--window-size={WINDOW_SIZE}"])
+                log.info("Opened the control panel in its own window (%s)", browser.name)
                 return "app"
             except OSError:
-                log.debug("could not open %s as an app window", browser, exc_info=True)
+                log.warning("could not open %s as an app window", browser, exc_info=True)
     webbrowser.open(url)
+    log.info("Opened the control panel in the browser: %s", url)
     return "browser"
