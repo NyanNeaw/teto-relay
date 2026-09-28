@@ -8,7 +8,9 @@ the renderer), and the rendered singing is scored on:
 
 * **heard** - an independent speech model (whisper small, not the one the
   relay listens with) transcribes her; word error rate against what you said
-  (English), or kana error rate (Japanese). Lower is more intelligible.
+  (English), kana error rate (Japanese) or letter error rate (Thai; judge with
+  --judge medium, since the relay listens to Thai with a Thai small model).
+  Lower is more intelligible.
 * **stretch** - how long her singing lasts against how long you spoke. Near
   1.0 keeps your rhythm; well above it drags.
 * **pauses** - your pauses of 0.25 s or more, and how many she kept.
@@ -95,10 +97,15 @@ def _edit_distance(a: list, b: list) -> int:
     return row[-1]
 
 
-def _units(text: str, japanese: bool) -> list[str]:
-    """Words (English) or kana (Japanese), normalised the way the relay does."""
+def _units(text: str, japanese: bool, thai: bool = False) -> list[str]:
+    """Words (English), kana (Japanese) or letters (Thai, written without
+    spaces), normalised the way the relay does."""
     from teto_relay.stt import clean_lyric
 
+    if thai:
+        from teto_relay.translit import THAI
+
+        return THAI.findall(text)
     if japanese:
         from teto_relay import translit
 
@@ -151,6 +158,12 @@ def main() -> int:
     # whisper's, or the first CUDA convolution dies on cuDNN (see _warmup).
     relay._warmup()
     japanese = relay._japanese_lyrics()
+    # Scored in the language that was spoken: Thai sung by a Japanese bank is
+    # still judged as Thai.
+    from teto_relay.translit import source_language
+
+    thai = source_language(cfg) == "th"
+    judge_language = "th" if thai else "ja" if japanese else "en"
     from faster_whisper import WhisperModel
 
     judge = WhisperModel(args.judge, device="cuda", compute_type="int8")
@@ -174,10 +187,10 @@ def main() -> int:
         sung = sung.mean(axis=1)
 
         segments, _ = judge.transcribe(
-            sung if rate == 16000 else _resample(sung, rate), language="ja" if japanese else "en",
+            sung if rate == 16000 else _resample(sung, rate), language=judge_language,
             beam_size=5, condition_on_previous_text=False)
         heard = " ".join(s.text for s in segments)
-        ref, hyp = _units(said, japanese), _units(heard, japanese)
+        ref, hyp = _units(said, japanese, thai), _units(heard, japanese, thai)
         # Capped at 1: a judge stuck repeating a held vowel ("ぬぅぅぅぅ...")
         # scored 4.0 on one phrase and swamped the rest of the set.
         error = min(1.0, _edit_distance(ref, hyp) / max(1, len(ref)))

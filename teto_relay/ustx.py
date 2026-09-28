@@ -167,6 +167,23 @@ def _match_aliases(notes: list[Note], blocks: list[dict], bank: Voicebank) -> No
 
 def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None = None) -> dict:
     """Assemble the .ustx document as a plain dict."""
+    # A rest note has done its job - holding its slot through the layout.
+    from .notes import REST
+
+    kept: list[Note] = []
+    after_rest = False
+    for n in notes:
+        if n.lyric == REST:
+            after_rest = True
+            continue
+        if after_rest and n.legato:
+            # Touching the note before the rest would close the rest.
+            from dataclasses import replace
+
+            n = replace(n, legato=False)
+        kept.append(n)
+        after_rest = False
+    notes = kept
     if not notes:
         raise ValueError("cannot build a project with no notes")
 
@@ -174,6 +191,9 @@ def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None =
     note_blocks = _space_in_ticks(notes, [_note_block(n, part_start, cfg) for n in notes], cfg)
     part_duration = max(b["position"] + b["duration"] for b in note_blocks)
     phonemizer = cfg.phonemizer or bank.phonemizer
+    if bank.flavour.startswith("ja-"):
+        for block in note_blocks:
+            block["lyric"] = bank.singable(block["lyric"])
     if phonemizer.endswith("DefaultPhonemizer"):
         _match_aliases(notes, note_blocks, bank)
 

@@ -23,6 +23,9 @@ MIN_NOTE_SECONDS = 0.06
 #: The lyric of a note that holds the previous note's vowel (OpenUtau's
 #: extender): sung as one sample across both notes, pitch moving between.
 EXTEND = "+"  # below this a note is inaudible and confuses the resampler
+#: A mora that is silence: the closure of an unreleased stop. Laid out like
+#: any other note, then left out of the project (ustx.build_project).
+REST = "っ"
 
 
 @dataclass
@@ -466,8 +469,23 @@ def build_notes(
             # A pause ends the vowel: after a rest a vowel is sung afresh.
             if position and w.start - ordered[position - 1].end >= cfg.phrase_gap_ms / 1000.0:
                 vowel = None
+            after_stop = False
             for index, mora in enumerate(morae):
                 start = w.start + index * step
+                if mora == REST:
+                    # An unreleased stop (Thai รัก, มาก): a note of its own
+                    # holds the slot through the layout below - left empty, the
+                    # layout stretched the vowel over it - and the ustx writer
+                    # leaves it out, so it is a rest. The next mora starts afresh.
+                    end = start + step
+                    if index == len(morae) - 1:
+                        end = max(end, w.start + allowance)
+                    respelled.append(Word(text=REST, start=start, end=end))
+                    word_hints.append(None)
+                    joined.append(use_legato)
+                    after_stop = True
+                    vowel = None
+                    continue
                 # A long vowel (ムー, こーひー, かあ) holds the vowel before it,
                 # even when whisper made it a word of its own (ミュ | ウ). As
                 # its own う/い/あ note a CV bank starts a fresh sample with a
@@ -490,7 +508,8 @@ def build_notes(
                 word_hints.append(None)
                 # The morae of one word are sung connected (with `legato`),
                 # and an extension always joins the note it extends.
-                joined.append(use_legato and (index > 0 or extends))
+                joined.append(use_legato and (index > 0 or extends) and not after_stop)
+                after_stop = False
             continue
 
         # A non-English source on an English bank is romanised and sung from

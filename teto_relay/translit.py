@@ -99,7 +99,9 @@ _VOWEL_OF = {
     "o": "おこごそぞとどのほぼぽもよろを",
 }
 _ENDS_ON = {kana: vowel for vowel, group in _VOWEL_OF.items() for kana in group}
-_SMALL_ENDS_ON = {"ゃ": "a", "ゅ": "u", "ょ": "o"}
+# てぃ ends on i, ふぁ on a: the small vowel is the one sung.
+_SMALL_ENDS_ON = {"ゃ": "a", "ゅ": "u", "ょ": "o",
+                  "ぁ": "a", "ぃ": "i", "ぅ": "u", "ぇ": "e", "ぉ": "o"}
 
 
 def vowel_of(mora: str) -> str | None:
@@ -374,9 +376,15 @@ def to_kana(word: str, source: str) -> str | None:
         # sing five letters it has no samples for. Fall through and romanise.
         if kana and looks_japanese(kana):
             return kana
-    if source == "th" or looks_thai(word):
-        latin = thai_to_latin(word) if looks_thai(word) else word
-        return latin_to_kana(latin) or None
+    if looks_thai(word):
+        # By sound, not spelling (see teto_relay.thai); the romanised
+        # spelling is only a fallback.
+        from . import thai
+
+        kana = thai.to_kana(word)
+        if kana:
+            return kana
+        return latin_to_kana(thai_to_latin(word)) or None
     # English keeps the dictionary route, which knows how a word is *said*
     # rather than how it is spelt: "you" is ゆう, not よう.
     kana = jp.english_to_kana(word)
@@ -391,9 +399,15 @@ def to_english(word: str, source: str) -> tuple[str, str | None]:
     A romanised Thai or Japanese word means nothing to the English dictionary,
     so it is sung from an explicit phoneme string instead of being looked up.
     """
-    if source == "th" or looks_thai(word):
-        latin = thai_to_latin(word) if looks_thai(word) else word
+    if looks_thai(word):
+        from . import thai
+
+        sounds = thai.to_xsampa(word)
+        if sounds:
+            return thai.to_latin(word) or word, sounds
+        latin = thai_to_latin(word)
         return latin, latin_to_xsampa(latin) or None
+
     if source == "ja" or looks_japanese(word):
         latin = japanese_to_latin(word) if looks_japanese(word) else word
         return latin, latin_to_xsampa(latin) or None

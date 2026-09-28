@@ -11,8 +11,11 @@ import logging
 import string
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+
+from .translit import looks_thai
 
 log = logging.getLogger(__name__)
 
@@ -167,6 +170,104 @@ def pick_compute_type(device: str, requested: str) -> str:
     return requested
 
 
+#: Whisper small fine-tuned on Thai: "Thonburian Whisper" by Mahidol
+#: University's biodatlab (Apache-2.0), in faster-whisper's format. On Thai
+#: test phrases it made half the errors of the standard small model at the
+#: same speed. The repo is a third party's conversion, so it is pinned, and its
+#: weights are checked against a conversion made here from biodatlab's own
+#: release (byte-identical).
+THAI_MODEL = {
+    "repo": "CodeHardThailand/whisper-th-small-combined-ct2",
+    "revision": "d3c0f01d45969f10ee708b5aad2c56d48f75d1a6",
+    "sha256": "8cef6d502277c94f2e403a8b23ecd6fe385bb262d7044621297c496b6c473470",
+}
+THAI_MODEL_NAME = "thai-small"
+
+
+def effective_model(cfg) -> str:
+    """The speech model the relay actually loads for this configuration."""
+    from .translit import source_language
+
+    if getattr(cfg, "thai_speech_model", True) and source_language(cfg) == "th":
+        return THAI_MODEL_NAME
+    return cfg.whisper_model
+
+
+def _thai_model_path() -> str:
+    """Download (once) and verify the Thai model; returns its folder."""
+    import hashlib
+
+    from huggingface_hub import snapshot_download
+
+    folder = Path(snapshot_download(
+        THAI_MODEL["repo"], revision=THAI_MODEL["revision"],
+        allow_patterns=["config.json", "model.bin", "vocabulary.json"],
+    ))
+    marker = folder / ".teto-relay-verified"
+    if not marker.exists() or marker.read_text().strip() != THAI_MODEL["sha256"]:
+        digest = hashlib.sha256()
+        with open(folder / "model.bin", "rb") as f:
+            for block in iter(lambda: f.read(1 << 20), b""):
+                digest.update(block)
+        if digest.hexdigest() != THAI_MODEL["sha256"]:
+            raise RuntimeError(
+                "The Thai speech model did not match the expected download; it was not "
+                "used. Turn off 'Thai speech model' in Setup to use the standard one."
+            )
+        try:
+            marker.write_text(THAI_MODEL["sha256"])
+        except OSError:
+            pass
+    return str(folder)
+
+
+def _regroup_thai(words: list[Word]) -> list[Word]:
+    """Rebuild Thai words from the pieces whisper times.
+
+    Thai has no spaces, and whisper times it in pieces of a few characters -
+    "ส | ว | ั | ส | ด | ี" for สวัสดี - which, sung one piece at a time,
+    was nonsense. A run of Thai pieces is joined and cut into real words, each
+    timed from the first piece it starts in to the last it ends in.
+    """
+    from .translit import looks_thai
+
+    out: list[Word] = []
+    run: list[Word] = []
+
+    def flush() -> None:
+        if not run:
+            return
+        text = "".join(w.text for w in run)
+        spans: list[tuple[float, float]] = []
+        for w in run:
+            spans.extend([(w.start, w.end)] * len(w.text))
+        try:
+            from pythainlp.tokenize import word_tokenize
+
+            tokens = word_tokenize(text, keep_whitespace=False)
+        except Exception:  # noqa: BLE001 - without pythainlp, keep the run whole
+            log.warning("pythainlp is unavailable; Thai words cannot be separated", exc_info=True)
+            tokens = [text]
+        position = 0
+        for token in tokens:
+            at = text.find(token, position)
+            if at < 0 or not token.strip():
+                continue
+            last = at + len(token) - 1
+            out.append(Word(text=token, start=spans[at][0], end=max(spans[last][1], spans[at][0] + 0.01)))
+            position = last + 1
+        run.clear()
+
+    for w in words:
+        if looks_thai(w.text):
+            run.append(w)
+        else:
+            flush()
+            out.append(w)
+    flush()
+    return out
+
+
 class Transcriber:
     """Lazily-loaded faster-whisper wrapper. Safe to call from one worker thread."""
 
@@ -183,14 +284,17 @@ class Transcriber:
             from faster_whisper import WhisperModel
 
             compute_type = pick_compute_type(self.cfg.whisper_device, self.cfg.whisper_compute_type)
-            log.info(
-                "Loading whisper %r (%s, %s)...",
-                self.cfg.whisper_model,
-                self.cfg.whisper_device,
-                compute_type,
-            )
+            name = effective_model(self.cfg)
+            log.info("Loading whisper %r (%s, %s)...", name, self.cfg.whisper_device, compute_type)
+            source = self.cfg.whisper_model
+            if name == THAI_MODEL_NAME:
+                try:
+                    source = _thai_model_path()
+                except Exception as exc:  # noqa: BLE001 - fall back, don't fail the relay
+                    log.warning("The Thai speech model could not be loaded (%s); using %r",
+                                exc, self.cfg.whisper_model)
             self._model = WhisperModel(
-                self.cfg.whisper_model,
+                source,
                 device=self.cfg.whisper_device,
                 compute_type=compute_type,
             )
@@ -254,6 +358,11 @@ class Transcriber:
                     continue
                 start, end = float(w.start), float(w.end)
                 if end <= start:
+                    # Thai vowel and tone marks often come back with no
+                    # duration of their own; dropped, ชื่อ was sung as ช-อ.
+                    if words and looks_thai(lyric):
+                        prev = words[-1]
+                        words[-1] = Word(text=prev.text + lyric, start=prev.start, end=prev.end)
                     continue
                 # Whisper splits ムー into "ム" + "ー". A long-vowel mark (or a
                 # sokuon) on its own is no sound - it only lengthens the kana
@@ -265,6 +374,7 @@ class Transcriber:
                     continue
                 words.append(Word(text=lyric, start=start, end=end))
 
+        words = _regroup_thai(words)
         if dropped:
             log.info("Discarded %d low-confidence segment(s)", dropped)
         log.info("Transcribed %d word(s): %s", len(words), " ".join(w.text for w in words))

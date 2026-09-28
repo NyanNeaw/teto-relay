@@ -16,6 +16,8 @@ for _var, _sub in (
     ("TORCH_HOME", "torch"),
     ("HF_HOME", "hf"),
     ("HUGGINGFACE_HUB_CACHE", "hf"),
+    # pythainlp's Thai G2P model and corpora (teto_relay.thai).
+    ("PYTHAINLP_DATA_DIR", "pythainlp"),
 ):
     if not _os.environ.get(_var):
         _path = _CACHE / _sub

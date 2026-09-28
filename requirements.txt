@@ -14,6 +14,10 @@ pythonnet>=3.0.3
 cmudict>=1.0.13
 # Kanji and katakana -> hiragana, for Japanese speech and Japanese banks.
 pykakasi>=2.2.1
+# Thai: word splitting and pronunciation (teto_relay.thai). Its G2P model
+# runs on torch (requirements-gpu.txt); without torch Thai is sung from a
+# rule-based romanisation instead.
+pythainlp>=5.0
 
 # GPU pitch tracking and word alignment are installed separately, because the
 # right torch build depends on your CUDA version - see requirements-gpu.txt.

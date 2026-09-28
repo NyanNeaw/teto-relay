@@ -36,6 +36,14 @@ PHONEMIZERS = {
 }
 DEFAULT_PHONEMIZER = PHONEMIZERS["ja-cv"]
 
+#: The nearest basic mora for each extended one, for banks that lack it -
+#: how Japanese wrote these sounds before the small-vowel spellings.
+SIMPLER_MORA = {
+    "てぃ": "ち", "でぃ": "ぢ", "とぅ": "つ", "どぅ": "づ", "ふぁ": "は", "ふぃ": "ひ",
+    "ふぇ": "へ", "ふぉ": "ほ", "うぃ": "い", "うぇ": "え", "うぉ": "お", "いぇ": "え",
+    "ちぇ": "ち", "しぇ": "せ", "じぇ": "ぜ", "つぁ": "さ", "つぃ": "ち", "つぇ": "せ", "つぉ": "そ",
+}
+
 #: Files that mark a singer root. OpenUtau-era banks may have only the yaml.
 CHARACTER_FILES = ("character.txt", "character.yaml")
 
@@ -131,6 +139,7 @@ class Voicebank:
     aliases: frozenset = frozenset()
     # Japanese spelled "ka", "- ka", "a ka" rather than in kana.
     romaji: bool = False
+    _cores: frozenset | None = field(default=None, repr=False, compare=False)
 
     @property
     def phonemizer(self) -> str:
@@ -147,6 +156,20 @@ class Voicebank:
             if (self.root / name).exists():
                 return self.root / name
         return None
+
+    def has_mora(self, mora: str) -> bool:
+        """Whether any alias sings `mora` ("てぃ", "- てぃ", "a てぃ", "てぃ_C4")."""
+        if not self.aliases:
+            return True  # not measured: assume it does
+        if self._cores is None:
+            self._cores = frozenset(_core(a) for a in self.aliases)
+        return mora in self._cores
+
+    def singable(self, mora: str) -> str:
+        """`mora`, or the nearest basic one when the bank has not recorded it."""
+        if mora in SIMPLER_MORA and not self.has_mora(mora):
+            return SIMPLER_MORA[mora]
+        return mora
 
     def alias_for(self, lyric: str, prev_vowel: str | None = None) -> str:
         """The alias this bank really has for a kana `lyric`.

@@ -50,7 +50,9 @@ datas = [
 ]
 # Data files the libraries read at run time.
 datas += optional(collect_data_files, "cmudict", "pykakasi", "librosa", "faster_whisper",
-                  "_sounddevice_data", "pythonnet", "clr_loader", "torchcrepe")
+                  "_sounddevice_data", "pythonnet", "clr_loader", "torchcrepe",
+                  # Thai word lists and the G2P model's code (teto_relay.thai).
+                  "pythainlp")
 
 # Packages that read their own version through importlib.metadata when
 # imported. cmudict does, and without its metadata the import fails - which
@@ -58,7 +60,7 @@ datas += optional(collect_data_files, "cmudict", "pykakasi", "librosa", "faster_
 # silent in the packaged app.
 datas += optional(copy_metadata, "cmudict", "pykakasi", "faster_whisper", "librosa",
                   "ctranslate2", "tokenizers", "huggingface_hub", "pythonnet",
-                  "torch", "torchaudio", "torchcrepe")
+                  "torch", "torchaudio", "torchcrepe", "pythainlp")
 
 binaries = []
 # ctranslate2 (faster-whisper) ships its own DLLs, including cuDNN/cuBLAS
@@ -73,6 +75,9 @@ hiddenimports = [
 ]
 hiddenimports += collect_submodules("teto_relay")
 hiddenimports += optional(collect_submodules, "pykakasi", "cmudict")
+# pythainlp picks its tokenizer and transliteration engines by name at run time.
+hiddenimports += optional(collect_submodules, "pythainlp.tokenize", "pythainlp.transliterate",
+                          "pythainlp.corpus")
 
 a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "launcher.py")],

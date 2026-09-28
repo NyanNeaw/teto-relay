@@ -197,6 +197,26 @@ def _wait_for_runner() -> None:
         log.debug("could not wait for PhonemizerRunner", exc_info=True)
 
 
+# X-SAMPA as the relay writes hints, to the ARPAbet an ARPAsing bank sings.
+# Before this, a romanised Thai or Japanese word reached an ARPAsing bank with
+# no hint, was looked up in its English dictionary, and sang nothing.
+_XSAMPA_TO_ARPABET = {
+    "p": "p", "b": "b", "t": "t", "d": "d", "k": "k", "g": "g", "tS": "ch", "dZ": "jh",
+    "f": "f", "v": "v", "T": "th", "D": "dh", "s": "s", "z": "z", "S": "sh", "Z": "zh",
+    "h": "hh", "m": "m", "n": "n", "N": "ng", "l": "l", "r": "r", "j": "y", "w": "w",
+    "A": "aa", "i": "iy", "u": "uw", "E": "eh", "{": "ae", "oU": "ow", "O": "ao",
+    "V": "ah", "@": "ah", "I": "ih", "U": "uh", "aI": "ay", "aU": "aw", "OI": "oy",
+    "eI": "ey", "3": "er", "e": "eh", "o": "ow", "a": "aa",
+}
+
+
+def xsampa_to_arpabet(hint: str) -> str | None:
+    phones = [_XSAMPA_TO_ARPABET.get(p) for p in hint.split()]
+    if not phones or None in phones:
+        return None
+    return " ".join(phones)
+
+
 def _add_character_file(bank: Voicebank) -> Path:
     """Give a bank that has only oto.ini files the character.txt OpenUtau needs.
 
@@ -253,6 +273,15 @@ class OpenUtauRenderer:
         log.info("OpenUtau backend ready: singer=%s renderer=%s", self.singer.Name, self.renderer)
 
     # ------------------------------------------------------------ singer
+    def _hint_for(self, xsampa: str | None) -> str | None:
+        if not xsampa:
+            return None
+        if self._xsampa:
+            return xsampa
+        if self._voice_key(self.bank)[1].endswith(("ArpasingPhonemizer", "ArpasingPlusPhonemizer")):
+            return xsampa_to_arpabet(xsampa)
+        return None
+
     def _voice_key(self, bank: Voicebank) -> tuple[str, str]:
         return (str(Path(bank.root).resolve()), self.cfg.phonemizer or bank.phonemizer)
 
@@ -448,9 +477,10 @@ class OpenUtauRenderer:
             self._apply_pitch(note, note_doc)
             self._apply_vibrato(note, note_doc)
             part.notes.Add(note)
-            # Hints are X-SAMPA, which only the X-SAMPA phonemizer reads; any
-            # other would look them up as its own symbols and sing nothing.
-            self._hints.append((note_doc.get("phonetic_hint") or None) if self._xsampa else None)
+            # Hints are X-SAMPA. The X-SAMPA phonemizer reads them as they are,
+            # an ARPAsing one in ARPAbet; any other would look them up as its
+            # own symbols and sing nothing, so it gets none.
+            self._hints.append(self._hint_for(note_doc.get("phonetic_hint") or None))
 
         self._apply_curves(project, part, part_doc.get("curves") or [])
 

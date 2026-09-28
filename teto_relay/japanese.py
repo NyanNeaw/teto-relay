@@ -371,12 +371,21 @@ def english_to_kana(word: str) -> str | None:
     return arpabet_to_kana(list(entries[0]), key)
 
 
+#: Morae spelled with a small vowel (てぃ, ふぁ). Most CV banks record them; a
+#: bank without one gets `voicebank.SIMPLER_MORA` at render time.
+EXTENDED_MORAE = frozenset(
+    "てぃ でぃ とぅ どぅ ふぁ ふぃ ふぇ ふぉ うぃ うぇ うぉ いぇ ちぇ しぇ じぇ "
+    "つぁ つぃ つぇ つぉ".split()
+)
+
+
 def split_morae(kana: str) -> list[str]:
-    """Split a kana string into morae, keeping youon (しゃ) together."""
+    """Split a kana string into morae, keeping youon (しゃ) and てぃ-style
+    morae together - split, the small vowel alone had no sample."""
     small = "ゃゅょ"
     out: list[str] = []
     for ch in kana:
-        if ch in small and out:
+        if out and (ch in small or out[-1][-1:] + ch in EXTENDED_MORAE):
             out[-1] += ch
         else:
             out.append(ch)
