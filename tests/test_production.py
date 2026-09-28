@@ -2819,5 +2819,215 @@ class TestHardwareFindings(unittest.TestCase):
             self.assertEqual(pick_compute_type("cuda:0", "int8"), "int8")
 
 
+def _bank(folder: Path, aliases: list[str], wavs: list[str] | None = None,
+          character: str | None = "character.txt", extra: dict | None = None) -> Path:
+    """A voicebank on disk: an oto.ini (Shift-JIS, as UTAU writes it), stub samples."""
+    folder.mkdir(parents=True, exist_ok=True)
+    wavs = wavs or [f"s{i}.wav" for i in range(len(aliases))]
+    lines = [f"{w}={a},0,100,-200,50,10" for w, a in zip(wavs, aliases)]
+    (folder / "oto.ini").write_bytes("\r\n".join(lines).encode("cp932"))
+    for w in set(wavs):
+        (folder / w).write_bytes(b"RIFF")
+    if character == "character.txt":
+        (folder / "character.txt").write_bytes("name=Someone\r\n".encode("cp932"))
+    elif character == "character.yaml":
+        (folder / "character.yaml").write_text("name: Yaml Singer\n", encoding="utf-8")
+    for name, text in (extra or {}).items():
+        (folder / name).write_bytes(text.encode("cp932"))
+    return folder
+
+
+class TestOtherPeoplesVoicebanks(unittest.TestCase):
+    """Banks made by other people are laid out and spelled in many ways.
+
+    Each of these sang silence, or plain tones, before; each was found by
+    rendering a copy of Defoko rearranged that way through OpenUtau.
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name).resolve()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def discover_one(self):
+        from teto_relay.voicebank import discover
+
+        banks = discover(self.root)
+        self.assertEqual(len(banks), 1, [b.root for b in banks])
+        return banks[0]
+
+    def test_a_romaji_bank_is_japanese_and_lyrics_find_its_aliases(self):
+        # "ka", "- ka", "a ka" instead of か: kana lyrics matched nothing.
+        _bank(self.root / "r", ["- sa", "a sa", "- ku", "a ku", "u ra", "- shi", "i tsu", "- n", "a", "i"])
+        bank = self.discover_one()
+        self.assertTrue(bank.flavour.startswith("ja-"))
+        self.assertTrue(bank.romaji)
+        self.assertTrue(bank.phonemizer.endswith("DefaultPhonemizer"))
+        self.assertEqual(bank.alias_for("さ"), "- sa")
+        self.assertEqual(bank.alias_for("く", "a"), "a ku")
+        self.assertEqual(bank.alias_for("つ", "i"), "i tsu")
+        self.assertEqual(bank.alias_for("ん"), "- n")
+
+    def test_kunrei_spellings_are_found(self):
+        _bank(self.root / "k", ["si", "tu", "hu", "ka", "sa", "ta", "a", "i", "u"])
+        bank = self.discover_one()
+        self.assertEqual([bank.alias_for(k) for k in "しつふ"], ["si", "tu", "hu"])
+
+    def test_a_kana_bank_that_already_matches_is_left_alone(self):
+        _bank(self.root / "t", ["あ", "- あ", "さ", "- さ", "く", "ら"])
+        bank = self.discover_one()
+        self.assertFalse(bank.romaji)
+        self.assertEqual(bank.alias_for("さ"), "さ")
+        self.assertEqual(bank.alias_for("さ", "a"), "さ")
+
+    def test_the_project_spells_lyrics_the_bank_s_way(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.ustx import build_project
+
+        _bank(self.root / "r", ["- sa", "a ku", "u ra", "- ra", "a", "- a"])
+        bank = self.discover_one()
+        notes = [Note("さ", 0.0, 0.3, 60), Note("く", 0.3, 0.6, 60, legato=True),
+                 Note("ら", 0.6, 0.9, 60, legato=True), Note("ら", 1.5, 1.8, 60)]
+        doc = build_project(notes, bank, Config())
+        lyrics = [n["lyric"] for n in doc["voice_parts"][0]["notes"]]
+        # After a rest, a phrase starts afresh.
+        self.assertEqual(lyrics, ["- sa", "a ku", "u ra", "- ra"])
+
+    def test_a_japanese_cvvc_bank_gets_the_cvvc_phonemizer(self):
+        _bank(self.root / "c", ["- か", "か", "a k", "- さ", "さ", "a s", "o t", "u r", "a", "い"])
+        self.assertEqual(self.discover_one().flavour, "ja-cvvc")
+
+    def test_pitch_suffixes_from_prefix_map_are_not_part_of_the_alias(self):
+        names = ["C4", "D4", "E4"]
+        _bank(self.root / "p", ["あ_C4", "さ_C4", "sa_C4"],
+              extra={"prefix.map": "\r\n".join(f"{n}\t\t_C4" for n in names)})
+        bank = self.discover_one()
+        self.assertIn("さ", bank.aliases)
+        self.assertNotIn("さ_C4", bank.aliases)
+
+    def test_a_bank_with_only_character_yaml_is_one_singer_with_its_name(self):
+        _bank(self.root / "y" / "high", ["あ", "い"], character=None)
+        _bank(self.root / "y" / "low", ["あ", "い"], character=None)
+        (self.root / "y" / "character.yaml").write_text("name: Yaml Singer\n", encoding="utf-8")
+        bank = self.discover_one()
+        self.assertEqual(bank.name, "Yaml Singer")
+        self.assertEqual(len(bank.subbanks), 2)
+        self.assertEqual(bank.character_file.name, "character.yaml")
+
+    def test_a_bank_with_no_character_file_gets_one_written_for_openutau(self):
+        # OpenUtau reloads a bank from its character file's folder, so a
+        # stand-in kept elsewhere loaded no samples: plain tones.
+        from teto_relay.render.openutau import _add_character_file
+
+        _bank(self.root / "bare", ["あ", "い"], character=None)
+        bank = self.discover_one()
+        self.assertIsNone(bank.character_file)
+        path = _add_character_file(bank)
+        self.assertEqual(path.parent, bank.root)
+        self.assertIn("name=", path.read_bytes().decode("cp932"))
+
+    def _zip(self, entries: dict, encoding: str | None = None) -> bytes:
+        import io
+        import zipfile
+
+        class Legacy(zipfile.ZipInfo):
+            # Japanese zip tools write Shift-JIS names without the UTF-8 flag.
+            def _encodeFilenameFlags(self):
+                return self.filename.encode(encoding), self.flag_bits
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            for name, payload in entries.items():
+                info = Legacy(name) if encoding else zipfile.ZipInfo(name)
+                archive.writestr(info, payload)
+        return buffer.getvalue()
+
+    def test_a_shift_jis_zip_installs_with_its_real_file_names(self):
+        # あ.wav came out as "âJüK.wav": oto.ini matched no sample at all.
+        from teto_relay.library import install_voicebank
+        from teto_relay.voicebank import discover, parse_oto
+
+        data = self._zip({
+            "デフォ子/oto.ini": "あ.wav=あ,0,100,-200,50,10\r\nか.wav=か,0,100,-200,50,10".encode("cp932"),
+            "デフォ子/character.txt": "name=デフォ子".encode("cp932"),
+            "デフォ子/あ.wav": b"RIFF",
+            "デフォ子/か.wav": b"RIFF",
+        }, encoding="cp932")
+        info = install_voicebank(data, "defoko.zip", self.root / "lib")
+        self.assertEqual(info["missing"], 0)
+        bank = discover(self.root / "lib")[0]
+        for entry in parse_oto(bank.root / "oto.ini"):
+            self.assertTrue((bank.root / entry.wav).exists(), entry.wav)
+
+    def test_a_multi_pitch_bank_inside_an_author_folder_installs_whole(self):
+        # The first oto.ini was taken as the bank: one pitch installed.
+        from teto_relay.library import install_voicebank
+
+        oto = "a.wav=あ,0,100,-200,50,10".encode("cp932")
+        data = self._zip({
+            "author/Singer/character.txt": b"name=Singer",
+            "author/Singer/A3/oto.ini": oto, "author/Singer/A3/a.wav": b"RIFF",
+            "author/Singer/D4/oto.ini": oto, "author/Singer/D4/a.wav": b"RIFF",
+        })
+        info = install_voicebank(data, "singer.zip", self.root / "lib")
+        installed = Path(info["path"])
+        self.assertTrue((installed / "A3" / "oto.ini").exists())
+        self.assertTrue((installed / "D4" / "oto.ini").exists())
+
+    def test_an_installed_bank_without_character_txt_gets_one(self):
+        from teto_relay.library import install_voicebank
+
+        data = self._zip({"b/oto.ini": b"a.wav=a,0,1,0,1,1", "b/a.wav": b"RIFF"})
+        info = install_voicebank(data, "bare.zip", self.root / "lib")
+        self.assertTrue((Path(info["path"]) / "character.txt").exists())
+
+    def test_a_bank_whose_samples_are_missing_is_refused_with_a_reason(self):
+        from teto_relay.library import install_voicebank
+
+        data = self._zip({"b/oto.ini": b"x.wav=a,0,1,0,1,1\r\ny.wav=i,0,1,0,1,1", "b/other.wav": b"RIFF"})
+        with self.assertRaises(ValueError) as caught:
+            install_voicebank(data, "b.zip", self.root / "lib")
+        self.assertIn("samples", str(caught.exception))
+
+    def test_archives_and_voices_it_cannot_use_say_what_to_do(self):
+        from teto_relay.library import install_voicebank
+
+        with self.assertRaises(ValueError) as caught:
+            install_voicebank(b"Rar!\x1a\x07", "bank.rar", self.root / "lib")
+        self.assertIn("Unpack", str(caught.exception))
+        data = self._zip({"ds/dsconfig.yaml": b"phonemes: x", "ds/model.onnx": b"x"})
+        with self.assertRaises(ValueError) as caught:
+            install_voicebank(data, "ds.zip", self.root / "lib")
+        self.assertIn("DiffSinger", str(caught.exception))
+
+    def test_switching_bank_while_running_changes_the_singer(self):
+        # Only the lyrics followed the switch: OpenUtau kept singing with the
+        # bank the relay started with, and a newly installed bank was unknown.
+        from teto_relay.app import TetoRelay
+        from teto_relay.config import Config
+
+        _bank(self.root / "first", ["あ", "い"])
+        relay = TetoRelay.__new__(TetoRelay)
+        relay.cfg = Config(voicebank_root=str(self.root))
+        from teto_relay.voicebank import discover
+
+        relay.banks = discover(self.root)
+        relay.bank = relay.banks[0]
+        sung_with = []
+        relay.renderer = type("R", (), {"set_bank": lambda self, b: sung_with.append(b.key)})()
+        _bank(self.root / "newcomer", ["か", "き"])  # installed while running
+        import unittest.mock
+
+        with unittest.mock.patch("teto_relay.voicebank.estimate_pitch", return_value=60.0):
+            relay.set_voicebank("newcomer")
+        self.assertEqual(sung_with, ["newcomer"])
+        self.assertEqual(relay.bank.key, "newcomer")
+
+
 if __name__ == "__main__":
     unittest.main()
