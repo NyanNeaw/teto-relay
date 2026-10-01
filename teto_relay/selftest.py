@@ -69,6 +69,8 @@ def run_selftest(cfg) -> int:
         transcriber = Transcriber(cfg)
         transcriber.load()
         transcriber.transcribe(probe, rate)
+        if transcriber._thai is not None:
+            return f"{effective_model(cfg)} on cpu (onnx)"
         device = getattr(transcriber._model.model, "device", "?")
         return f"{effective_model(cfg)} on {device}"
 

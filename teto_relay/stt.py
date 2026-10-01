@@ -8,6 +8,7 @@ spans give both the note durations and the windows over which to measure pitch.
 from __future__ import annotations
 
 import logging
+import re
 import string
 import threading
 from dataclasses import dataclass
@@ -172,22 +173,9 @@ def pick_compute_type(device: str, requested: str) -> str:
     return requested
 
 
-#: Whisper small fine-tuned on Thai: "Thonburian Whisper" by Mahidol
-#: University's biodatlab (Apache-2.0), in faster-whisper's format. On Thai
-#: test phrases it made half the errors of the standard small model at the
-#: same speed. The repo is a third party's conversion, so it is pinned, and its
-#: weights are checked against a conversion made here from biodatlab's own
-#: release (byte-identical).
-THAI_MODEL = {
-    "repo": "CodeHardThailand/whisper-th-small-combined-ct2",
-    "revision": "d3c0f01d45969f10ee708b5aad2c56d48f75d1a6",
-    "sha256": "8cef6d502277c94f2e403a8b23ecd6fe385bb262d7044621297c496b6c473470",
-}
-THAI_MODEL_NAME = "thai-small"
-#: The Thai model, unsure, repeats a stock phrase until the token budget runs
-#: out ("... สวัสดีครับ สวัสดีครับ สวัสดีครั" after a real sentence). With this
-#: penalty it stopped on every test phrase, at the same accuracy.
-THAI_REPETITION_PENALTY = 1.15
+#: The model for Thai speech (thai_asr: Typhoon ASR on the CPU), as
+#: effective_model names it.
+THAI_MODEL_NAME = "typhoon-th"
 #: A frame counts as sound above this share of the phrase's loud frames.
 SOUND_SHARE = 0.1
 
@@ -278,34 +266,6 @@ def effective_model(cfg) -> str:
     return cfg.whisper_model
 
 
-def _thai_model_path() -> str:
-    """Download (once) and verify the Thai model; returns its folder."""
-    import hashlib
-
-    from huggingface_hub import snapshot_download
-
-    folder = Path(snapshot_download(
-        THAI_MODEL["repo"], revision=THAI_MODEL["revision"],
-        allow_patterns=["config.json", "model.bin", "vocabulary.json"],
-    ))
-    marker = folder / ".teto-relay-verified"
-    if not marker.exists() or marker.read_text().strip() != THAI_MODEL["sha256"]:
-        digest = hashlib.sha256()
-        with open(folder / "model.bin", "rb") as f:
-            for block in iter(lambda: f.read(1 << 20), b""):
-                digest.update(block)
-        if digest.hexdigest() != THAI_MODEL["sha256"]:
-            raise RuntimeError(
-                "The Thai speech model did not match the expected download; it was not "
-                "used. Turn off 'Thai speech model' in Setup to use the standard one."
-            )
-        try:
-            marker.write_text(THAI_MODEL["sha256"])
-        except OSError:
-            pass
-    return str(folder)
-
-
 def _trim_loop(words: list[Word], out_of_budget: bool = False) -> list[Word]:
     """Cut a phrase that ends in one to three words said over and over.
 
@@ -332,6 +292,48 @@ def _trim_loop(words: list[Word], out_of_budget: bool = False) -> list[Word]:
         if copies >= (3 if n == 1 else 2):
             return words[: end + n]
     return words
+
+
+#: What whisper learned from video subtitles and says over music or a held
+#: note: the user sang "หากว่าเธอผ่านมาได้ยินเพลง..." and got "... สวัสดีครับ
+#: ขอบคุณผู้ชมครับ แล้วก็กลับมาที่หนึ่งใน", then "บ คุณ ผู้ชม" for the next
+#: phrase. Sung, the sound goes on, so the after-the-speaker-stopped checks
+#: (`invented`) cannot see it. Thai is matched without spaces. Thai only: an
+#: English "thanks for watching" on a stream is more likely said than made up.
+#: Typhoon ASR (thai_asr), the Thai default, does not invent these at all.
+OUTRO = re.compile(
+    "|".join([
+        r"(?:ขอ)?บ?คุณ?(?:ท่าน)?ผู้ชม",
+        r"(?:ขอ)?บคุณ(?:ทุกท่าน)?(?:ที่)?(?:รับชม|ติดตาม|ช่วยกัน)",
+        r"กด(?:ติดตาม|ไลค์|ไลก์|แชร์|กระดิ่ง|ซับ)",
+        r"ฝาก(?:กด)?ติดตาม",
+        r"ซับไตเติ้ล",
+        r"คำบรรยายโดย",
+        r"(?:แล้ว)?พบกันใหม่",
+    ]),
+)
+#: A greeting just before a sign-off is part of it ("สวัสดีครับ ขอบคุณผู้ชม").
+_GREETING = re.compile(r"(?:สวัสดี|ครับ|ค่ะ|คะ|นะ)+$")
+
+
+def drop_outro(words: list[Word]) -> list[Word]:
+    """Cut a video sign-off whisper made up, and everything after it."""
+    if not words:
+        return words
+    joined, owner = "", []
+    for index, w in enumerate(words):
+        if joined and not (looks_thai(w.text) and looks_thai(words[index - 1].text)):
+            joined += " "
+            owner.append(index)
+        joined += w.text
+        owner.extend([index] * len(w.text))
+    found = OUTRO.search(joined)
+    if not found:
+        return words
+    cut = owner[found.start()]
+    while cut and _GREETING.fullmatch(words[cut - 1].text):
+        cut -= 1
+    return words[:cut]
 
 
 def _regroup_thai(words: list[Word]) -> list[Word]:
@@ -415,29 +417,34 @@ class Transcriber:
     def __init__(self, cfg):
         self.cfg = cfg
         self._model = None
+        self._thai = None  # thai_asr.ThaiTranscriber, for Thai speech
         self._lock = threading.Lock()
 
     def load(self) -> None:
         """Load the model up front so the first utterance is not slow."""
         with self._lock:
-            if self._model is not None:
+            if self._model is not None or self._thai is not None:
                 return
+            if effective_model(self.cfg) == THAI_MODEL_NAME:
+                try:
+                    from .thai_asr import ThaiTranscriber
+
+                    thai = ThaiTranscriber()
+                    thai.load()
+                    self._thai = thai
+                    return
+                except Exception as exc:  # noqa: BLE001 - fall back, don't fail the relay
+                    log.warning("The Thai speech model could not be loaded (%s); listening with "
+                                "whisper %r instead", exc, self.cfg.whisper_model)
             from faster_whisper import WhisperModel
 
             if str(self.cfg.whisper_device).startswith(("cuda", "auto")):
                 add_cuda_dll_dirs()
             compute_type = pick_compute_type(self.cfg.whisper_device, self.cfg.whisper_compute_type)
-            name = effective_model(self.cfg)
-            log.info("Loading whisper %r (%s, %s)...", name, self.cfg.whisper_device, compute_type)
-            source = self.cfg.whisper_model
-            if name == THAI_MODEL_NAME:
-                try:
-                    source = _thai_model_path()
-                except Exception as exc:  # noqa: BLE001 - fall back, don't fail the relay
-                    log.warning("The Thai speech model could not be loaded (%s); using %r",
-                                exc, self.cfg.whisper_model)
+            log.info("Loading whisper %r (%s, %s)...", self.cfg.whisper_model,
+                     self.cfg.whisper_device, compute_type)
             self._model = WhisperModel(
-                source,
+                self.cfg.whisper_model,
                 device=self.cfg.whisper_device,
                 compute_type=compute_type,
             )
@@ -446,6 +453,8 @@ class Transcriber:
     @property
     def on_gpu(self) -> bool:
         """Whether whisper runs on the graphics card ("auto" decides on load)."""
+        if self._thai is not None:
+            return False
         if self._model is None:
             device = str(self.cfg.whisper_device)
             if device == "auto":
@@ -462,6 +471,10 @@ class Transcriber:
         if sample_rate != 16000:
             raise ValueError(f"whisper expects 16 kHz audio, got {sample_rate}")
         self.load()
+        if self._thai is not None:
+            words = self._thai.transcribe(audio, sample_rate)
+            log.info("Transcribed %d word(s): %s", len(words), " ".join(w.text for w in words))
+            return words
 
         budget = max_new_tokens(len(audio) / sample_rate)
         segments, _info = self._model.transcribe(
@@ -485,7 +498,6 @@ class Transcriber:
             # every fallback temperature: 17.7 s for a 2 s phrase on the
             # CPU, with the next phrase queued behind it. Capped: ~5 s.
             max_new_tokens=budget,
-            repetition_penalty=THAI_REPETITION_PENALTY if effective_model(self.cfg) == THAI_MODEL_NAME else 1.0,
         )
 
         words: list[Word] = []
@@ -552,6 +564,11 @@ class Transcriber:
             log.info("Ignored %d word(s) heard after you stopped speaking (whisper invents "
                      "text in silence): %s", len(made_up), "".join(made_up)[:80])
         words = _regroup_thai(words)
+        kept = drop_outro(words)
+        if len(kept) < len(words):
+            log.info("Ignored a video sign-off whisper made up: %s",
+                     " ".join(w.text for w in words[len(kept):]))
+            words = kept
         trimmed = _trim_loop(words, out_of_budget=tokens >= budget - 2)
         if len(trimmed) < len(words):
             log.info("Ignored a repeated ending whisper looped on: %s",

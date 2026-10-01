@@ -208,8 +208,8 @@ LABELS: dict[str, list[str]] = {
     "renderer_backend": ["Renderer", "Tone synthesis is the fallback if OpenUtau fails."],
     "capture_mode": ["Recording", "Push-to-talk, or split automatically on silence."],
     "whisper_model": ["Speech model", "Bigger hears better and takes longer."],
-    "thai_speech_model": ["Thai speech model", "When the language is Thai, listen with a Whisper trained on Thai "
-                          "(Thonburian Whisper). It hears Thai far better; 0.5 GB download the first time."],
+    "thai_speech_model": ["Thai speech model", "When the language is Thai, listen with Typhoon ASR, trained on "
+                          "Thai. Fast, and it doesn't make words up; 0.5 GB download the first time."],
     "panel_window": ["Open the panel as", "Its own window (like an app) or a tab in your browser. "
                      "Takes effect the next time Teto Relay opens."],
     "whisper_device": ["Listen on", "auto uses the NVIDIA graphics card when there is one; cuda is much faster than cpu."],

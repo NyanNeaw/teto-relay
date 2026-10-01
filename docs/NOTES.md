@@ -895,6 +895,22 @@ whisper `medium`, which the relay does not use:
   0.5%, 2.3x slower). The faster-whisper conversion is a third party's, so it
   is pinned to a revision and its weights are hash-checked - they are
   byte-identical to a conversion made here from biodatlab's release.
+- **Listening, replaced: Typhoon ASR** (`thai_asr`; SCB 10X's FastConformer
+  transducer, 115M parameters, CC BY 4.0, PyThaiNLP's ONNX export run by
+  PyThaiASR on onnxruntime). The user sang a Thai song and Thonburian heard
+  the line, then "สวัสดีครับ ขอบคุณผู้ชมครับ แล้วก็กลับมาที่หนึ่งใน" - a
+  video sign-off - and "บ คุณ ผู้ชม" for the next phrase. Sung, the sound
+  goes on, so the after-the-speaker-stopped filters could not see it.
+  Reproduced with a held hum after test phrases: Thonburian invented a
+  sentence on 13 of 16 through the relay, Typhoon on none. Character error
+  on 20 clean / 20 noisy phrases 2.5% / 2.7% -> 4.3% / 3.4% (it spells
+  เท็ตโตะ เทตโต๊ะ), sung and judged by whisper medium 0.624 -> 0.676 on
+  tandoku; 0.55 s a phrase on the GPU -> 0.11 s on the CPU, same 0.5 GB.
+  Times are emission steps (80 ms), closer to the sound than whisper's
+  (first word 0.06 s early against 0.21 s). Larger Thai Whispers (Typhoon
+  Whisper Turbo 1.6 GB, Thonburian / Pathumma large 3.1 GB) were too big to
+  ship. A transducer does not invent a sign-off, so one it hears is sung;
+  on whisper (the Thai model off) Thai sign-offs are cut (`drop_outro`).
 - **Pronunciation by sound**: pythainlp's `thaig2p` model gives each word's
   syllables with vowel length and finals (ความรัก: kʰwaːm . rak̚). It loops on
   long inputs and sometimes drops syllables, so its answer is checked

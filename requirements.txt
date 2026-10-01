@@ -18,6 +18,9 @@ pykakasi>=2.2.1
 # runs on torch (requirements-gpu.txt); without torch Thai is sung from a
 # rule-based romanisation instead.
 pythainlp>=5.0
+# Thai speech recognition: Typhoon ASR on onnxruntime (teto_relay.thai_asr).
+# Pinned - the relay uses its model class directly.
+pythaiasr==2.2.0
 # The control panel's own window (WebView2, the engine Edge uses): its taskbar
 # button is Teto Relay's, so it pins as Teto Relay rather than as Edge.
 pywebview>=5.0

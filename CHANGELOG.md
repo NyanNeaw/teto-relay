@@ -24,6 +24,15 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   RVC settings are dropped quietly). The code is at the git tag
   `before-rvc-removal`.
 
+### Changed
+- **Thai is heard by Typhoon ASR** (SCB 10X, CC BY 4.0) instead of Thonburian
+  Whisper. Whisper made up whole sentences when a note was held after the
+  words ("... สวัสดีครับ ขอบคุณที่ช่วยกันนะครับ" on 13 of 16 test phrases);
+  Typhoon on none. It runs on the CPU in 0.1 s a phrase, leaving the graphics
+  card free, and is the same 0.5 GB download. It misspells a few more words
+  on clean speech (4.3% against 2.5% of letters). **Thai speech model** off
+  uses the standard Whisper, where made-up video sign-offs are now cut.
+
 ### Fixed
 - **Closing the window ended the program a minute later.** TetoRelay.exe
   stayed in Task Manager after "quitting": .NET's shutdown waited on

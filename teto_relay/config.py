@@ -72,9 +72,9 @@ class Config:
     whisper_device: str = "auto"
     whisper_compute_type: str = "int8"
     language: str = "en"
-    # With language "th": a Whisper trained on Thai (stt.THAI_MODEL, a 0.5 GB
-    # download on first use) instead of whisper_model. It halved the character
-    # errors of the standard small model on Thai at the same speed.
+    # With language "th": Typhoon ASR, a speech model trained on Thai
+    # (thai_asr; 0.5 GB download on first use, runs on the CPU) instead of
+    # whisper_model. Whisper invented YouTube sign-offs over held notes.
     thai_speech_model: bool = True
     # How the program shows its control panel: "app" is a window of its own
     # (Edge or Chrome app mode, with its own taskbar button), "browser" a tab

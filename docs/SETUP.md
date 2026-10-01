@@ -103,8 +103,8 @@ On the main screen:
 - **Language**: the language you speak - English, ไทย or 日本語. Teto sings
   it with whatever voicebank is selected: a Japanese bank sings Thai or
   English as Japanese syllables, an English bank as English sounds. Thai is
-  heard with a Whisper trained on Thai (Thonburian Whisper; about 0.5 GB,
-  downloaded the first time you pick Thai). Thai tones come from your own
+  heard with Typhoon ASR, a speech model trained on Thai (about 0.5 GB,
+  downloaded the first time you pick Thai; it runs on the CPU). Thai tones come from your own
   voice in *Speech* style; *Sung* style puts the melody in a key instead.
 - **Song lyrics**: singing a song? Paste the lines you're about to sing, and
   they'll be heard right - speech models mishear singing badly. Clear it

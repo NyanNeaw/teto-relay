@@ -91,7 +91,8 @@ def nvidia_dlls():
 binaries += nvidia_dlls()
 # ctranslate2 (faster-whisper) ships its own DLLs, including cuDNN/cuBLAS
 # loaders; pythonnet/clr_loader load the .NET host through native helpers.
-binaries += optional(collect_dynamic_libs, "ctranslate2", "clr_loader", "_sounddevice_data")
+binaries += optional(collect_dynamic_libs, "ctranslate2", "clr_loader", "_sounddevice_data",
+                     "onnxruntime")
 
 # pythainlp ships 61 MB of data for taggers, NER, WordNet and Wikipedia titles.
 # The relay uses its word list (word_tokenize), syllable list and catalogue.
@@ -118,6 +119,8 @@ hiddenimports += optional(collect_submodules, "pykakasi", "cmudict")
 # pythainlp picks its tokenizer and transliteration engines by name at run time.
 hiddenimports += optional(collect_submodules, "pythainlp.tokenize", "pythainlp.transliterate",
                           "pythainlp.corpus")
+# Thai speech (teto_relay.thai_asr): imported only when Thai is chosen.
+hiddenimports += ["pythaiasr", "pythaiasr.typhoon", "onnxruntime", "onnxruntime.capi._pybind_state"]
 
 a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "launcher.py")],

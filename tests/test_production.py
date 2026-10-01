@@ -3086,25 +3086,78 @@ class TestInventedWords(unittest.TestCase):
         self.assertEqual(trim("la la la la"), ["la", "la", "la", "la"])
         self.assertEqual(trim("ไป ไป"), ["ไป", "ไป"])
 
-    def test_the_thai_model_is_asked_not_to_repeat_itself(self):
+    def test_thai_speech_goes_to_typhoon_and_whisper_is_not_loaded(self):
         import types
+        import unittest.mock
 
         import numpy as np
 
+        from teto_relay import thai_asr
         from teto_relay.config import Config
-        from teto_relay.stt import THAI_REPETITION_PENALTY, Transcriber
+        from teto_relay.stt import Transcriber, Word
 
-        seen = {}
+        heard = [Word("สวัสดี", 0.1, 0.5)]
+        fake = types.SimpleNamespace(load=lambda: None, transcribe=lambda audio, rate: heard)
+        with unittest.mock.patch.object(thai_asr, "ThaiTranscriber", return_value=fake):
+            t = Transcriber(Config(language="th"))
+            self.assertEqual(t.transcribe(np.zeros(16000, dtype=np.float32), 16000), heard)
+        self.assertIsNone(t._model)
+        self.assertFalse(t.on_gpu)
 
-        def fake(*a, **k):
-            seen.update(k)
-            return [], None
+    def test_a_broken_thai_model_falls_back_to_whisper(self):
+        import sys
+        import types
+        import unittest.mock
 
-        for language, expected in (("th", THAI_REPETITION_PENALTY), ("en", 1.0)):
-            t = Transcriber(Config(language=language))
-            t._model = types.SimpleNamespace(transcribe=fake)
-            t.transcribe(np.zeros(16000, dtype=np.float32), 16000)
-            self.assertEqual(seen["repetition_penalty"], expected)
+        from teto_relay import thai_asr
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        made = []
+        whisper = types.SimpleNamespace(WhisperModel=lambda *a, **k: made.append(a) or "model")
+        with unittest.mock.patch.object(thai_asr, "ThaiTranscriber", side_effect=RuntimeError("no model")),                 unittest.mock.patch.dict(sys.modules, {"faster_whisper": whisper}):
+            t = Transcriber(Config(language="th", whisper_device="cpu", whisper_model="small"))
+            t.load()
+        self.assertIsNone(t._thai)
+        self.assertEqual(made, [("small",)])
+
+    def test_typhoon_words_run_on_to_the_next(self):
+        from teto_relay.thai_asr import words_from_chunks
+
+        chunks = [{"text": "หากว่า", "start": 0.40, "end": 0.64},
+                  {"text": "เธอ", "start": 0.72, "end": 0.80},
+                  {"text": "ผ่าน", "start": 1.60, "end": 1.68},
+                  {"text": " ", "start": 1.7, "end": 1.8}]
+        words = words_from_chunks(chunks)
+        self.assertEqual([w.text for w in words], ["หากว่า", "เธอ", "ผ่าน"])
+        self.assertEqual((words[0].start, words[0].end), (0.40, 0.72))  # on to เธอ
+        self.assertEqual(words[1].end, 0.80)  # a pause before ผ่าน is kept
+        # Two words on one emission step get an onset each.
+        same = words_from_chunks([{"text": "เมื่อวาน", "start": 1.04, "end": 1.12},
+                                  {"text": "นี้", "start": 1.04, "end": 1.12}])
+        self.assertAlmostEqual(same[1].start, 1.12)
+        self.assertAlmostEqual(same[0].end, 1.12)
+        self.assertGreater(same[1].end, same[1].start)
+        # A sign-off it hears was said: kept (whisper's are cut, drop_outro).
+        said = words_from_chunks([{"text": "ขอบคุณ", "start": 0.0, "end": 0.3},
+                                  {"text": "ผู้ชม", "start": 0.3, "end": 0.6}])
+        self.assertEqual(len(said), 2)
+
+    def test_whisper_sign_offs_are_cut(self):
+        from teto_relay.stt import Word, drop_outro
+
+        def run(text):
+            ws = [Word(x, i, i + 1) for i, x in enumerate(text.split())]
+            return " ".join(w.text for w in drop_outro(ws))
+
+        self.assertEqual(run("หากว่า เธอ ผ่าน มา ได้ยิน เพลง หนี สวัสดี ครับ ขอบคุณ ผู้ชม ครับ แล้วก็ กลับมา"),
+                         "หากว่า เธอ ผ่าน มา ได้ยิน เพลง หนี")
+        self.assertEqual(run("บ คุณ ผู้ชม"), "")
+        self.assertEqual(run("ฉัน ชอบ ฟัง เพลง อ่า สวัสดี ครับ ขอบคุณ ที่ ช่วยกัน นะ ครับ"),
+                         "ฉัน ชอบ ฟัง เพลง อ่า")
+        for kept in ("ขอบคุณ มาก ครับ", "สวัสดี ครับ ผม ชื่อ เท็ตโตะ", "ชม ดาว บน ฟ้า",
+                     "thanks for watching"):
+            self.assertEqual(run(kept), kept)
 
 
 class TestRenamingVoicebanks(unittest.TestCase):

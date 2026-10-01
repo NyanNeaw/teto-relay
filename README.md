@@ -249,3 +249,21 @@ pronunciations.json  fixes for words Teto says wrong
 - [docs/NOTES.md](docs/NOTES.md): the design notes. Why each choice was made,
   benchmarks, and the tricks needed to run OpenUtau's engine without its app.
 - [CHANGELOG.md](CHANGELOG.md): what changed in each version.
+
+## Credits
+
+Teto Relay stands on other people's work, downloaded or bundled as it runs:
+
+- [OpenUtau](https://github.com/stakira/OpenUtau) (MIT) renders the singing.
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (MIT) and
+  OpenAI's Whisper models (MIT) hear English and Japanese.
+- Thai speech is heard by [Typhoon ASR Real-time](https://huggingface.co/typhoon-ai/typhoon-asr-realtime)
+  by SCB 10X (CC BY 4.0), in PyThaiNLP's ONNX export, run by
+  [PyThaiASR](https://github.com/PyThaiNLP/pythaiasr) (Apache-2.0).
+- [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) (Apache-2.0) splits Thai
+  words and gives their pronunciation.
+- [torchcrepe](https://github.com/maxrmorrison/torchcrepe) (MIT) tracks pitch;
+  torchaudio's MMS forced aligner (CC BY-NC 4.0 weights) times words.
+- [pykakasi](https://codeberg.org/miurahr/pykakasi) and
+  [cmudict](https://github.com/prosegrinder/python-cmudict) (both GPL-3.0)
+  read Japanese and English pronunciations.
