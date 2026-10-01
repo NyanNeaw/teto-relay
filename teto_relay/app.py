@@ -435,7 +435,7 @@ class TetoRelay:
             bool(getattr(self.cfg, "align_boundaries", True))
             and translit.source_language(self.cfg) == "en"
             and not self._japanese_lyrics()
-            and (align.on_gpu(self.cfg) or self.transcriber.on_gpu)
+            and (align.on_gpu(self.cfg) or bool(getattr(self.transcriber, "on_gpu", False)))
         )
 
     def _japanese_lyrics(self) -> bool:

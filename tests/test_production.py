@@ -1101,7 +1101,7 @@ class TestPipelineEndToEnd(unittest.TestCase):
         from teto_relay.voicebank import Voicebank
 
         with _TempHome() as home:
-            cfg = Config(pitch_method="pyin", use_alignment=False, renderer_backend="null")
+            cfg = Config(pitch_method="pyin", use_alignment=False, align_boundaries=False, renderer_backend="null")
             cfg.validate()
             relay = _bare_relay(cfg)
             relay.bank = Voicebank(key="english", name="Teto", root=home / "bank", flavour="en-cvvc")
