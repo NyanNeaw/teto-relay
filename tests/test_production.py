@@ -1439,6 +1439,46 @@ class TestAlignerRunsWhileWhisperListens(unittest.TestCase):
                 pending.result()
 
 
+class TestTheProcessEndsWhenClosed(unittest.TestCase):
+    """pythonnet's .NET shutdown kept TetoRelay.exe alive for over a minute
+    after the window closed; with OpenUtau loaded the process ends directly."""
+
+    def test_without_dotnet_it_is_a_normal_exit(self):
+        import unittest.mock
+
+        from teto_relay import dotnet
+
+        with unittest.mock.patch.object(dotnet, "_started", False):
+            with self.assertRaises(SystemExit) as caught:
+                dotnet.leave(3)
+        self.assertEqual(caught.exception.code, 3)
+
+    def test_with_dotnet_it_skips_the_shutdown_and_keeps_the_code(self):
+        import unittest.mock
+
+        from teto_relay import dotnet
+
+        with unittest.mock.patch.object(dotnet, "_started", True),                 unittest.mock.patch.object(dotnet, "_flush") as flush,                 unittest.mock.patch.object(dotnet.os, "_exit") as exit_:
+            dotnet.leave(2)
+            flush.assert_called_once()
+            exit_.assert_called_once_with(2)
+
+            exit_.reset_mock()
+            with unittest.mock.patch.object(dotnet, "_failed", False):
+                dotnet._leave_at_exit()
+            exit_.assert_called_once_with(0)
+            exit_.reset_mock()
+            with unittest.mock.patch.object(dotnet, "_failed", True):
+                dotnet._leave_at_exit()
+            exit_.assert_called_once_with(1)
+
+    def test_entry_points_leave_through_it(self):
+        root = Path(__file__).resolve().parent.parent
+        for name in ("teto_relay/__main__.py", "packaging/launcher.py"):
+            text = (root / name).read_text(encoding="utf-8")
+            self.assertIn("leave(main(", text, name)
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 

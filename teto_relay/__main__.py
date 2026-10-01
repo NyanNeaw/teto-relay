@@ -236,4 +236,6 @@ def _run(args, cfg: Config) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from .dotnet import leave
+
+    leave(main())

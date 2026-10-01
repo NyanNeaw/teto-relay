@@ -13,9 +13,11 @@ Two things here are not obvious and cost real debugging time:
 
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -104,6 +106,9 @@ def start(openutau_dir: Path | str) -> Path:
         _init_tools()
 
         _started = True
+        # Registered after pythonnet's own exit hook, so it runs first (atexit
+        # is last-in, first-out) - see leave().
+        atexit.register(_leave_at_exit)
         log.info("CoreCLR started against %s", openutau_dir)
         return openutau_dir
 
@@ -365,3 +370,48 @@ def drain_ui(limit: int = 256) -> int:
 
 def started() -> bool:
     return _started
+
+
+def leave(code: int = 0):
+    """End the process. Once OpenUtau has been loaded, without shutting .NET
+    down.
+
+    pythonnet's exit hook does a full .NET shutdown, which waits on
+    OpenUtau's background threads: 21 s after a render here, and longer in
+    the packaged app - closing the window left TetoRelay.exe running in the
+    background for over a minute, "quitting" in its log. Everything of ours
+    is closed by then (the relay stopped, the log written), so the process
+    ends directly, flushing the log and output first.
+    """
+    if not _started:
+        sys.exit(code)
+    _flush()
+    os._exit(code)
+
+
+_failed = False
+_excepthook = sys.excepthook
+
+
+def _note_failure(*args) -> None:
+    global _failed
+    _failed = True
+    _excepthook(*args)
+
+
+sys.excepthook = _note_failure
+
+
+def _leave_at_exit() -> None:
+    """For a program that ends without leave(): 1 after an uncaught error."""
+    _flush()
+    os._exit(1 if _failed else 0)
+
+
+def _flush() -> None:
+    logging.shutdown()
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:  # noqa: BLE001 - a closed or missing stream
+            pass

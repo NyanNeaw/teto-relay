@@ -25,6 +25,10 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   `before-rvc-removal`.
 
 ### Fixed
+- **Closing the window ended the program a minute later.** TetoRelay.exe
+  stayed in Task Manager after "quitting": .NET's shutdown waited on
+  OpenUtau's background threads (21 s after a render even from source).
+  The process now ends as soon as everything of ours is closed.
 - **No 10 second limit on a phrase.** A sung verse was cut mid-line; a
   phrase now lasts until you let go of the key (or stop, in automatic mode).
   **Longest phrase** (`max_chunk_ms`) still sets one; 0 is none. Settings
