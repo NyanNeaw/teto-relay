@@ -17,6 +17,13 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
 (`use_alignment`) off. On an NVIDIA GPU, **Listen on: cuda** with
 **Speech model: small** is the most accurate and still fast.
 
+### Removed
+- **The Voice engine (RVC).** Teto Relay is Teto singing what you say; RVC
+  made her a filter on your own voice instead, needed the 4 GB CUDA build to
+  keep up, and doubled the settings. Old settings files load as before (the
+  RVC settings are dropped quietly). The code is at the git tag
+  `before-rvc-removal`.
+
 ### Fixed
 - The packaged app: a double-click opened no window (Edge inherited the
   bundle's DLL path), and TetoRelay.exe with options ran invisibly.

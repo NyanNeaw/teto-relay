@@ -30,10 +30,6 @@
     torch added ~1.7 GB for no audible gain. Without -WithGpu there is no torch
     at all: pyin pitch, whisper's own timings, rule-based Thai.
 
-.PARAMETER CudaTorch
-    With -WithGpu, use torch's CUDA 12.1 build instead (the app grows to about
-    4 GB). Only RVC voice conversion needs it, to convert on the GPU.
-
 .PARAMETER Python
     The Python launcher command to use. Default: "py -3.11".
 
@@ -42,7 +38,6 @@
 #>
 param(
     [switch]$WithGpu,
-    [switch]$CudaTorch,
     [string]$Python = "py -3.11",
     [switch]$SkipTests
 )
@@ -75,28 +70,22 @@ Step "Installing dependencies"
 & $Py -m pip install -r requirements.txt -r requirements-dev.txt
 if ($LASTEXITCODE -ne 0) { Fail "pip could not install requirements.txt" }
 if ($WithGpu) {
-    if ($CudaTorch) {
-        & $Py -m pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
-        if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CUDA 12.1)" }
-    } else {
-        # The +cpu builds by name: "torch==2.5.1" is satisfied by a CUDA torch
-        # left in the venv by an earlier -CudaTorch build, which would then be
-        # bundled whole.
-        & $Py -m pip install torch==2.5.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
-        if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CPU)" }
-        # Whisper's GPU library: the cuBLAS torch 2.5.1+cu121 shipped. Not
-        # cuDNN: CTranslate2 transcribed the Thai test set identically, as
-        # fast, with every cuDNN DLL hidden - it never loaded one beyond the
-        # front end - and cuDNN was 1.1 GB of the build.
-        & $Py -m pip install nvidia-cublas-cu12==12.1.3.1 --no-deps
-        if ($LASTEXITCODE -ne 0) { Fail "pip could not install cuBLAS" }
-        # A cuDNN left by an earlier build would be bundled.
-        # pip warns on stderr when it is not installed, and with
-        # ErrorActionPreference=Stop PowerShell 5.1 makes that fatal.
-        $ErrorActionPreference = "Continue"
-        & $Py -m pip uninstall -y nvidia-cudnn-cu12 2>&1 | Out-Null
-        $ErrorActionPreference = "Stop"
-    }
+    # The +cpu builds by name: "torch==2.5.1" is satisfied by a CUDA torch
+    # left in the venv by an older build, which would then be bundled whole.
+    & $Py -m pip install torch==2.5.1+cpu torchaudio==2.5.1+cpu --index-url https://download.pytorch.org/whl/cpu
+    if ($LASTEXITCODE -ne 0) { Fail "pip could not install torch (CPU)" }
+    # Whisper's GPU library: the cuBLAS torch 2.5.1+cu121 shipped. Not cuDNN:
+    # CTranslate2 transcribed the Thai test set identically, as fast, with
+    # every cuDNN DLL hidden - it never loaded one beyond the front end - and
+    # cuDNN was 1.1 GB of the build.
+    & $Py -m pip install nvidia-cublas-cu12==12.1.3.1 --no-deps
+    if ($LASTEXITCODE -ne 0) { Fail "pip could not install cuBLAS" }
+    # A cuDNN left by an earlier build would be bundled. pip warns on stderr
+    # when it is not installed, and with ErrorActionPreference=Stop PowerShell
+    # 5.1 makes that fatal.
+    $ErrorActionPreference = "Continue"
+    & $Py -m pip uninstall -y nvidia-cudnn-cu12 2>&1 | Out-Null
+    $ErrorActionPreference = "Stop"
     & $Py -m pip install -r requirements-gpu.txt
     if ($LASTEXITCODE -ne 0) { Fail "pip could not install requirements-gpu.txt" }
 }

@@ -912,7 +912,7 @@ whisper `medium`, which the relay does not use:
 - Tone is not carried by the lyrics. In *Speech* style the pitch follows the
   speaker, who carries it; *Sung* style replaces it with a melody.
 
-### Voice mode
+### Voice mode (removed in 0.3.0; kept as a record)
 
 - Streaming: the push-to-talk gate was read when a frame was dequeued, so a
   lagging converter dropped the end of the phrase. On the GTX 1060, crepe

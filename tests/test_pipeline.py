@@ -843,25 +843,13 @@ class TestLibraryInstall(unittest.TestCase):
         with self.assertRaises(ValueError):
             install_voicebank(data, "b.zip", self.root)
 
-    def test_a_pth_that_is_not_an_rvc_model_is_rejected_and_not_kept(self):
-        import torch
-
-        from teto_relay.library import install_rvc_model
-
-        blob = self.root / "blob.pth"
-        torch.save({"something": 1}, str(blob))
-        with self.assertRaises(ValueError) as caught:
-            install_rvc_model(blob.read_bytes(), "blob.pth", self.root / "models")
-        self.assertIn("not an RVC", str(caught.exception))
-        self.assertFalse((self.root / "models" / "blob.pth").exists())
-
     def test_the_wrong_file_type_is_refused(self):
-        from teto_relay.library import install_rvc_model, install_voicebank
+        from teto_relay.library import install_voicebank
 
         with self.assertRaises(ValueError):
             install_voicebank(b"x", "bank.rar", self.root)
         with self.assertRaises(ValueError):
-            install_rvc_model(b"x", "voice.wav", self.root)
+            install_voicebank(b"x", "voice.wav", self.root)
 
     def test_accent_colour_ignores_outline_and_background(self):
         """An icon is mostly line art; tinting by that gives every bank grey."""
@@ -981,76 +969,6 @@ class TestTransliteration(unittest.TestCase):
         self.assertTrue(translit.looks_thai("สวัสดี"))
         self.assertTrue(translit.looks_japanese("テト"))
         self.assertFalse(translit.looks_thai("hello"))
-
-
-class TestVoiceMode(unittest.TestCase):
-    """Voice conversion, minus the 55 MB model - these run without it."""
-
-    def test_int16_scaled_output_is_normalised(self):
-        """The pipeline returns int16-scaled samples; writing them as float
-        clips every one, and the file still plays."""
-        from teto_relay.voice import to_float32
-
-        loud = np.array([-28000.0, 0.0, 28000.0], dtype=np.float32)
-        out = to_float32(loud)
-        self.assertLessEqual(float(np.abs(out).max()), 1.0)
-        self.assertAlmostEqual(float(out[2]), 28000 / 32768, places=5)
-
-    def test_already_normalised_audio_is_left_alone(self):
-        from teto_relay.voice import to_float32
-
-        quiet = np.array([-0.5, 0.0, 0.5], dtype=np.float32)
-        np.testing.assert_allclose(to_float32(quiet), quiet)
-
-    def test_integer_input_is_converted(self):
-        from teto_relay.voice import to_float32
-
-        out = to_float32(np.array([-32768, 0, 16384], dtype=np.int16))
-        self.assertEqual(out.dtype, np.float32)
-        self.assertAlmostEqual(float(out[2]), 0.5, places=5)
-
-    def test_a_missing_model_is_reported_not_crashed_into(self):
-        from teto_relay.voice import VoiceConverter
-
-        cfg = Config(mode="voice", rvc_model="D:/nope/missing.pth")
-        with self.assertRaises(RuntimeError) as caught:
-            VoiceConverter(cfg).load()
-        self.assertIn("missing.pth", str(caught.exception))
-
-    def test_conversion_rejects_the_wrong_sample_rate(self):
-        from teto_relay.voice import VoiceConverter
-
-        converter = VoiceConverter(Config(mode="voice"))
-        converter._vc = object()  # pretend it is loaded; the check comes first
-        with self.assertRaises(ValueError):
-            converter.convert(np.zeros(100, dtype=np.float32), 44100)
-
-    def test_the_fairseq_stub_satisfies_the_import(self):
-        """rvc imports fairseq at module scope; nothing calls through it."""
-        import sys
-
-        from teto_relay.voice import _install_fairseq_stub
-
-        had = sys.modules.pop("fairseq", None)
-        try:
-            _install_fairseq_stub()
-            from fairseq import checkpoint_utils  # noqa: F401
-
-            self.assertIn("fairseq", sys.modules)
-        finally:
-            if had is not None:
-                sys.modules["fairseq"] = had
-
-    def test_unknown_engine_is_refused(self):
-        """A typo used to run the UTAU pipeline and look like it worked."""
-        from teto_relay.app import TetoRelay
-
-        relay = TetoRelay.__new__(TetoRelay)
-        relay.cfg = Config(mode="banana")
-        relay.engine = "banana"
-        with self.assertRaises(RuntimeError) as caught:
-            TetoRelay.start(relay)
-        self.assertIn("banana", str(caught.exception))
 
 
 class TestJapaneseConversion(unittest.TestCase):

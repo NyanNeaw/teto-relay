@@ -176,9 +176,9 @@ def check_voicebanks(cfg) -> list[Check]:
     try:
         banks = voicebank.discover(root)
     except voicebank.VoicebankError as exc:
-        return [Check(FAIL if cfg.mode == "utau" else WARN, "Voicebanks", str(exc))]
+        return [Check(FAIL, "Voicebanks", str(exc))]
     if not banks:
-        return [Check(FAIL if cfg.mode == "utau" else WARN, "Voicebanks", f"none in {root}",
+        return [Check(FAIL, "Voicebanks", f"none in {root}",
                       "Copy a UTAU voicebank folder (with oto.ini) there, or install one "
                       "from the control panel, or set the Voicebank folder in Setup.")]
     out = [Check(OK, "Voicebanks", f"{len(banks)} in {root}: " + ", ".join(b.key for b in banks))]
@@ -217,7 +217,7 @@ def _dotnet_roots() -> list[Path]:
 
 
 def check_openutau(cfg) -> list[Check]:
-    if cfg.mode == "voice" or cfg.renderer_backend == "null":
+    if cfg.renderer_backend == "null":
         return [Check(OK, "OpenUtau", "not needed with the current settings")]
     from .locate import CORE_DLL, openutau_candidates
 
@@ -254,21 +254,6 @@ def check_openutau(cfg) -> list[Check]:
     return out
 
 
-def check_voice_mode(cfg) -> list[Check]:
-    if cfg.mode != "voice":
-        return []
-    out = []
-    if not cfg.rvc_model or not Path(cfg.rvc_model).exists():
-        out.append(Check(FAIL, "RVC model", cfg.rvc_model or "not set",
-                         "Install a .pth voice model from the control panel."))
-    else:
-        out.append(Check(OK, "RVC model", cfg.rvc_model))
-    if not _has("rvc"):
-        out.append(Check(FAIL, "RVC package", "the rvc package is not installed",
-                         "Voice conversion is an optional extra; see the README."))
-    return out
-
-
 def check_storage() -> list[Check]:
     folder = paths.data_dir()
     try:
@@ -288,7 +273,7 @@ def check_storage() -> list[Check]:
 
 def run_checks(cfg) -> list[Check]:
     checks = [check_python(), *check_packages(), *check_storage(), *check_dictionaries()]
-    for group in (check_audio, check_voicebanks, check_openutau, check_gpu, check_voice_mode):
+    for group in (check_audio, check_voicebanks, check_openutau, check_gpu):
         try:
             checks += group(cfg)
         except Exception as exc:  # noqa: BLE001 - one broken check must not hide the rest

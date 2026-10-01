@@ -271,8 +271,8 @@ class MicCapture(threading.Thread):
         tap=None,
     ):
         super().__init__(name="mic-capture")
-        # When set, every frame goes to tap(frame) instead of the chunker -
-        # the streaming voice mode converts audio as it arrives.
+        # When set, every frame goes to tap(frame) instead of the chunker, for
+        # a consumer that works on audio as it arrives rather than in phrases.
         self.tap = tap
         self.cfg = cfg
         self.sink = sink

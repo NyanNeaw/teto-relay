@@ -51,11 +51,6 @@ GROUPS: dict[str, list[str]] = {
         "initial_prompt", "align_morae", "use_alignment", "align_device", "no_speech_threshold",
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
-    "Voice engine (RVC)": [
-        "rvc_model", "rvc_index", "rvc_pitch", "rvc_index_rate", "rvc_protect",
-        "rvc_f0_method", "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_device",
-        "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
-    ],
     # Where things are. Empty means "look in the usual places".
     "Setup": ["openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
               "persistent_output", "keep_input_audio", "panel_window"],
@@ -72,27 +67,20 @@ GROUPS: dict[str, list[str]] = {
     ],
 }
 
-# A line under each group's title, which engine it belongs to (the page hides
-# the other engine's groups), and whether it starts folded away.
+# A line under each group's title, and whether it starts folded away.
 GROUP_INFO: dict[str, dict] = {
-    "Singing": {"note": "How sung she sounds. Singing style itself is on the main screen.",
-                "engine": "utau"},
-    "Listening": {"note": "Speech recognition: how well and how fast your words are heard.",
-                  "engine": "utau"},
+    "Singing": {"note": "How sung she sounds. Singing style itself is on the main screen."},
+    "Listening": {"note": "Speech recognition: how well and how fast your words are heard."},
     "Recording": {"note": "When a phrase starts and ends."},
-    "Voice engine (RVC)": {"note": "Only for the Voice engine: your delivery in her timbre.",
-                           "engine": "voice"},
     "Setup": {"note": "Where OpenUtau and your voicebanks are, and fallbacks."},
     "Fine tuning: pitch": {"note": "Pitch tracking and how your voice is moved onto hers. "
-                                   "The defaults are measured; change with care.",
-                           "engine": "utau", "collapsed": True},
-    "Fine tuning: timing": {"note": "Note lengths and gaps. The defaults are measured.",
-                            "engine": "utau", "collapsed": True},
+                                   "The defaults are measured; change with care.", "collapsed": True},
+    "Fine tuning: timing": {"note": "Note lengths and gaps. The defaults are measured.", "collapsed": True},
     "Other": {"note": "Rarely needed.", "collapsed": True},
 }
 
 # Shown elsewhere on the page, so not in "Other" either.
-SHOWN_ELSEWHERE = {"mode", "voicebank"}
+SHOWN_ELSEWHERE = {"voicebank"}
 
 HIDE = {"out_dir", "log_file", "queue_size", "keep_files"}
 
@@ -156,12 +144,10 @@ CLOSE_GRACE = 4.0
 LOADED_ONCE = {
     # Read when push-to-talk is armed and when the relay is built.
     "ptt_key", "openutau_dir", "voicebank_root",
-    "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
     "whisper_model", "whisper_device", "whisper_compute_type",
     "input_device", "output_device", "capture_mode",
-    "mode", "renderer_backend",
+    "renderer_backend",
     "pitch_method", "crepe_model", "crepe_device", "align_device",
-    "rvc_model", "rvc_index", "rvc_device",
 }
 
 # Numeric settings worth a slider, with the range that is actually useful -
@@ -190,11 +176,6 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "contour_range_cents": (0, 1200, 25),
     "f0_min": (40, 400, 5),
     "f0_max": (400, 2000, 10),
-    "rvc_pitch": (-24, 24, 1),
-    "rvc_index_rate": (0, 1, 0.05),
-    "rvc_filter_radius": (0, 7, 1),
-    "rvc_rms_mix_rate": (0, 1, 0.05),
-    "rvc_protect": (0, 0.5, 0.01),
     "sung_contour_amount": (0, 1, 0.05),
     "sung_melody_range": (0.5, 3, 0.1),
     "double_voice": (0, 1, 0.05),
@@ -225,7 +206,6 @@ LABELS: dict[str, list[str]] = {
     "transpose": ["Transpose", "Moves her whole range, in semitones."],
     "playback_gain": ["Volume", ""],
     "lyric_mode": ["Lyrics", "Auto follows the voicebank: Japanese banks sing morae."],
-    "mode": ["Engine", "utau sings your speech as notes; voice keeps your delivery in her timbre."],
     "renderer_backend": ["Renderer", "Tone synthesis is the fallback if OpenUtau fails."],
     "capture_mode": ["Recording", "Push-to-talk, or split automatically on silence."],
     "whisper_model": ["Speech model", "Bigger hears better and takes longer."],
@@ -235,15 +215,6 @@ LABELS: dict[str, list[str]] = {
                      "Takes effect the next time Teto Relay opens."],
     "whisper_device": ["Listen on", "auto uses the NVIDIA graphics card when there is one; cuda is much faster than cpu."],
     "whisper_compute_type": ["Listening precision", "int8 is fastest; float16 needs a GTX 16xx/RTX card (older ones use int8)."],
-    "rvc_f0_method": ["Pitch tracking", "crepe is accurate; pm is fastest and rougher."],
-    "rvc_index_rate": ["Voice likeness", "Higher leans on the model's index: closer to her, less like you."],
-    "rvc_protect": ["Protect consonants", "Higher keeps your breath and consonants intact."],
-    "rvc_pitch": ["Pitch shift", "Semitones. +12 is an octave up."],
-    "rvc_device": ["Convert on", ""],
-    "rvc_model": ["Voice model", ""],
-    "rvc_index": ["Voice index", "Optional. Improves timbre; missing is a warning, not an error."],
-    "rvc_filter_radius": ["Smooth pitch", "Higher is smoother and less breathy."],
-    "rvc_rms_mix_rate": ["Keep your dynamics", "0 uses her loudness curve, 1 keeps yours."],
     "language": ["Language", "The language you speak. Thai uses a Thai-trained speech model "
                  "(0.5 GB download the first time); the .en models only hear English."],
     "lyrics_hint": ["Song lyrics", "Singing a song? Paste the lines you'll sing so every word is heard right. Clear it after."],
@@ -279,7 +250,6 @@ LABELS: dict[str, list[str]] = {
     "vibrato_depth_cents": ["Vibrato depth", "In cents; 100 is a semitone."],
     "vibrato_period_ms": ["Vibrato speed", "One wobble every this many ms."],
     "final_hold_seconds": ["Hold the last note", "Sung style: how much longer the phrase's last note lasts."],
-    "voice_streaming": ["Convert while I talk", "Voice engine: real-time, in blocks. Experimental; needs a fast GPU."],
     "stream_block_ms": ["Block length", "Shorter is quicker but needs a faster GPU."],
     "stream_context_ms": ["Context", "Audio before each block the model also hears; more sounds better, costs time."],
     "stream_crossfade_ms": ["Crossfade", "Blend between blocks."],
@@ -499,11 +469,7 @@ class Controller:
             ],
             "stats": (getattr(relay, "last_stats", {}) if relay else {}) or {},
             "bank": relay.bank.key if relay and relay.bank else self.cfg.voicebank,
-            "engine": (relay.engine if relay else (self.cfg.mode or "utau").lower()),
-            "lyrics": (
-                "morae" if relay and relay.engine != "voice" and relay._japanese_lyrics()
-                else "words"
-            ) if relay else "",
+            "lyrics": ("morae" if relay._japanese_lyrics() else "words") if relay else "",
             "paused": bool(relay and relay.paused),
             "health": relay.health() if relay else {"microphone": "stopped", "problems": []},
             "log": list(self.buffer.lines)[-60:],
@@ -639,7 +605,6 @@ def _meta(cfg: Config) -> dict:
             "language": {"en": "English", "th": "ไทย", "ja": "日本語"},
         },
         "choices": {
-            "mode": ["utau", "voice"],
             "capture_mode": ["ptt", "vad"],
             "lyric_mode": ["auto", "native", "japanese"],
             "renderer_backend": ["openutau", "null"],
@@ -653,8 +618,6 @@ def _meta(cfg: Config) -> dict:
             "crepe_model": ["full", "tiny"],
             "crepe_device": ["cuda", "cpu"],
             "align_device": ["cuda", "cpu"],
-            "rvc_f0_method": ["rmvpe", "harvest", "crepe", "pm"],
-            "rvc_device": ["cuda:0", "cpu"],
             # Multilingual only: the .en models cannot hear Thai or Japanese,
             # and the Language box is where the language is chosen.
             # English-only (.en) models are faster and more accurate for
@@ -769,12 +732,12 @@ def make_handler(controller: Controller):
                 log.info("Quit requested from the control panel")
                 self._json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
-            elif route in ("api/install/voicebank", "api/install/rvc"):
+            elif route == "api/install/voicebank":
                 # Raw body with the filename in the query: multipart parsing is
                 # not worth pulling in for a one-field form we also write.
                 from urllib.parse import parse_qs, unquote, urlparse
 
-                from .library import MAX_UPLOAD, install_rvc_model, install_voicebank
+                from .library import MAX_UPLOAD, install_voicebank
 
                 query = parse_qs(urlparse(self.path).query)
                 name = unquote((query.get("name") or ["upload"])[0])
@@ -784,32 +747,8 @@ def make_handler(controller: Controller):
                     return
                 try:
                     body = self.rfile.read(length)
-                    if route.endswith("voicebank"):
-                        info = install_voicebank(body, name, controller.cfg.voicebank_path())
-                        log.info("Installed voicebank %r (%d samples)", info["name"], info["samples"])
-                    else:
-                        from . import paths
-
-                        folder = (
-                            Path(controller.cfg.rvc_model).parent
-                            if controller.cfg.rvc_model
-                            else paths.data_dir() / "voices"
-                        )
-                        info = install_rvc_model(body, name, folder)
-                        log.info("Installed RVC %s: %s", info["kind"], info["path"])
-                        # A .pth is the voice; point the config at it. An index
-                        # is an accessory and is only stored.
-                        cfg = Config.load(controller.config_path)
-                        if info["kind"] == "model":
-                            cfg.rvc_model = info["path"]
-                        else:
-                            cfg.rvc_index = info["path"]
-                        cfg.save(controller.config_path)
-                        # Applied in place: the running relay holds
-                        # controller.cfg, and rebinding it here cut every
-                        # later setting change off from the relay.
-                        controller.cfg.rvc_model = cfg.rvc_model
-                        controller.cfg.rvc_index = cfg.rvc_index
+                    info = install_voicebank(body, name, controller.cfg.voicebank_path())
+                    log.info("Installed voicebank %r (%d samples)", info["name"], info["samples"])
                     _forget_library()
                     self._json({"ok": True, "installed": info})
                 except ValueError as exc:

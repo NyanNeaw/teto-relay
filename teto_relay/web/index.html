@@ -271,10 +271,6 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 <div id="app">
 <header class="bar pane">
   <span class="mark" id="mark"><i></i>Teto Relay</span>
-  <div class="tabs" role="tablist" aria-label="Engine">
-    <button role="tab" id="tab-utau" aria-selected="true">UTAU</button>
-    <button role="tab" id="tab-voice" aria-selected="false">Voice</button>
-  </div>
   <span class="spacer"></span>
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
@@ -300,12 +296,6 @@ details.group>summary::before{transition:transform .45s var(--spring)}
       <label class="addvoice" id="addvoice">
         <input type="file" id="up-bank" accept=".zip,.uar">
         <span id="addvoicetext">Add a voicebank</span>
-      </label>
-      <!-- Same control, different engine: in Voice mode the identity is an RVC
-           model, so the picker and the upload change with the tab. -->
-      <label class="addvoice" id="addrvc" hidden>
-        <input type="file" id="up-rvc" accept=".pth,.index">
-        <span>Add an RVC voice (.pth)</span>
       </label>
       <p class="help" id="up-status"></p>
     </section>
@@ -430,7 +420,7 @@ function paint(el){const a=+el.min,b=+el.max;el.style.setProperty('--pct',((el.v
 async function load(){
   const d=await (await fetch('api/config')).json();
   cfg=d.config; meta=d.meta;
-  renderPicker(); renderDeck(); renderGroups(); paintEngine();
+  renderPicker(); renderDeck(); renderGroups();
 }
 function renderPicker(){
   const pick=$('bank'); pick.innerHTML='';
@@ -579,7 +569,6 @@ async function saveOne(k){
   const d=await (await fetch('api/config',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:value})})).json();
   if(!d.ok){ toast('Could not save: '+d.error); return; }
-  if(k==='mode'){ paintEngine(); renderGroups(); }
   // A new voicebank or OpenUtau folder means a different list of voices.
   if(k==='voicebank_root'||k==='openutau_dir') refreshBanks();
   toast(labelOf(k)+(d.restarting ? ': applying \u2014 Teto is restarting'
@@ -596,11 +585,6 @@ async function refreshBanks(){
     renderPicker();
   }catch(e){}
 }
-/* The two engines are different machines and most settings belong to exactly
-   one of them. Showing RVC sliders while UTAU is singing - or note timing while
-   it isn't - is most of why this page was hard to read. Hide what the active
-   engine cannot use; nothing is lost, since switching the tab brings it back. */
-function engineOf(){ return (cfg.mode||'utau').toLowerCase(); }
 /* Each group folds. The ones most people never need start folded, and
    whatever you open or close is remembered. */
 function groupOpen(name,info){
@@ -612,8 +596,6 @@ function renderGroups(){
   for(const [name,keys] of Object.entries(meta.groups)){
     if(!keys.length) continue;
     const info=(meta.group_info||{})[name]||{};
-    // Each engine's own groups only: RVC sliders mean nothing while UTAU sings.
-    if(info.engine && info.engine!==engineOf()) continue;
     const sec=document.createElement('details'); sec.className='group';
     sec.open=groupOpen(name,info);
     sec.addEventListener('toggle',()=>{
@@ -651,31 +633,11 @@ function popWords(el,text){
 }
 function tag(t){const s=document.createElement('span'); s.className='sungtag'; s.textContent=t; return s;}
 function renderHero(d){
-  const key=JSON.stringify([d.heard,d.kana,d.notes,d.running,d.engine,d.last]);
+  const key=JSON.stringify([d.heard,d.kana,d.notes,d.running,d.last]);
   if(key===lastKey) return;
   lastKey=key;
   const hero=$('hero'), roll=$('roll');
   hero.innerHTML='';
-  // Voice mode transcribes nothing and sings no notes - it replays what you
-  // said in her timbre - so the note roll and the two lyric lines have nothing
-  // to show. Say what happened instead of showing an empty stage.
-  if(d.engine==='voice'){
-    roll.hidden=true;
-    const p=document.createElement('p');
-    if(d.last){
-      p.className='heard'; p.textContent=d.last;
-      p.appendChild(tag('your delivery, her voice'));
-    } else {
-      p.className='idle';
-      if(d.running){
-        // Built from nodes: the key name comes from the config file.
-        const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
-        p.append('Hold ',kbd,' and speak - you will come back as Teto.');
-      } else p.textContent='Start the relay to talk in Teto\u2019s voice.';
-    }
-    hero.appendChild(p);
-    return;
-  }
   if(!d.notes.length){
     const p=document.createElement('p'); p.className='idle';
     if(d.running){
@@ -821,38 +783,6 @@ $('toggle').onclick=async e=>{
   }catch(err){toast('Could not reach the relay.');}
   btn.disabled=false; poll();
 };
-/* ---------- engine tabs ----------
-   The tab is the mode setting, so it writes straight through and re-renders
-   the parts of the page whose meaning depends on it: which identity the voice
-   card shows, and which settings apply. */
-function paintEngine(){
-  const eng=engineOf(), utau=eng!=='voice';
-  $('tab-utau').setAttribute('aria-selected',String(utau));
-  $('tab-voice').setAttribute('aria-selected',String(!utau));
-  $('bank').hidden=!utau;
-  $('addvoice').hidden=!utau;
-  $('addrvc').hidden=utau;
-  $('stagetag').textContent=utau?'what she sang':'what she said';
-  if(!utau){
-    // In voice mode the identity is the RVC model, not a voicebank.
-    const m=String(cfg.rvc_model||'').split(/[\\/]/).pop().replace(/\.pth$/i,'');
-    $('vname').textContent=m||'No voice model';
-    $('vmeta').textContent=m?'RVC · your delivery, her timbre':'Add a .pth to sing in a voice';
-  } else if(meta.banks){
-    showBank(cfg.voicebank);
-  }
-}
-async function setEngine(mode){
-  if(engineOf()===mode) return;
-  cfg.mode=mode;
-  paintEngine(); renderDeck(); renderGroups();
-  await fetch('api/config',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({mode:mode})});
-  toast(mode==='voice'?'Voice engine':'UTAU engine');
-}
-$('tab-utau').onclick=()=>setEngine('utau');
-$('tab-voice').onclick=()=>setEngine('voice');
-
 /* Uploads: the body is the file and the name rides in the query, so there is
    no multipart parser on either end. */
 async function upload(kind, file, note){
@@ -871,10 +801,6 @@ async function upload(kind, file, note){
 }
 $('up-bank').onchange=e=>upload('voicebank',e.target.files[0],
   i=>'Installed '+i.name+' — '+i.samples+' samples. Pick it in the top bar.');
-$('up-rvc').onchange=e=>upload('rvc',e.target.files[0],
-  i=>i.kind==='index' ? 'Index saved; it will be used with the current model.'
-    : 'Installed '+i.name+' — '+i.version+', '+i.sample_rate+' Hz'+(i.pitch?', pitched':'')+
-      '. Set Engine to voice to use it.');
 
 $('advtoggle').onclick=()=>{
   const open=app().classList.toggle('open');
@@ -924,13 +850,7 @@ async function poll(){
     $('stateText').textContent=d.restarting?'restarting\u2026':d.running?(d.paused?'paused':'listening'):'stopped';
     if(d.restart_error&&d.restart_error!==lastRestartError) toast('Could not restart: '+d.restart_error);
     lastRestartError=d.restart_error||'';
-    const voice=d.engine==='voice';
-    $('stagetag').textContent=voice?'now speaking':'heard';
-    // The voicebank picker does nothing in voice mode - the RVC model is the
-    // voice - so it is disabled rather than left looking live.
     const pick=$('bank');
-    pick.disabled=voice;
-    pick.title=voice?'Voice mode uses the RVC model, not a voicebank':'';
     // Only when the picker can actually show that bank; with none installed
     // this used to refetch a missing picture every second.
     if(d.bank&&d.bank!==pick.value&&[...pick.options].some(o=>o.value===d.bank)){

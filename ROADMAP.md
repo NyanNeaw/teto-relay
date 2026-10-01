@@ -15,6 +15,11 @@ GPU. The manual checklist at the end covers those.
 
 ---
 
+> **Direction (0.3.0):** the RVC voice engine ("Voice" mode, P3-1 and the
+> RVC items below) was removed. Teto Relay is Teto singing what you say; RVC
+> made her a filter on your own voice. The code is at the git tag
+> `before-rvc-removal`. Next: hands-free, near-real-time singing (see NOTES).
+
 ## How the audit was done
 
 - Read every module in `teto_relay/`, `teto_relay/render/`, `tools/` and
@@ -82,7 +87,7 @@ GPU. The manual checklist at the end covers those.
 
 | # | Finding | Status |
 |---|---|---|
-| P3-1 | Real-time streaming voice conversion (see singing analysis, limitation 1). | done: works with RVC on the GTX 1060 with `pm` and no index (~0.8 s delay); crepe + index is too slow there. A push-to-talk gate bug found and fixed |
+| P3-1 | Real-time streaming voice conversion (see singing analysis, limitation 1). | removed in 0.3.0 with RVC; was done: works with RVC on the GTX 1060 with `pm` and no index (~0.8 s delay); crepe + index is too slow there. A push-to-talk gate bug found and fixed |
 | P3-2 | Phoneme recognition instead of word ASR (limitation 2). | proposed |
 | P3-3 | A DiffSinger render backend through OpenUtau (limitation 3). | proposed |
 | P3-4 | Play the first rendered phrase while the rest render. | proposed |

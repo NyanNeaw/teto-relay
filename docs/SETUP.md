@@ -118,7 +118,3 @@ Under **All settings**:
 - **Listening**: *Measure syllable timing* (on) times each Japanese syllable
   from where you sang it. *Measure word timing* does the same for English
   words; it's off because on accented English it made things worse.
-- **Voice engine**: converts your own voice to Teto's timbre with an RVC
-  model instead of singing through a voicebank. *Convert while I talk*
-  makes it real-time; on a GTX 10xx card set *Pitch tracking* to *pm* and
-  *Voice likeness* to 0, or it falls behind.

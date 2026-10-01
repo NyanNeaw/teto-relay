@@ -34,7 +34,6 @@ STAGES = [
     "pitch",         # F0 tracking
     "notes",         # words + pitch -> notes (lyrics, octave shift, contour)
     "ustx",          # writing the project file
-    "convert",       # voice mode: RVC conversion (replaces asr..render)
     "wait_render",
     "render",        # whole render call
     "phonemize",     # ...of which: building the project and phonemizing

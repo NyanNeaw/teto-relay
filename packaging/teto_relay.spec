@@ -12,10 +12,10 @@
 # torch) to a temp folder on every start, which is slow and makes antivirus
 # unhappy. The installer and the portable zip both wrap this folder.
 #
-# Size: torch was 3.5 GB of a 4.2 GB build, almost all CUDA libraries that
-# only crepe, the aligner and RVC used. build.ps1 -WithGpu now installs a CPU
-# torch and gives whisper (the one stage the GPU speeds up) NVIDIA's cuBLAS
-# and cuDNN wheels, collected below; -CudaTorch keeps the old CUDA torch.
+# Size: torch was 3.5 GB of a 4.2 GB build, almost all CUDA libraries for
+# crepe and the aligner (and the RVC voice engine, since removed). build.ps1
+# -WithGpu installs a CPU torch and gives whisper, the one stage the GPU speeds
+# up, NVIDIA's cuBLAS wheel, collected below.
 
 import os
 import re

@@ -236,48 +236,6 @@ class TestControlPanelIsNotDrivableFromOtherSites(unittest.TestCase):
         self.assertFalse(origin_allowed("https://127.0.0.1:8765", 8765))
 
 
-class TestUploadedModelsAreNotUnpickled(unittest.TestCase):
-    """P0-1: an uploaded .pth must not be able to run code when it is checked."""
-
-    @unittest.skipUnless(__import__("importlib").util.find_spec("torch"), "needs torch")
-    def test_a_pth_that_runs_code_on_load_is_rejected_without_running(self):
-        import pickle
-        import tempfile
-
-        from teto_relay.library import install_rvc_model
-
-        with tempfile.TemporaryDirectory() as tmp:
-            marker = Path(tmp) / "pwned"
-
-            class Exploit:
-                def __reduce__(self):
-                    return (open, (str(marker), "w"))
-
-            data = pickle.dumps({"weight": Exploit(), "config": [], "sr": "40k"})
-            with self.assertRaises(ValueError) as caught:
-                install_rvc_model(data, "evil.pth", Path(tmp) / "models")
-            self.assertFalse(marker.exists(), "the pickle payload ran")
-            self.assertIn("not kept", str(caught.exception))
-            self.assertFalse((Path(tmp) / "models" / "evil.pth").exists())
-
-    @unittest.skipUnless(__import__("importlib").util.find_spec("torch"), "needs torch")
-    def test_a_genuine_rvc_checkpoint_still_installs(self):
-        import io
-        import tempfile
-
-        import torch
-
-        from teto_relay.library import install_rvc_model
-
-        buffer = io.BytesIO()
-        torch.save({"weight": {"w": torch.zeros(2)}, "config": [1, 2], "sr": "40k",
-                    "f0": 1, "version": "v2", "info": "test"}, buffer)
-        with tempfile.TemporaryDirectory() as tmp:
-            info = install_rvc_model(buffer.getvalue(), "teto.pth", Path(tmp))
-            self.assertEqual(info["kind"], "model")
-            self.assertEqual(info["version"], "v2")
-
-
 class _TempHome:
     """Point the data folder (TETO_RELAY_HOME) at a temporary directory."""
 
@@ -358,10 +316,19 @@ class TestConfigLoading(unittest.TestCase):
         from teto_relay.config import ConfigError
 
         with self.assertRaises(ConfigError) as caught:
-            self.load('{"transpose": "loud", "beam_size": 0, "mode": "karaoke"}')
+            self.load('{"transpose": "loud", "beam_size": 0, "capture_mode": "karaoke"}')
         message = str(caught.exception)
-        for key in ("transpose", "beam_size", "mode"):
+        for key in ("transpose", "beam_size", "capture_mode"):
             self.assertIn(key, message)
+
+    def test_settings_of_the_removed_voice_engine_are_dropped_quietly(self):
+        # Every config written before 0.3.0 lists mode and rvc_*; they must
+        # neither stop the app nor warn on every start.
+        with self.assertNoLogs("teto_relay.config", level="WARNING"):
+            cfg = self.load('{"mode": "voice", "rvc_model": "x.pth", "voice_streaming": true,'
+                            ' "transpose": 2}')
+        self.assertEqual(cfg.transpose, 2)
+        self.assertFalse(hasattr(cfg, "rvc_model"))
 
     def test_choices_are_case_insensitive(self):
         cfg = self.load('{"capture_mode": "VAD", "lyric_mode": "Japanese"}')
@@ -1755,169 +1722,6 @@ class TestLegato(unittest.TestCase):
                 self.assertGreater(b["position"], end)
 
 
-class TestBlockStreamer(unittest.TestCase):
-    """P3-1: block-wise conversion with SOLA crossfades."""
-
-    def run_stream(self, convert, seconds=3.0, frame=320, **kwargs):
-        import numpy as np
-
-        from teto_relay.streaming import BlockStreamer
-
-        rng = np.random.default_rng(1)
-        x = (0.1 * rng.standard_normal(int(16000 * seconds))).astype(np.float32)
-        streamer = BlockStreamer(convert, 16000, **kwargs)
-        out = []
-        for i in range(0, len(x), frame):
-            out += streamer.feed(x[i:i + frame])
-        out += streamer.flush()
-        return x, np.concatenate(out), streamer
-
-    def test_an_identity_converter_is_reconstructed_exactly(self):
-        import numpy as np
-
-        x, y, streamer = self.run_stream(lambda a, r: (a, r))
-        self.assertEqual(len(y), len(x))
-        self.assertLess(float(np.max(np.abs(y - x))), 1e-6)
-        self.assertAlmostEqual(streamer.latency_seconds, 0.35)
-
-    def test_output_at_another_rate(self):
-        import numpy as np
-
-        x, y, streamer = self.run_stream(lambda a, r: (np.repeat(a, 3), r * 3))
-        self.assertEqual(streamer.out_rate, 48000)
-        self.assertEqual(len(y), 3 * len(x))
-        self.assertLess(float(np.max(np.abs(y - np.repeat(x, 3)))), 1e-6)
-
-    def test_sola_realigns_a_converter_that_drifts(self):
-        # A converter whose output is shifted a few samples compared with its
-        # input - models do this - would double or drop audio at every seam
-        # with a blind crossfade. SOLA finds the matching offset.
-        import numpy as np
-
-        def shifted(a, r):
-            return np.concatenate([np.zeros(40, np.float32), a[:-40]]), r
-
-        x, y, _ = self.run_stream(shifted, crossfade_ms=20, search_ms=10)
-        # After the first block the output is the input, 40 samples late.
-        start = 16000
-        self.assertLess(float(np.max(np.abs(y[start:start + 16000] - x[start - 40:start - 40 + 16000]))),
-                        1e-6)
-
-    def test_nothing_is_converted_without_a_whole_block(self):
-        import numpy as np
-
-        from teto_relay.streaming import BlockStreamer
-
-        calls = []
-        streamer = BlockStreamer(lambda a, r: (calls.append(len(a)) or a, r), 16000, block_ms=300)
-        self.assertEqual(streamer.feed(np.zeros(4000, np.float32)), [])
-        self.assertEqual(calls, [])
-        streamer.feed(np.zeros(1000, np.float32))
-        self.assertEqual(calls, [4800 + 9600])  # the block plus its context
-
-
-class TestStreamingVoice(unittest.TestCase):
-    """The streaming worker: gate, flush, output and speed warning."""
-
-    def test_push_to_talk_gates_and_flushes(self):
-        import threading
-        import time
-
-        import numpy as np
-
-        from teto_relay.config import Config
-        from teto_relay.streaming import StreamingVoice
-
-        gate = threading.Event()
-        received = []
-        worker = StreamingVoice(Config(), lambda a, r: (a, r),
-                                lambda block, rate: received.append((len(block), rate)), gate.is_set)
-        worker.start()
-        frame = np.full(320, 0.1, np.float32)
-        for _ in range(20):
-            worker.frames.put(frame)  # key not held: ignored
-        while not worker.frames.empty():
-            time.sleep(0.01)
-        time.sleep(0.05)  # the last one is being looked at
-        gate.set()
-        for _ in range(50):  # 1 s held
-            worker.frames.put(frame)
-        time.sleep(0.3)
-        gate.clear()
-        worker.frames.put(frame)  # the next frame closes the stream off
-        deadline = time.monotonic() + 5
-        while sum(n for n, _ in received) < 16000 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        worker.stop()
-        worker.join(timeout=5)
-        total = sum(n for n, _ in received)
-        # One second in, rounded up to whole 300 ms blocks by the flush.
-        self.assertGreaterEqual(total, 16000)
-        self.assertLessEqual(total, 16000 + 4800)
-        self.assertTrue(all(rate == 16000 for _, rate in received))
-
-    def test_warns_when_conversion_is_slower_than_real_time(self):
-        import time
-
-        import numpy as np
-
-        from teto_relay.config import Config
-        from teto_relay.streaming import StreamingVoice
-
-        def slow(a, r):
-            time.sleep(0.12)
-            return a, r
-
-        worker = StreamingVoice(Config(stream_block_ms=100, stream_context_ms=0), slow,
-                                lambda b, r: None)
-        worker.streamer.feed(np.zeros(1600, np.float32))
-        with self.assertLogs("teto_relay.streaming", "WARNING") as logs:
-            worker._check_speed()
-        self.assertIn("falling behind", logs.output[0])
-
-
-class TestStreamOutput(unittest.TestCase):
-    def test_blocks_are_resampled_continuously_to_the_device_rate(self):
-        import types
-        import unittest.mock
-
-        import numpy as np
-
-        from teto_relay import playback
-
-        written = []
-
-        class FakeStream:
-            def __init__(self, **kwargs):
-                self.kwargs = kwargs
-
-            def start(self):
-                pass
-
-            def write(self, frames):
-                written.append(frames.copy())
-
-            def stop(self):
-                pass
-
-            def close(self):
-                pass
-
-        fake_sd = types.SimpleNamespace(OutputStream=FakeStream,
-                                        query_devices=lambda *a: {"default_samplerate": 48000,
-                                                                  "max_output_channels": 8})
-        with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
-            out = playback.StreamOutput(device=1)
-            for _ in range(10):
-                out.write(np.full(4000, 0.2, np.float32), 40000)  # 0.1 s each
-            out.close()
-        frames = np.concatenate(written)
-        self.assertEqual(frames.shape[1], 2)  # capped at stereo
-        # 1 s at 40 kHz is about 1 s at 48 kHz, less what soxr still holds.
-        self.assertGreater(len(frames), 47000)
-        self.assertLessEqual(len(frames), 48000)
-
-
 class TestMicTap(unittest.TestCase):
     def test_frames_go_to_the_tap_not_the_chunker(self):
         import queue
@@ -1952,25 +1756,6 @@ class TestMicTap(unittest.TestCase):
 
 class TestReviewFindings(unittest.TestCase):
     """Bugs found by the independent code review of this branch."""
-
-    def test_installing_an_rvc_index_keeps_live_settings_connected(self):
-        import json
-        import urllib.parse
-
-        with _TempHome(), _PanelServer() as s:
-            live = s.controller.cfg
-            name = urllib.parse.quote("teto.index")
-            import http.client
-
-            conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
-            conn.request("POST", f"/api/install/rvc?name={name}", body=b"index-bytes",
-                         headers={"X-Teto-Relay": "1", "Content-Length": "11"})
-            self.assertEqual(json.loads(conn.getresponse().read())["ok"], True)
-            conn.close()
-            self.assertIs(s.controller.cfg, live)
-            self.assertTrue(live.rvc_index.endswith("teto.index"))
-            s.request("POST", "/api/config", {"transpose": 7}, {"X-Teto-Relay": "1"})
-            self.assertEqual(live.transpose, 7)
 
     def test_a_relative_config_path_is_made_absolute(self):
         import contextlib
@@ -2021,22 +1806,6 @@ class TestReviewFindings(unittest.TestCase):
         self.assertTrue(clean_lyric("2,000,000,000,000").startswith("two zero"))
         self.assertTrue(clean_lyric("1000000000000.5").endswith("point five"))
 
-    def test_streaming_loses_nothing_with_little_or_no_context(self):
-        import numpy as np
-
-        from teto_relay.streaming import BlockStreamer
-
-        x = np.random.default_rng(2).standard_normal(32000).astype(np.float32)
-        for context in (600, 20, 0):
-            streamer = BlockStreamer(lambda a, r: (a, r), 16000, 300, context, 50)
-            out = []
-            for i in range(0, len(x), 320):
-                out += streamer.feed(x[i:i + 320])
-            out += streamer.flush()
-            y = np.concatenate(out)
-            self.assertGreaterEqual(len(y), len(x), context)
-            self.assertLess(float(np.max(np.abs(y[:len(x)] - x))), 1e-6, context)
-
     def test_an_unwritable_data_folder_does_not_stop_the_app_from_starting(self):
         import os
         import tempfile
@@ -2084,25 +1853,6 @@ class TestReviewFindings(unittest.TestCase):
         self.addCleanup(patch.stop)
         return playback.StreamOutput(device=0, gain=gain), streams
 
-    def test_stream_output_stays_closed_after_stop(self):
-        import numpy as np
-
-        out, streams = self.fake_output(1.0)
-        out.close()
-        out.write(np.zeros(160, np.float32), 16000)  # a block finishing after stop
-        self.assertEqual(streams, [])
-
-    def test_stream_output_follows_the_volume_setting_live(self):
-        import numpy as np
-
-        volume = {"gain": 1.0}
-        out, streams = self.fake_output(lambda: volume["gain"])
-        out.write(np.full(160, 0.4, np.float32), 16000)
-        volume["gain"] = 0.5
-        out.write(np.full(160, 0.4, np.float32), 16000)
-        self.assertAlmostEqual(float(streams[0].frames[0][0, 0]), 0.4, places=5)
-        self.assertAlmostEqual(float(streams[0].frames[1][0, 0]), 0.2, places=5)
-
     def test_tray_retry_reads_the_config_again(self):
         import unittest.mock
 
@@ -2121,73 +1871,6 @@ class TestReviewFindings(unittest.TestCase):
             app.start()
         self.assertIs(built[0], fixed)
         self.assertEqual(app.state, "live")
-
-
-class TestReReviewFindings(unittest.TestCase):
-    """Found by a second review of the review fixes."""
-
-    def test_no_sample_lost_when_the_converter_output_is_a_sample_short(self):
-        import numpy as np
-
-        from teto_relay.streaming import BlockStreamer
-
-        def to_44k(a, r):  # frame-based length: floored, like real models
-            n = int(len(a) * 44100 / r)
-            return np.interp(np.linspace(0, len(a) - 1, n), np.arange(len(a)), a).astype(np.float32), 44100
-
-        streamer = BlockStreamer(to_44k, 16000, block_ms=300, context_ms=49, crossfade_ms=50)
-        x = np.random.default_rng(3).standard_normal(16000 * 3).astype(np.float32)
-        lengths = []
-        for i in range(0, len(x), 320):
-            lengths += [len(b) for b in streamer.feed(x[i:i + 320])]
-        self.assertTrue(all(n == 13230 for n in lengths[1:]), lengths)
-
-    def test_close_during_a_write_leaves_no_stream_open(self):
-        import threading
-        import time
-        import types
-        import unittest.mock
-
-        import numpy as np
-
-        from teto_relay import playback
-
-        opened = []
-
-        class FakeStream:
-            def __init__(self, **kw):
-                self.closed = False
-                opened.append(self)
-
-            def start(self):
-                pass
-
-            def write(self, frames):
-                pass
-
-            def stop(self):
-                pass
-
-            def close(self):
-                self.closed = True
-
-        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, query_devices=lambda *a: {
-            "default_samplerate": 48000, "max_output_channels": 2})
-        with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
-            out = playback.StreamOutput(device=0)
-            real = out._resampled
-
-            def slow(*args):
-                time.sleep(0.2)  # close() arrives while this block is resampled
-                return real(*args)
-
-            out._resampled = slow
-            writer = threading.Thread(target=out.write, args=(np.zeros(400, np.float32), 16000))
-            writer.start()
-            time.sleep(0.05)
-            out.close()
-            writer.join(timeout=5)
-        self.assertTrue(all(s.closed for s in opened), "a stream was left open")
 
 
 class TestHardwareFindings(unittest.TestCase):
@@ -2234,70 +1917,6 @@ class TestHardwareFindings(unittest.TestCase):
         extended = [note("か", 0), note("+~", 240), note("さ", 480)]
         self.assertEqual([[n.lyric for n in g] for g in phonemizer_groups(extended)],
                          [["か", "+~"], ["さ"]])
-
-    def test_harvest_pitch_is_not_reused_between_utterances(self):
-        # rvc caches harvest's f0 by path, and every utterance is "<memory>":
-        # the second one was sung with the first one's pitch, and one of a
-        # different length crashed.
-        import types
-        import unittest.mock
-
-        import numpy as np
-
-        from teto_relay.config import Config
-        from teto_relay.voice import VoiceConverter
-
-        cache = unittest.mock.MagicMock()
-        pipeline_mod = types.ModuleType("rvc.modules.vc.pipeline")
-        pipeline_mod.cache_harvest_f0 = cache
-        vc_pkg = types.ModuleType("rvc.modules.vc")
-        vc_pkg.pipeline = pipeline_mod
-        modules = {"rvc": types.ModuleType("rvc"), "rvc.modules": types.ModuleType("rvc.modules"),
-                   "rvc.modules.vc": vc_pkg, "rvc.modules.vc.pipeline": pipeline_mod}
-
-        cfg = Config()
-        cfg.rvc_f0_method, cfg.rvc_index = "harvest", ""
-        converter = VoiceConverter(cfg)
-        converter._vc = unittest.mock.MagicMock()
-        converter._vc.pipeline.pipeline.return_value = np.zeros(10, np.float32)
-        with unittest.mock.patch.dict(sys.modules, modules):
-            converter.convert(np.zeros(1600, np.float32), 16000)
-            converter.convert(np.zeros(3200, np.float32), 16000)
-        self.assertEqual(cache.cache_clear.call_count, 2)
-
-    def test_releasing_the_key_keeps_frames_already_heard(self):
-        # Streaming voice on a GTX 1060: conversion ran behind, and releasing
-        # push-to-talk dropped every frame still queued - 40% of a 3.4 s
-        # phrase - because the gate was read when a frame was dequeued.
-        import threading
-        import time
-
-        import numpy as np
-
-        from teto_relay.config import Config
-        from teto_relay.streaming import StreamingVoice
-
-        def slow(a, r):
-            time.sleep(0.05)  # 50 ms per 100 ms block, but behind while the burst queues
-            return a, r
-
-        gate = threading.Event()
-        received = []
-        worker = StreamingVoice(Config(stream_block_ms=100, stream_context_ms=0), slow,
-                                lambda block, rate: received.append(len(block)), gate.is_set)
-        worker.start()
-        frame = np.full(320, 0.1, np.float32)
-        gate.set()
-        for _ in range(50):  # 1 s heard while the key is held, faster than it converts
-            worker.push(frame)
-        gate.clear()
-        worker.push(frame)  # the key is up: this frame closes the stream off
-        deadline = time.monotonic() + 10
-        while sum(received) < 16000 and time.monotonic() < deadline:
-            time.sleep(0.02)
-        worker.stop()
-        worker.join(timeout=5)
-        self.assertGreaterEqual(sum(received), 16000)
 
     def test_pitch_contour_is_written_in_openutau_units(self):
         # OpenUtau's pitch points are tenths of a semitone (measured: y=30

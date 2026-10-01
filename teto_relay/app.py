@@ -37,7 +37,6 @@ from .render import make_renderer
 from .playback import Player
 from .stt import Transcriber, Word
 from .ustx import write_ustx
-from .voice import VoiceConverter
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +47,6 @@ class Job:
 
     captured_at: float  # when the utterance closed at the microphone
     text: str
-    # Voice mode never writes a project file, so this is optional.
     ustx_path: Path | None = None
     wav_path: Path | None = None
     analyse_seconds: float = 0.0
@@ -96,27 +94,16 @@ class TetoRelay:
 
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config.load()
-        self.engine = (self.cfg.mode or "utau").lower()
         root = self.cfg.voicebank_path()
-        # Voice conversion does not sing through a voicebank, so it must not
-        # refuse to start for want of one.
-        try:
-            self.banks = vb_mod.discover(root)
-            self.bank = vb_mod.select_or_default(self.banks, self.cfg.voicebank, root)
-        except vb_mod.VoicebankError:
-            if self.engine != "voice":
-                raise
-            self.banks, self.bank = [], None
+        self.banks = vb_mod.discover(root)
+        self.bank = vb_mod.select_or_default(self.banks, self.cfg.voicebank, root)
 
         self.chunk_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
         self.ustx_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
         self.wav_q: queue.Queue = queue.Queue(maxsize=self.cfg.queue_size)
 
         self.transcriber = Transcriber(self.cfg)
-        # Voice mode never synthesises notes, so the OpenUtau host - which
-        # starts CoreCLR and loads a singer - is not built at all.
-        self.renderer = make_renderer(self.cfg, self.bank) if self.engine != "voice" else None
-        self.converter = VoiceConverter(self.cfg) if self.engine == "voice" else None
+        self.renderer = make_renderer(self.cfg, self.bank)
 
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -166,38 +153,20 @@ class TetoRelay:
 
     def _start(self) -> None:
         cfg = self.cfg
-        # Nothing downstream reads `mode`, so a relay configured for voice
-        # conversion would quietly run the UTAU pipeline instead and look like
-        # it was working. Refuse instead of lying about it.
-        engine = self.engine
-        if engine not in ("utau", "voice"):
-            raise TetoRelayError(
-                f"mode={engine!r} is not a thing - use 'utau' to sing your "
-                "speech as notes, or 'voice' to convert it to Teto's timbre."
-            )
-        if engine == "voice":
-            # No voicebank, no phonemizer, no notes: the model is the voice.
-            log.info("Engine:    voice conversion (your delivery, Teto's timbre)")
-            log.info("  model:   %s", Path(self.cfg.rvc_model).name)
-            log.info("  pitch:   %+d semitones via %s", self.cfg.rvc_pitch,
-                     self.cfg.rvc_f0_method)
-            workers = [("convert", self._convert_loop)]
-        else:
-            log.info("Engine:    utau (your speech, sung as notes)")
-            log.info("Voicebank: %s", self.bank)
-            # All three Teto banks share one character.txt name, so the folder
-            # is the only unambiguous way to tell which one is actually loaded.
-            log.info("  folder:  %s", self.bank.root)
-            for sub in self.bank.subbanks:
-                log.info("  subbank: %s (%d entries)", sub.path.name, sub.entry_count)
-            log.info("Renderer:  %s", self.renderer.name)
-            log.info(
-                "Lyrics:    %s (lyric_mode=%s)",
-                "japanese morae" if self._japanese_lyrics() else "native English",
-                self.cfg.lyric_mode or "auto",
-            )
-            self._warn_on_lyric_mismatch()
-            workers = [("analyse", self._analyse_loop), ("render", self._render_loop)]
+        log.info("Voicebank: %s", self.bank)
+        # All three Teto banks share one character.txt name, so the folder is
+        # the only unambiguous way to tell which one is actually loaded.
+        log.info("  folder:  %s", self.bank.root)
+        for sub in self.bank.subbanks:
+            log.info("  subbank: %s (%d entries)", sub.path.name, sub.entry_count)
+        log.info("Renderer:  %s", self.renderer.name)
+        log.info(
+            "Lyrics:    %s (lyric_mode=%s)",
+            "japanese morae" if self._japanese_lyrics() else "native English",
+            self.cfg.lyric_mode or "auto",
+        )
+        self._warn_on_lyric_mismatch()
+        workers = [("analyse", self._analyse_loop), ("render", self._render_loop)]
 
         out_dev = devices_mod.resolve_output(cfg)
         in_dev = devices_mod.resolve_input(cfg) or devices_mod.default_input()
@@ -211,10 +180,6 @@ class TetoRelay:
         # Warm everything before opening the mic, so the first phrase is not
         # lost to model loading. Order matters - see _warmup.
         self._warmup()
-
-        if engine == "voice" and cfg.voice_streaming:
-            self._start_streaming(in_dev, out_dev)
-            return
 
         push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
 
@@ -256,50 +221,6 @@ class TetoRelay:
             log.info("Teto Relay running. Hold [%s] and speak into %s.", cfg.ptt_key.upper(), mic_name)
         else:
             log.info("Teto Relay running. Speak into %s.", mic_name)
-
-    def _start_streaming(self, in_dev, out_dev) -> None:
-        """Voice mode, converting while you talk (voice_streaming).
-
-        Frames go straight from the microphone to the block converter and on
-        to a kept-open output stream; there are no phrases, so no queues of
-        chunks and files. Push-to-talk, when used, just opens and closes a gate.
-        """
-        from .playback import StreamOutput
-        from .streaming import StreamingVoice
-
-        cfg = self.cfg
-        gate = threading.Event()
-        push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
-        if push_to_talk:
-            try:
-                self._hotkey = PushToTalkListener(cfg.ptt_key, gate.set, gate.clear)
-                self._hotkey.start()
-            except Exception:
-                log.exception("could not arm push-to-talk on key %r; streaming all the time",
-                              cfg.ptt_key)
-                gate.set()
-        else:
-            gate.set()
-
-        self._stream_output = StreamOutput(out_dev.index, lambda: cfg.playback_gain)
-        self._streamer = StreamingVoice(cfg, self.converter.convert, self._stream_output.write,
-                                        gate.is_set)
-
-        def tap(frame) -> None:
-            try:
-                self._streamer.push(frame)
-            except queue.Full:
-                pass  # the converter is behind; it says so in the log
-
-        self._capture = MicCapture(cfg, self.chunk_q, in_dev.index if in_dev else None, tap=tap)
-        self._streamer.start()
-        self._capture.start()
-        mic_name = in_dev.name if in_dev else "the default mic"
-        if push_to_talk and self._hotkey is not None:
-            log.info("Streaming voice conversion running. Hold [%s] and speak into %s.",
-                     cfg.ptt_key.upper(), mic_name)
-        else:
-            log.info("Streaming voice conversion running. Speak into %s.", mic_name)
 
     def _warmup(self) -> None:
         """Pay the one-time initialisation costs before the microphone opens.
@@ -351,25 +272,6 @@ class TetoRelay:
 
         # 1. torch-backed models first, to claim cuDNN.
         stage("pitch", lambda: pitch_mod.track_f0(probe, sample_rate, self.cfg))
-
-        if self.engine == "voice":
-            # Voice mode needs none of whisper, the aligner or the lyric
-            # dictionary. It does need the voice model and the content encoder,
-            # and it reuses the torchcrepe warmed just above - which is most of
-            # why conversion is quick once running.
-            stage("voice model", self.converter.load)
-            stage("voice warmup", lambda: self.converter.convert(probe, sample_rate))
-            elapsed = time.monotonic() - began
-            if failed:
-                log.warning(
-                    "Warmed up in %.1fs, but %s did not warm (%s) - the first "
-                    "utterance will be slow", elapsed, " and ".join(failed),
-                    ", ".join(timings) or "nothing warmed",
-                )
-            else:
-                log.info("Warmed up voice conversion in %.1fs (%s)", elapsed,
-                         ", ".join(timings))
-            return
 
         if self.cfg.use_alignment:
             stage("aligner", lambda: align.refine([Word("test", 0.0, 0.4)], probe, sample_rate, self.cfg))
@@ -434,10 +336,6 @@ class TetoRelay:
             attempt("microphone", capture.stop)
         if player:
             attempt("playback", player.stop)
-        streamer = getattr(self, "_streamer", None)
-        if streamer is not None:
-            attempt("streaming", streamer.stop)
-            attempt("streaming", lambda: streamer.join(timeout=2.0))
         # The phrase in progress is finished, not abandoned. After 2 s the old
         # relay's analysis carried on beside the next relay's start - a
         # settings restart while a slow phrase was being transcribed - and the
@@ -450,10 +348,9 @@ class TetoRelay:
             attempt("microphone", lambda: capture.join(timeout=2.0))
         if player:
             attempt("playback", lambda: player.join(timeout=2.0))
-        for closable in (getattr(self, "renderer", None), getattr(self, "converter", None),
-                         getattr(self, "_stream_output", None)):
-            if closable is not None:
-                attempt(type(closable).__name__, closable.close)
+        renderer = getattr(self, "renderer", None)
+        if renderer is not None:
+            attempt(type(renderer).__name__, renderer.close)
         log.info("Stopped")
 
     # ------------------------------------------------------------- controls
@@ -703,64 +600,6 @@ class TetoRelay:
                      chunk.sample_rate, subtype="PCM_16")
         except Exception:  # noqa: BLE001 - a diagnostic must not cost the phrase
             log.debug("could not save the input audio", exc_info=True)
-
-    def _convert_loop(self) -> None:
-        """Chunk -> RVC -> .wav on disk. The whole of voice mode.
-
-        One worker instead of analyse+render: there is nothing to transcribe and
-        nothing to synthesise, so the utterance goes straight through the model.
-        """
-        while not self._stop.is_set():
-            try:
-                chunk = self.chunk_q.get(timeout=0.2)
-            except queue.Empty:
-                continue
-
-            began = time.monotonic()
-            timeline = Timeline(released_at=chunk.captured_at)
-            timeline.add("speech", chunk.duration)
-            timeline.lap("wait_analyse", began)
-            try:
-                audio, rate = self.converter.convert(chunk.audio, chunk.sample_rate)
-                if audio.size == 0:
-                    log.warning("Voice conversion returned nothing for a %.2fs chunk",
-                                chunk.duration)
-                    continue
-
-                import soundfile as sf
-
-                stamp = datetime.now().strftime("%H%M%S_%f")[:-3]
-                path = self.cfg.out_path / f"relay_{stamp}.wav"
-                sf.write(str(path), audio, rate, subtype="PCM_16")
-                done = timeline.lap("convert")
-
-                elapsed = done - began
-                self.last_text = f"{chunk.duration:.1f}s in your voice"
-                self.last_source = ""
-                self.last_kana = ""
-                self.last_notes = []
-                self.last_stats = {
-                    "speech": round(chunk.duration, 2),
-                    "analyse": round(elapsed, 2),
-                    "method": self.cfg.rvc_f0_method or "crepe",
-                }
-                job = Job(
-                    captured_at=chunk.captured_at,
-                    text=self.last_text,
-                    wav_path=path,
-                    analyse_seconds=elapsed,
-                    timeline=timeline,
-                    queued_at=done,
-                )
-                log.info(
-                    "Converted %.2fs of speech in %.2fs (%.2fx realtime) -> %d Hz",
-                    chunk.duration, elapsed, elapsed / max(chunk.duration, 1e-6), rate,
-                )
-                _drop_oldest_put(self.wav_q, job, "wav")
-            except Exception:
-                log.exception("voice conversion failed for a %.2fs chunk", chunk.duration)
-            finally:
-                self._trim_output()
 
     def _render_loop(self) -> None:
         """.ustx -> .wav."""

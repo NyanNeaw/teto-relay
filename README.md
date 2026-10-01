@@ -209,8 +209,6 @@ yet. They're under **Show all settings** in the panel.
   adds vibrato to long notes and holds the last one. Less speech, more song.
 - **Connect syllables** (`legato`) sings each word's syllables joined up on
   Japanese banks.
-- **Convert while I talk** (`voice_streaming`, Voice engine only) converts your
-  voice to Teto's in real time, in short blocks, instead of after each phrase.
 - **`persistent_output`** keeps one audio stream open instead of opening one
   per phrase.
 

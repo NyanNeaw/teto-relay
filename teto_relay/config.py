@@ -30,13 +30,6 @@ class ConfigError(TetoRelayError, ValueError):
 
 @dataclass
 class Config:
-    # ------------------------------------------------------------------ mode
-    # "utau"  - transcribe, pitch-detect, build notes, sing through the
-    #           voicebank. Teto singing your words.
-    # "voice" - RVC voice conversion: your audio, Teto's timbre, your delivery
-    #           kept intact. Not built yet; selecting it falls back to "utau".
-    mode: str = "utau"
-
     # ------------------------------------------------------------------ audio
     # Device names are matched as case-insensitive substrings, so
     # "CABLE Input" matches "CABLE Input (VB-Audio Virtual Cable)".
@@ -293,39 +286,6 @@ class Config:
     # Left empty, common install locations are searched (teto_relay.locate).
     openutau_dir: str = ""
 
-    # --------------------------------------------- voice conversion (RVC)
-    # Used when mode == "voice". Your audio goes in and comes out with Teto's
-    # timbre, keeping your own timing, pitch and delivery - so none of the
-    # transcription, note or phoneme settings above apply.
-    # Installing a model from the panel fills these in; uploads are kept in
-    # the `voices` folder beside the config.
-    rvc_model: str = ""
-    rvc_index: str = ""
-    rvc_device: str = "cuda:0"  # "cpu" works but is far slower
-    # rmvpe is the most robust pitch extractor and the one least prone to the
-    # octave errors that plagued the UTAU path.
-    # crepe rather than rmvpe: torchcrepe is already installed and already
-    # warmed for the UTAU path, so voice mode reuses a loaded model instead of
-    # downloading another 180 MB. rmvpe still works if you fetch rmvpe.pt into
-    # the model folder.
-    rvc_f0_method: str = "crepe"
-    # Semitones. Teto is a high female voice, so a lower speaking voice usually
-    # needs shifting up; 12 is a reasonable starting point for a male voice.
-    rvc_pitch: int = 12
-    # How much of the index (the speaker's characteristic timbre) to blend in.
-    rvc_index_rate: float = 0.75
-    rvc_filter_radius: int = 3  # median-filters the pitch curve, reducing breathiness
-    rvc_rms_mix_rate: float = 0.25  # 0 keeps your dynamics, 1 uses the model's
-    rvc_protect: float = 0.33  # protects consonants from being over-converted
-    # Convert while you talk instead of after each phrase (teto_relay/streaming).
-    # The delay becomes about one block plus the crossfade plus conversion time,
-    # and conversion of one block must take less than a block or it falls
-    # behind. Off until tried on real hardware.
-    voice_streaming: bool = False
-    stream_block_ms: float = 300.0
-    stream_context_ms: float = 600.0  # audio before each block the model also sees
-    stream_crossfade_ms: float = 50.0
-
     # ----------------------------------------------------- stage 6: playback
     playback_gain: float = 1.0
     # Keep one output stream open for the whole session instead of opening a
@@ -405,6 +365,9 @@ class Config:
     @classmethod
     def from_dict(cls, data: dict, source: str = "config") -> "Config":
         known = {f.name for f in fields(cls)}
+        # Settings of removed features are dropped without a word: they are
+        # in every config written before, and are gone after the next save.
+        data = {k: v for k, v in data.items() if k not in RETIRED}
         unknown = sorted(set(data) - known)
         if unknown:
             log.warning(
@@ -438,7 +401,7 @@ class Config:
         # now: the OpenUtau host changes the working directory later.
         for key in ("out_dir", "log_file"):
             setattr(self, key, str(paths.resolve(getattr(self, key))))
-        for key in ("voicebank_root", "openutau_dir", "rvc_model", "rvc_index"):
+        for key in ("voicebank_root", "openutau_dir"):
             if getattr(self, key):
                 setattr(self, key, str(paths.resolve(getattr(self, key))))
 
@@ -488,7 +451,7 @@ class Config:
         # portable copy still works after being moved (another drive letter,
         # a USB stick); they are made absolute again when loaded.
         home = paths.data_dir()
-        for key in ("out_dir", "log_file", "voicebank_root", "rvc_model", "rvc_index"):
+        for key in ("out_dir", "log_file", "voicebank_root"):
             if data.get(key):
                 try:
                     data[key] = Path(data[key]).resolve().relative_to(home).as_posix()
@@ -501,7 +464,6 @@ class Config:
 
 # Settings with a fixed set of values. Compared case-insensitively.
 CHOICES: dict[str, set[str]] = {
-    "mode": {"utau", "voice"},
     "capture_mode": {"ptt", "vad"},
     "lyric_mode": {"auto", "native", "japanese"},
     "renderer_backend": {"openutau", "null"},
@@ -567,10 +529,17 @@ RANGES: dict[str, tuple[float, float]] = {
     "vibrato_depth_cents": (0.0, 200.0),
     "vibrato_period_ms": (40.0, 1000.0),
     "final_hold_seconds": (0.0, 5.0),
-    "stream_block_ms": (50.0, 2000.0),
-    "stream_context_ms": (0.0, 5000.0),
-    "stream_crossfade_ms": (0.0, 500.0),
     "queue_size": (1, 64),
+}
+
+#: Settings of features that were removed. The RVC voice engine ("Voice"
+#: mode) went in 0.3.0: Teto Relay is Teto singing what you say, and RVC made
+#: her a filter on your own voice instead. It is at the git tag
+#: before-rvc-removal.
+RETIRED = {
+    "mode", "rvc_model", "rvc_index", "rvc_device", "rvc_f0_method", "rvc_pitch",
+    "rvc_index_rate", "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_protect",
+    "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
 }
 
 _TRUE = {"true", "yes", "on", "1"}
