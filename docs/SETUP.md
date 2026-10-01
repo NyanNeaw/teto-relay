@@ -30,12 +30,12 @@ or deleted in one go.
 
 ## 3. First start
 
-1. Start **Teto Relay**. The control panel opens in a window of its own
-   (Edge or Chrome's app mode - no tabs, its own taskbar button). If it
-   doesn't, open <http://127.0.0.1:8765/> in any browser. To keep it on the
-   Start menu, choose **Install Teto Relay** from that window's `...` menu;
-   the program still has to be running for it to work. Prefer a normal
-   browser tab? Set **Setup → Open the panel as** to *Browser tab*.
+1. Start **Teto Relay**. The control panel opens in its own window. To keep
+   it handy, right-click its taskbar button and choose **Pin to taskbar**: the
+   pin starts Teto Relay. Closing the window closes Teto Relay. If the window
+   can't open (no WebView2 on the PC), the panel opens in Edge instead, or at
+   <http://127.0.0.1:8765/> in any browser. Prefer a browser tab? Set
+   **Setup → Open the panel as** to *Browser tab*.
 2. Press **Check setup** (below the settings). Every line marked `[FAIL]` says
    what to do; fix those first. `[WARN]` lines are optional.
 3. Open **Show all settings → Setup**:

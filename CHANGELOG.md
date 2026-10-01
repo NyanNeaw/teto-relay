@@ -86,9 +86,10 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
 - **Rename a voicebank** from the panel (the pencil beside its name). The
   name is kept in Teto Relay's data folder; the bank's files are not touched,
   and an empty name goes back to the bank's own.
-- **App window**: the panel opens as a window of its own (Edge/Chrome app
-  mode) and can be installed from Edge or Chrome. *Open the panel as* in
-  Setup switches back to a browser tab.
+- **App window**: the panel opens in Teto Relay's own window (WebView2, the
+  engine Edge uses), so its taskbar button is Teto Relay's and pins as Teto
+  Relay; closing it closes the program. *Open the panel as* in Setup switches
+  to a browser tab.
 - **Song lyrics** on the main screen: paste the lines you'll sing and they're
   heard correctly.
 - `keep_input_audio` (Keep what I said), `tools/tuning_eval.py`, and
