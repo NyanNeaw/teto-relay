@@ -391,17 +391,29 @@ class TestLyricCleaning(unittest.TestCase):
         self.assertEqual(clean_lyric(" Hello, "), "hello")
         self.assertEqual(clean_lyric("..."), "")
 
-    def test_contractions_are_expanded(self):
-        """Stripping the apostrophe first leaves "I'm" as "im", sung as "eem"."""
-        self.assertEqual(clean_lyric("I'm"), "i am")
-        self.assertEqual(clean_lyric("don't!"), "do not")
-        self.assertEqual(clean_lyric("It's"), "it is")
+    def test_contractions_stay_whole(self):
+        """Sung as said: "can't" is one syllable, not "can not". Stripping the
+        apostrophe would leave "I'm" as "im", sung as "eem"."""
+        self.assertEqual(clean_lyric("I'm"), "i'm")
+        self.assertEqual(clean_lyric("don't!"), "don't")
+        self.assertEqual(clean_lyric("It's"), "it's")
 
     def test_curly_apostrophes_are_handled(self):
-        self.assertEqual(clean_lyric("I’m"), "i am")
+        self.assertEqual(clean_lyric("I’m"), "i'm")
 
     def test_surrounding_punctuation_does_not_hide_a_contraction(self):
-        self.assertEqual(clean_lyric('"I\'m,"'), "i am")
+        self.assertEqual(clean_lyric('"I\'m,"'), "i'm")
+
+    def test_a_contraction_is_sung_from_its_own_sounds(self):
+        # English banks get the dictionary's sounds; Japanese banks one word
+        # of morae (かんと), not "can not" (かんのと).
+        from teto_relay import japanese as jp
+        from teto_relay.notes import _contraction_hint
+
+        self.assertEqual(_contraction_hint("can't"), "k { n t")
+        self.assertEqual(_contraction_hint("i'm"), "aI m")
+        self.assertIsNone(_contraction_hint("cant"))
+        self.assertEqual(jp.english_to_kana("can't"), "かんと")
 
     def test_possessives_keep_working(self):
         self.assertEqual(clean_lyric("teto's"), "tetos")

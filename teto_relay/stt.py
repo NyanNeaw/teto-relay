@@ -38,9 +38,12 @@ GARBAGE_MARGIN = 0.5
 # Around a number, "$" and "%" are part of what is said ("$5", "50%").
 _STRIP_OUTER_NUMBER = _STRIP_OUTER.replace("$", "").replace("%", "")
 
-# Contractions must be expanded before the apostrophe is stripped. "I'm"
-# reduced to "im" is read as "eem"; expanded to "i am" it sings correctly.
-# The expansion stays in one note, which the phonemizer handles fine.
+# Contractions are kept whole: "can't" is sung as one syllable, as it was
+# said, from the dictionary's pronunciation (notes.build_notes). They used to
+# be expanded - "can not", "do not" - which sang two syllables in the time of
+# one and was not what anyone said. Stripping the apostrophe instead ("im",
+# sung "eem") is why they were ever touched. The expansion is the fallback if
+# a bank cannot be given the contraction's sounds.
 CONTRACTIONS = {
     "i'm": "i am",
     "i've": "i have",
@@ -113,9 +116,8 @@ def clean_lyric(text: str) -> str:
 
     word = word.strip(_STRIP_OUTER)  # drop surrounding punctuation, keep the apostrophe
 
-    expanded = CONTRACTIONS.get(word)
-    if expanded is not None:
-        return expanded
+    if word in CONTRACTIONS:
+        return word
 
     # Possessives and plurals ("teto's", "hours'") lose the apostrophe safely.
     return word.translate(_STRIP).strip()

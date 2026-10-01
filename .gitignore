@@ -48,3 +48,5 @@ my_voice/
 voicebank_names.json
 # Where build.ps1 parks dist\TetoRelay\data during a rebuild.
 .kept-from-dist/
+# The panel window's browser storage (teto_relay.window) in a dev data folder.
+window/

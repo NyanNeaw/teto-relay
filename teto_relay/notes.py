@@ -15,11 +15,25 @@ from . import japanese as jp
 from . import pitch as pitch_mod
 from . import pronunciations as pron
 from . import translit
-from .stt import Word
+from .stt import CONTRACTIONS, Word
 
 log = logging.getLogger(__name__)
 
 MIN_NOTE_SECONDS = 0.06
+
+
+def _contraction_hint(word: str) -> str | None:
+    """A contraction's sounds from the dictionary ("can't" -> k { n t).
+
+    English banks look words up in their own dictionary, which may not know
+    the apostrophe form; these sounds make the bank sing it as said.
+    """
+    if word not in CONTRACTIONS:
+        return None
+    from .phonemes import arpabet_to_xsampa
+
+    phones = jp.cmu_phones(word)
+    return arpabet_to_xsampa(phones) if phones else None
 #: The lyric of a note that holds the previous note's vowel (OpenUtau's
 #: extender): sung as one sample across both notes, pitch moving between.
 EXTEND = "+"  # below this a note is inaudible and confuses the resampler
@@ -438,6 +452,9 @@ def build_notes(
             if not kana:
                 parts = [translit.to_kana(part, source) for part in w.text.split()]
                 kana = "".join(p for p in parts if p)
+            if not kana and w.text in CONTRACTIONS:
+                parts = [translit.to_kana(part, source) for part in CONTRACTIONS[w.text].split()]
+                kana = "".join(p for p in parts if p)
             if not kana:
                 log.info("%r is not in the dictionary; leaving it as-is", w.text)
                 respelled.append(w)
@@ -523,13 +540,15 @@ def build_notes(
                 joined.append(False)
                 continue
 
-        hint = pron.hint_for(w.text, hints)
+        hint = pron.hint_for(w.text, hints) or _contraction_hint(w.text)
         if hint:
             log.info("Using exact phonemes for %r: %s", w.text, hint)
             respelled.append(w)
             word_hints.append(hint)
             joined.append(False)
             continue
+        if w.text in CONTRACTIONS:
+            w = Word(text=CONTRACTIONS[w.text], start=w.start, end=w.end)
         lyric = pron.apply(w.text, table)
         if lyric != w.text:
             log.info("Respelling %r as %r so it can be sung", w.text, lyric)

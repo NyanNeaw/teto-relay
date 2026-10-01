@@ -814,6 +814,14 @@ the user listened to each round and said what was wrong.
 
 ### Recognition and reading
 
+- Contractions are kept whole ("can't", "I'm") and sung from CMUdict's
+  pronunciation - a hint for English banks, morae for Japanese ones (かんと,
+  not かんのと). They had been expanded ("can not") because stripping the
+  apostrophe made "im" sing as "eem"; expanded, two syllables were sung in the
+  time of one. Three sentences full of contractions, judged by whisper small:
+  Teto English 0.54 -> 0.25 word error, tandoku 0.66 -> 0.59, Miku 0.77 ->
+  0.74. The expansion is still the fallback for a word with no pronunciation.
+
 - Whisper `small` (multilingual) on the GPU: 2.8% word error on the user's
   English, 0.4 s. `base.en` got 42% (it invents words); the default is now
   `base`. `float16` doesn't run on Pascal and falls back to `int8`.

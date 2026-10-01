@@ -349,13 +349,9 @@ NATIVE: dict[str, str] = {
 _DICT = None
 
 
-def english_to_kana(word: str) -> str | None:
-    """Look a word up and render it as morae, or None if it is unknown."""
+def cmu_phones(word: str) -> list[str] | None:
+    """The first CMUdict pronunciation of `word` (ARPAbet), or None."""
     global _DICT
-    key = word.strip().lower()
-    if key in NATIVE:
-        return NATIVE[key]
-
     if _DICT is None:
         try:
             import cmudict
@@ -364,11 +360,19 @@ def english_to_kana(word: str) -> str | None:
         except Exception:
             log.warning("cmudict unavailable; cannot convert to Japanese", exc_info=True)
             _DICT = {}
+    entries = _DICT.get(word.strip().lower())
+    return list(entries[0]) if entries else None
 
-    entries = _DICT.get(key)
-    if not entries:
+
+def english_to_kana(word: str) -> str | None:
+    """Look a word up and render it as morae, or None if it is unknown."""
+    key = word.strip().lower()
+    if key in NATIVE:
+        return NATIVE[key]
+    phones = cmu_phones(key)
+    if not phones:
         return None
-    return arpabet_to_kana(list(entries[0]), key)
+    return arpabet_to_kana(phones, key)
 
 
 #: Morae spelled with a small vowel (てぃ, ふぁ). Most CV banks record them; a

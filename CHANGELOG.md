@@ -60,6 +60,8 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   Japanese CVVC banks were sung as VCV.
 
 ### Changed
+- Contractions are sung as said: "can't" is one syllable, not "can not".
+  Teto English, three test sentences: word error 0.54 -> 0.25.
 - Timing keeps your rhythm: syllables start where you said them, pauses stay
   silent, phrases are sung connected, held notes last as long as you hold
   them, Japanese syllables are timed from the aligner.
