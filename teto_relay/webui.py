@@ -371,6 +371,12 @@ class Controller:
         # the program - relay, microphone and all - running unseen.
         self.last_poll = 0.0
         self.closing_at: float | None = None
+        # While the relay starts (10-30 s of model loading), what it is doing
+        # and roughly how far along: the page showed "Start" again meanwhile,
+        # because all it knew was "not running yet".
+        self.starting = False
+        self.start_stage = ""
+        self.start_progress = 0.0
         self.buffer = _LogBuffer()
         self.buffer.setLevel(logging.INFO)
         logging.getLogger().addHandler(self.buffer)
@@ -379,16 +385,30 @@ class Controller:
     def running(self) -> bool:
         return self.relay is not None
 
+    def _progress(self, stage: str, fraction: float) -> None:
+        self.start_stage = stage
+        self.start_progress = max(self.start_progress, min(1.0, fraction))
+
     def start(self) -> None:
         with self._lock:
             if self.relay is not None:
                 return
             from .app import TetoRelay
 
-            self.cfg = Config.load(self.config_path)  # pick up anything just saved
-            relay = TetoRelay(self.cfg)
-            relay.start()
-            self.relay = relay
+            self.starting = True
+            self.start_progress = 0.0
+            self._progress("Getting ready", 0.03)
+            try:
+                self.cfg = Config.load(self.config_path)  # pick up anything just saved
+                self._progress("Loading OpenUtau and the voicebank", 0.08)
+                relay = TetoRelay(self.cfg)
+                relay.progress = self._progress
+                relay.start()
+                self.relay = relay
+            finally:
+                self.starting = False
+                self.start_stage = ""
+                self.start_progress = 0.0
 
     def stop(self) -> None:
         with self._lock:
@@ -459,6 +479,9 @@ class Controller:
             "version": __version__,
             "running": self.running,
             "restarting": self.restarting,
+            "starting": self.starting,
+            "stage": self.start_stage,
+            "progress": round(self.start_progress, 2),
             "restart_error": self.restart_error,
             "last": getattr(relay, "last_text", "") if relay else "",
             "heard": getattr(relay, "last_source", "") if relay else "",

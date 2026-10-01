@@ -263,6 +263,27 @@ details.group>summary:hover{transform:translateX(3px)}
 details.group>summary::before{transition:transform .45s var(--spring)}
 .alert{animation:shake .5s var(--spring)}
 @keyframes shake{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+/* ---------- starting up ----------
+   Loading the models takes 10-30 s. A bar fills along the bottom of the
+   header as each one loads, the button spins, and the line under the status
+   says what it is loading. */
+.bar{position:sticky}
+.loadbar{position:absolute;left:0;right:0;bottom:-1px;height:3px;pointer-events:none;
+  opacity:0;transition:opacity .3s}
+.loadbar i{display:block;height:100%;width:0;background:var(--accent);border-radius:0 3px 3px 0;
+  transition:width .9s var(--soft)}
+.loading .loadbar{opacity:1}
+.loading .loadbar i{animation:breathe 1.4s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.55}}
+.spin{display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-1px;
+  border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading .state i{background:var(--accent);animation:spinpulse .8s linear infinite}
+.loading #toggle{opacity:.85;cursor:progress}
+.idle.getting-ready::after{content:"";display:inline-block;width:1.2em;text-align:left;
+  animation:dots 1.2s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 :root[data-motion=off] *,:root[data-motion=off] *::before,:root[data-motion=off] *::after{
   animation:none!important;transition:none!important}
@@ -276,6 +297,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
   <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
   <button id="toggle">Start</button>
+  <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
 
 <div class="wrap">
@@ -633,11 +655,17 @@ function popWords(el,text){
 }
 function tag(t){const s=document.createElement('span'); s.className='sungtag'; s.textContent=t; return s;}
 function renderHero(d){
-  const key=JSON.stringify([d.heard,d.kana,d.notes,d.running,d.last]);
+  const busy=!!(d.starting||d.restarting);
+  const key=JSON.stringify([d.heard,d.kana,d.notes,d.running,d.last,busy,d.stage]);
   if(key===lastKey) return;
   lastKey=key;
   const hero=$('hero'), roll=$('roll');
   hero.innerHTML='';
+  if(busy){
+    const p=document.createElement('p'); p.className='idle getting-ready';
+    p.textContent='Getting Teto ready \u2014 '+(d.stage||'starting').toLowerCase();
+    hero.appendChild(p); roll.hidden=true; return;
+  }
   if(!d.notes.length){
     const p=document.createElement('p'); p.className='idle';
     if(d.running){
@@ -774,14 +802,36 @@ $('bank').onchange=async e=>{
     toast(d.applied?('Now singing as '+key):(key+' loads when you start the relay.'));
   } else toast('Could not switch: '+d.error);
 };
+/* The Start button while the relay loads: a spinner and what it is doing.
+   Set straight away on the click, then kept up by poll() from the program's
+   own progress - it used to flip back to "Start" until loading finished. */
+let busyLabel='', startAsked=false, shownProgress=0;
+function showBusy(label, stage, progress){
+  const btn=$('toggle');
+  app().classList.add('loading');
+  btn.disabled=true;
+  if(busyLabel!==label){ busyLabel=label; btn.innerHTML='<span class="spin"></span>'+label; }
+  $('stateText').textContent=(stage||label).toLowerCase()+'\u2026';
+  // A step can take half a minute (the speech model), and a bar that sits
+  // still looks frozen: it creeps on while waiting, never past the next step.
+  shownProgress=Math.max(progress||0, Math.min(shownProgress+0.006, (progress||0)+0.3, 0.93));
+  $('loadbar').firstElementChild.style.width=Math.max(3,Math.round(shownProgress*100))+'%';
+}
+function clearBusy(){
+  if(!busyLabel) return;
+  busyLabel=''; shownProgress=0;
+  app().classList.remove('loading');
+  $('loadbar').firstElementChild.style.width='0';
+}
 $('toggle').onclick=async e=>{
   const btn=e.currentTarget, starting=btn.dataset.state!=='running';
-  btn.disabled=true; btn.textContent=starting?'Starting':'Stopping';
+  if(starting){ startAsked=true; showBusy('Starting','Getting ready',0.02); }
+  else { btn.disabled=true; btn.textContent='Stopping'; }
   try{
     const d=await (await fetch(starting?'api/start':'api/stop',{method:'POST'})).json();
     if(d&&d.ok===false) toast('Could not start: '+d.error);
   }catch(err){toast('Could not reach the relay.');}
-  btn.disabled=false; poll();
+  startAsked=false; btn.disabled=false; poll();
 };
 /* Uploads: the body is the file and the name rides in the query, so there is
    no multipart parser on either end. */
@@ -841,13 +891,18 @@ async function poll(){
     if(d.version) $('mark').title='Teto Relay '+d.version;
     const btn=$('toggle');
     btn.dataset.state=d.running?'running':'stopped';
-    btn.textContent=d.running?'Stop':'Start';
     app().classList.toggle('restarting',!!d.restarting);
-    // Start/Stop mid-restart started a second relay beside the one coming up.
-    btn.disabled=!!d.restarting;
     if(wasRestarting&&!d.restarting) refreshBanks();
     wasRestarting=!!d.restarting;
-    $('stateText').textContent=d.restarting?'restarting\u2026':d.running?(d.paused?'paused':'listening'):'stopped';
+    if(d.starting||d.restarting||(startAsked&&!d.running)){
+      // Start/Stop mid-restart started a second relay beside the one coming up.
+      showBusy(d.restarting?'Restarting':'Starting', d.stage, d.progress);
+    } else {
+      clearBusy();
+      btn.textContent=d.running?'Stop':'Start';
+      btn.disabled=false;
+      $('stateText').textContent=d.running?(d.paused?'paused':'listening'):'stopped';
+    }
     if(d.restart_error&&d.restart_error!==lastRestartError) toast('Could not restart: '+d.restart_error);
     lastRestartError=d.restart_error||'';
     const pick=$('bank');

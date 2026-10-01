@@ -107,6 +107,8 @@ class TetoRelay:
 
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        # Told what start() is doing, for the panel: progress(stage, 0..1).
+        self.progress = lambda stage, fraction: None
         self._capture: MicCapture | None = None
         self._player: Player | None = None
         self._hotkey: PushToTalkListener | None = None
@@ -180,6 +182,7 @@ class TetoRelay:
         # Warm everything before opening the mic, so the first phrase is not
         # lost to model loading. Order matters - see _warmup.
         self._warmup()
+        self.progress("Opening the microphone", 0.95)
 
         push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
 
@@ -248,6 +251,16 @@ class TetoRelay:
         timings: list[str] = []
         failed: list[str] = []
 
+        # What the panel shows while each stage loads, and how far along that
+        # is (whisper is the slow one, so it is given the widest step).
+        shown = {
+            "pitch": ("Warming up pitch tracking", 0.25),
+            "aligner": ("Loading syllable timing", 0.35),
+            "whisper": ("Loading the speech model", 0.45),
+            "lyrics": ("Loading the dictionary", 0.85),
+            "thai": ("Loading Thai pronunciation", 0.85),
+        }
+
         def stage(name: str, fn) -> None:
             """Run one warmup stage, timing it and reporting failure loudly.
 
@@ -257,6 +270,8 @@ class TetoRelay:
             silent failure here is the one thing that reproduces that spike.
             """
             began_stage = time.monotonic()
+            label, fraction = shown.get(name, (f"Loading {name}", 0.5))
+            self.progress(label, fraction)
             try:
                 fn()
             except Exception:
