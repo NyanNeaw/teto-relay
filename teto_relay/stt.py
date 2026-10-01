@@ -443,6 +443,21 @@ class Transcriber:
             )
             log.info("Whisper ready")
 
+    @property
+    def on_gpu(self) -> bool:
+        """Whether whisper runs on the graphics card ("auto" decides on load)."""
+        if self._model is None:
+            device = str(self.cfg.whisper_device)
+            if device == "auto":
+                try:
+                    import ctranslate2
+
+                    return ctranslate2.get_cuda_device_count() > 0
+                except Exception:  # noqa: BLE001
+                    return False
+            return device.startswith("cuda")
+        return str(getattr(getattr(self._model, "model", None), "device", "")).startswith("cuda")
+
     def transcribe(self, audio: np.ndarray, sample_rate: int) -> list[Word]:
         if sample_rate != 16000:
             raise ValueError(f"whisper expects 16 kHz audio, got {sample_rate}")

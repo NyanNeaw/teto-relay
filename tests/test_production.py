@@ -1352,6 +1352,93 @@ class TestAlignmentSurvivesOddWords(unittest.TestCase):
         self.assertAlmostEqual(out[2].start, 0.12)
 
 
+class TestWordBoundariesFollowTheSound(unittest.TestCase):
+    """Whisper gave the end of "control" to the "it" after it, so she sang
+    "control" in a hurry; align.boundaries moves only the line between them."""
+
+    def _run(self, words, measured, **cfg):
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import align
+        from teto_relay.config import Config
+
+        audio = np.zeros(16000, dtype=np.float32)
+        with unittest.mock.patch.object(align, "_measure", return_value=measured):
+            return align.boundaries(words, audio, 16000, Config(**cfg))
+
+    def test_line_moves_to_where_the_sound_changes(self):
+        from teto_relay.stt import Word
+
+        words = [Word("control", 0.80, 1.14), Word("it", 1.14, 1.56)]
+        measured = [Word("control", 0.85, 1.22), Word("it", 1.26, 1.40)]
+        out = self._run(words, measured)
+        self.assertAlmostEqual(out[0].end, 1.24)
+        self.assertAlmostEqual(out[1].start, 1.24)
+        # Where the phrase starts and stops stays whisper's.
+        self.assertEqual((out[0].start, out[1].end), (0.80, 1.56))
+
+    def test_a_pause_between_words_is_left_alone(self):
+        from teto_relay.stt import Word
+
+        words = [Word("stars", 1.0, 1.3), Word("and", 1.6, 1.9)]
+        measured = [Word("stars", 1.0, 1.5), Word("and", 1.7, 1.9)]
+        self.assertEqual(self._run(words, measured), words)
+
+    def test_a_lost_aligner_moves_nothing(self):
+        from teto_relay.stt import Word
+
+        words = [Word("i", 0.2, 0.38), Word("want", 0.38, 0.58), Word("to", 0.58, 0.8)]
+        # Too far, and one that would leave "want" no time at all.
+        far = [Word("i", 0.2, 0.9), Word("want", 0.95, 1.0), Word("to", 1.0, 1.1)]
+        self.assertEqual(self._run(words, far), words)
+        squeezed = [Word("i", 0.2, 0.55), Word("want", 0.57, 0.58), Word("to", 0.6, 0.8)]
+        out = self._run(words, squeezed)
+        # i/want would leave "want" 0.02 s: kept. want/to is sensible: moved.
+        self.assertEqual((out[0].end, out[1].start), (0.38, 0.38))
+        self.assertAlmostEqual(out[1].end, 0.59)
+
+    def test_unplaced_words_and_the_switch(self):
+        from teto_relay.stt import Word
+
+        words = [Word("hello", 0.0, 0.5), Word("会議", 0.5, 1.0)]
+        self.assertEqual(self._run(words, [Word("hello", 0.0, 0.6), words[1]]), words)
+        moved = [Word("hello", 0.0, 0.6), Word("there", 0.6, 1.0)]
+        plain = [Word("hello", 0.0, 0.5), Word("there", 0.5, 1.0)]
+        self.assertEqual(self._run(plain, moved, align_boundaries=False), plain)
+        self.assertEqual(self._run(plain, moved, use_alignment=True), plain)
+        self.assertNotEqual(self._run(plain, moved), plain)
+
+
+class TestAlignerRunsWhileWhisperListens(unittest.TestCase):
+    """align.Pending: the aligner's word-free half starts with the phrase."""
+
+    def test_result_and_errors_come_back_from_the_thread(self):
+        import threading
+        import unittest.mock
+
+        from teto_relay import align
+        from teto_relay.config import Config
+
+        threads = []
+
+        def fake(audio, cfg):
+            threads.append(threading.current_thread().name)
+            return "emission"
+
+        with unittest.mock.patch.object(align, "_emission", side_effect=fake):
+            self.assertEqual(align.Pending([0.0], Config()).result(), "emission")
+            self.assertEqual(align.Pending([0.0], Config(), start=False).result(), "emission")
+        self.assertEqual(threads[0], "aligner")
+        self.assertEqual(threads[1], threading.current_thread().name)
+
+        with unittest.mock.patch.object(align, "_emission", side_effect=RuntimeError("no model")):
+            pending = align.Pending([0.0], Config())
+            with self.assertRaises(RuntimeError):
+                pending.result()
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 

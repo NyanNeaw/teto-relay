@@ -48,7 +48,7 @@ GROUPS: dict[str, list[str]] = {
     # levers on how long whisper takes.
     "Listening": [
         "whisper_model", "thai_speech_model", "whisper_device", "whisper_compute_type", "beam_size",
-        "initial_prompt", "align_morae", "use_alignment", "align_device", "no_speech_threshold",
+        "initial_prompt", "align_morae", "align_boundaries", "use_alignment", "align_device", "no_speech_threshold",
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
     # Where things are. Empty means "look in the usual places".
@@ -222,6 +222,7 @@ LABELS: dict[str, list[str]] = {
     "beam_size": ["Search width", "Higher is more accurate and slower."],
     "no_speech_threshold": ["Silence cutoff", "Higher discards more as background noise."],
     "use_alignment": ["Measure word timing", "English: re-times words sound by sound. Can hurt accented English."],
+    "align_boundaries": ["Measure where words meet", "English: each word lasts as long as you said it."],
     "align_morae": ["Measure syllable timing", "Japanese: each syllable starts where you sang its vowel."],
     "align_device": ["Alignment on", ""],
     "pitch_method": ["Pitch tracker", "crepe is faster and steadier than pyin."],

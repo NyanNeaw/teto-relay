@@ -288,8 +288,8 @@ class TetoRelay:
         # 1. torch-backed models first, to claim cuDNN.
         stage("pitch", lambda: pitch_mod.track_f0(probe, sample_rate, self.cfg))
 
-        if self.cfg.use_alignment:
-            stage("aligner", lambda: align.refine([Word("test", 0.0, 0.4)], probe, sample_rate, self.cfg))
+        if self.cfg.use_alignment or self._aligns_boundaries():
+            stage("aligner", lambda: align._measure([Word("test", 0.0, 0.4)], probe, sample_rate, self.cfg))
         elif self.cfg.align_morae and self._japanese_lyrics():
             stage("aligner", lambda: align.vowel_onsets(["あ"], probe, sample_rate, self.cfg))
 
@@ -425,6 +425,19 @@ class TetoRelay:
                 self.bank.key, self.bank.flavour,
             )
 
+    def _aligns_boundaries(self) -> bool:
+        """English sung by an English bank: the case align.boundaries was
+        measured on (the aligner reads Latin letters only). Only on a
+        graphics card: the aligner's, or whisper's, behind which the aligner's
+        CPU work is hidden (align.Pending). With both on the CPU they would
+        compete, adding about half a second a phrase."""
+        return (
+            bool(getattr(self.cfg, "align_boundaries", True))
+            and translit.source_language(self.cfg) == "en"
+            and not self._japanese_lyrics()
+            and (align.on_gpu(self.cfg) or self.transcriber.on_gpu)
+        )
+
     def _japanese_lyrics(self) -> bool:
         """Whether to convert what was said into Japanese-style pronunciation.
 
@@ -501,6 +514,13 @@ class TetoRelay:
         timeline.add("speech", chunk.duration)
         timeline.lap("wait_analyse", began)
 
+        # The aligner's half that needs no words runs while whisper listens.
+        pending = (
+            align.Pending(chunk.audio, self.cfg)
+            if self.cfg.use_alignment or self._aligns_boundaries()
+            or (self.cfg.align_morae and self._japanese_lyrics())
+            else None
+        )
         words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
         timeline.lap("asr")
         if not words:
@@ -511,7 +531,12 @@ class TetoRelay:
         # are systematically early, and both the note length and the
         # pitch window are taken from these spans.
         if self.cfg.use_alignment:
-            words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg)
+            words = align.refine(words, chunk.audio, chunk.sample_rate, self.cfg, pending)
+            timeline.lap("align")
+        elif self._aligns_boundaries():
+            # Only where one word hands over to the next (align.boundaries):
+            # whisper gives the end of a long word to the one after it.
+            words = align.boundaries(words, chunk.audio, chunk.sample_rate, self.cfg, pending)
             timeline.lap("align")
 
         track = pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
@@ -524,7 +549,7 @@ class TetoRelay:
             words, track, self.cfg, self._octave_shift, self._target_tone,
             self._voice_baseline, self._japanese_lyrics(), self._mora_floor,
             self._singing_state, audio=chunk.audio, sample_rate=chunk.sample_rate,
-            mora_timer=lambda morae: align.vowel_onsets(morae, chunk.audio, chunk.sample_rate, self.cfg),
+            mora_timer=lambda morae: align.vowel_onsets(morae, chunk.audio, chunk.sample_rate, self.cfg, pending),
         )
         if not notes:
             return None

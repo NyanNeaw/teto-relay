@@ -104,7 +104,7 @@ def check_dictionaries() -> list[Check]:
 def check_gpu(cfg) -> list[Check]:
     out = []
     torch_ok = _has("torch")
-    wants_gpu = cfg.pitch_method == "crepe" or cfg.use_alignment or cfg.align_morae
+    wants_gpu = cfg.pitch_method == "crepe" or cfg.use_alignment or cfg.align_morae or cfg.align_boundaries
     if not torch_ok:
         if wants_gpu:
             out.append(Check(
@@ -117,7 +117,7 @@ def check_gpu(cfg) -> list[Check]:
     if cfg.pitch_method == "crepe" and not _has("torchcrepe"):
         out.append(Check(WARN, "torchcrepe", "missing - pitch falls back to pyin",
                          "python -m pip install -r requirements-gpu.txt"))
-    if (cfg.use_alignment or cfg.align_morae) and not _has("torchaudio"):
+    if (cfg.use_alignment or cfg.align_morae or cfg.align_boundaries) and not _has("torchaudio"):
         out.append(Check(WARN, "torchaudio", "missing - word alignment is skipped",
                          "Install torchaudio matching your torch version."))
     try:

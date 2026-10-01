@@ -88,6 +88,12 @@ class Config:
     # the singing harder to follow (word error 0.07 -> 0.12, twice), since it
     # aligns by spelling. It helped on native text-to-speech.
     use_alignment: bool = False
+    # Only the line between two touching words, moved to where the aligner
+    # hears it (align.boundaries) - whisper gave the end of "control" to the
+    # "it" after it. English on an English bank; whisper still decides where
+    # each phrase starts and stops. Skipped without a CUDA graphics card,
+    # where the aligner costs about a second per phrase.
+    align_boundaries: bool = True
     # The same aligner, timing each Japanese mora from where its vowel was
     # sung (align.vowel_onsets). On the user's Japanese takes it brought the
     # syllables closer to theirs (Senbonzakura +33%) and cut kana error.

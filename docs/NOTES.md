@@ -785,6 +785,29 @@ the user listened to each round and said what was wrong.
 - **English word alignment is off** (`use_alignment`): on the user's accented
   English it made the singing less clear (0.07 -> 0.12 word error, twice);
   it aligns by spelling. (`6b23ee9`)
+- **Where two English words meet is measured** (`align_boundaries`). The
+  user: "control" is said for a very short time. Traced: the note was 0.34 s
+  for 0.40-0.46 s of speech, and the "it" after it 0.42 s for ~0.14 s -
+  whisper ends long words early and hands the rest to the next word (aligner
+  vs whisper on the user's takes: long words end +0.14 s later). Inside the
+  note OpenUtau's English phonemizer also gives every syllable but the last
+  a fixed ~60 ms vowel; splitting words into "+" notes per syllable changed
+  that by 20 ms on Teto and nothing on Miku, so it was not the cause.
+  Moving all word edges to the aligner's (`use_alignment`) cost words, so
+  only the line between two touching words moves - to the middle of the
+  aligner's end and next start, at most 0.3 s, each word keeping 70 ms a
+  syllable. Scored by one fixed judge (whisper medium, temperature 0, same
+  references; whisper small with fallback sampling varied 0.04-0.10 on the
+  same renders): user's takes 0.123/0.131 -> 0.113, with five "control"
+  sentences 0.189 -> 0.102/0.109; Miku unchanged (0.825 -> 0.823). Sung
+  length against said (aligner on both): timing error 0.53 -> 0.32, within
+  25% 34% -> 50%; "control" 72-83% -> 97-101%.
+  The aligner's model pass needs no words, so it runs on a thread while
+  whisper listens (`align.Pending`). On the CPU (the packaged app) it is
+  0.5 s for a 2 s phrase and 0.9-1.6 s for 5-7 s; overlapped with whisper on
+  the GPU that leaves +0.15 s / +0.5 s / +0.9 s for 2 / 5 / 7 s phrases.
+  int8 quantisation was only 1.35x faster and moved one boundary 0.38 s.
+  Off with both on the CPU, where they would compete.
 
 ### Sound
 

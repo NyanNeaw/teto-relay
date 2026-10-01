@@ -25,6 +25,13 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   `before-rvc-removal`.
 
 ### Fixed
+- **Long English words were sung in a hurry** ("control" at 72-83% of how
+  long it was said, the "it" after it at 200-300%). Whisper gives the end of
+  a word to the next one; the line between two touching words now moves to
+  where the aligner hears it (**Measure where words meet**,
+  `align_boundaries`). Long words 78% -> 101% of their spoken length, word
+  error 0.19 -> 0.10. Needs a graphics card for whisper or the aligner; costs
+  0.15 s on a 2 s phrase, up to ~0.9 s on a 7 s one, in the packaged app.
 - The packaged app: a double-click opened no window (Edge inherited the
   bundle's DLL path), and TetoRelay.exe with options ran invisibly.
 - Much smaller: installer 1.6 GB -> 511 MB, portable zip 2.6 GB -> 856 MB,
