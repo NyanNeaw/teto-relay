@@ -11,7 +11,7 @@ from pathlib import Path
 from teto_relay.__main__ import main
 
 # Options that make sense without a console window.
-WINDOWED_MODES = {"--web", "--tray"}
+WINDOWED_MODES = {"--web", "--tray", "--window"}
 
 if __name__ == "__main__":
     args = sys.argv[1:] or ["--web"]

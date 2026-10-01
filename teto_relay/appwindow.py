@@ -55,7 +55,18 @@ def find_app_browser() -> Path | None:
     return next((p for p in candidates if p.exists()), None)
 
 
-def _launch(args: list[str]) -> None:
+def _window_command(url: str) -> list[str]:
+    """Teto Relay's own panel window (teto_relay.window), as a new process."""
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable)
+        gui = exe.with_name("TetoRelay.exe")
+        return [str(gui if gui.exists() else exe), "--window", url]
+    python = Path(sys.executable)
+    pythonw = python.with_name("pythonw.exe")
+    return [str(pythonw if pythonw.exists() else python), "-m", "teto_relay", "--window", url]
+
+
+def _launch(args: list[str]):
     """Start another program as if we were not a packaged app.
 
     PyInstaller's bootloader points the DLL search at its own folder
@@ -77,17 +88,40 @@ def _launch(args: list[str]) -> None:
             previous = buf.value
         kernel32.SetDllDirectoryW(None)
     try:
-        subprocess.Popen(args, env=env, close_fds=True,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+        return subprocess.Popen(args, env=env, close_fds=True,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
     finally:
         if kernel32 is not None:
             kernel32.SetDllDirectoryW(previous)
 
 
+#: How long the panel window gets to come up before Edge is used instead.
+WINDOW_GRACE = 6.0
+
+
 def open_panel(url: str, as_app: bool = True) -> str:
-    """Show the panel; returns "app" or "browser", whichever was used."""
+    """Show the panel; returns "window", "app" or "browser", whichever was used.
+
+    Teto Relay's own window first: an Edge app window's taskbar button is
+    Edge's, so pinning it pinned Edge. Edge's app mode if there is no
+    WebView2 for our window, a browser tab if there is no Edge or Chrome.
+    """
     if as_app:
+        import time
+
+        try:
+            child = _launch(_window_command(url))
+            deadline = time.monotonic() + WINDOW_GRACE
+            while time.monotonic() < deadline and child.poll() is None:
+                time.sleep(0.2)
+            if child.poll() is None or child.returncode == 0:
+                log.info("Opened the control panel in its own window")
+                return "window"
+            log.info("The panel window could not open (exit %s); trying Edge", child.returncode)
+        except OSError:
+            log.warning("could not start the panel window", exc_info=True)
         browser = find_app_browser()
         if browser is not None:
             try:

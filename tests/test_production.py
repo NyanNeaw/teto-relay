@@ -2787,24 +2787,68 @@ class TestThai(unittest.TestCase):
 class TestAppWindow(unittest.TestCase):
     """The panel opens as a window of its own, and can be installed as an app."""
 
-    def test_edge_opens_the_panel_as_an_app_window(self):
+    @staticmethod
+    def _child(exit_code):
+        """A started process: still running (None), or exited with exit_code."""
+        import unittest.mock
+
+        child = unittest.mock.Mock()
+        child.poll.return_value = exit_code
+        child.returncode = exit_code
+        return child
+
+    def test_the_panel_opens_in_teto_relays_own_window(self):
+        # An Edge app window's taskbar button is Edge's: pinning it pinned Edge.
         import unittest.mock
 
         from teto_relay import appwindow
 
+        with unittest.mock.patch.object(appwindow, "_launch", return_value=self._child(None)) as launch, \
+                unittest.mock.patch.object(appwindow, "WINDOW_GRACE", 0.1), \
+                unittest.mock.patch.object(appwindow.webbrowser, "open") as tab:
+            self.assertEqual(appwindow.open_panel("http://127.0.0.1:8765/"), "window")
+        command = launch.call_args[0][0]
+        self.assertEqual(command[-2:], ["--window", "http://127.0.0.1:8765/"])
+        self.assertEqual(launch.call_count, 1)
+        tab.assert_not_called()
+
+    def test_edge_opens_the_panel_when_our_window_cannot(self):
+        # No WebView2: the window process exits 1, and Edge's app mode is used.
+        import unittest.mock
+
+        from teto_relay import appwindow
+
+        launched = [self._child(1), self._child(None)]
         with unittest.mock.patch.object(appwindow, "find_app_browser", return_value=Path("edge.exe")), \
-                unittest.mock.patch.object(appwindow.subprocess, "Popen") as popen, \
+                unittest.mock.patch.object(appwindow, "_launch", side_effect=launched) as launch, \
                 unittest.mock.patch.object(appwindow.webbrowser, "open") as tab:
             self.assertEqual(appwindow.open_panel("http://127.0.0.1:8765/"), "app")
-        self.assertIn("--app=http://127.0.0.1:8765/", popen.call_args[0][0])
+        self.assertIn("--app=http://127.0.0.1:8765/", launch.call_args[0][0])
         tab.assert_not_called()
+
+    def test_a_pinned_window_starts_teto_relay(self):
+        # The pin runs the windowed program, with its icon, whatever process
+        # drew the window.
+        import unittest.mock
+
+        from teto_relay import window
+
+        with tempfile_app() as app:
+            with unittest.mock.patch.object(window.sys, "frozen", True, create=True), \
+                    unittest.mock.patch.object(window.sys, "executable", str(app / "TetoRelayConsole.exe")):
+                command, icon = window.relaunch_command()
+        self.assertEqual(command, f'"{app / "TetoRelay.exe"}"')
+        self.assertEqual(icon, f'{app / "TetoRelay.exe"},0')
+        self.assertEqual(window.APP_ID, "KasaneTeto.TetoRelay")
 
     def test_without_edge_or_chrome_a_browser_tab_opens(self):
         import unittest.mock
 
         from teto_relay import appwindow
 
+        # Our window cannot open (no WebView2) and there is no Edge or Chrome.
         with unittest.mock.patch.object(appwindow, "find_app_browser", return_value=None), \
+                unittest.mock.patch.object(appwindow, "_launch", return_value=self._child(1)), \
                 unittest.mock.patch.object(appwindow.webbrowser, "open") as tab:
             self.assertEqual(appwindow.open_panel("http://127.0.0.1:8765/"), "browser")
         tab.assert_called_once()
@@ -3040,6 +3084,8 @@ class TestReleaseReview(unittest.TestCase):
             (r"C:\app\TetoRelay.exe", ["--tray"], ["--tray"]),
             (r"C:\app\TetoRelayConsole.exe", ["--doctor"], ["--doctor"]),
             (r"C:\app\TetoRelay.exe", [], ["--web"]),
+            # The panel window itself is a windowed mode.
+            (r"C:\app\TetoRelay.exe", ["--window", "http://x/"], ["--window", "http://x/"]),
         ):
             seen.clear()
             with unittest.mock.patch.object(sys, "executable", exe), \
@@ -3056,6 +3102,22 @@ class TestReleaseReview(unittest.TestCase):
 
         source = inspect.getsource(TetoRelay._warmup)
         self.assertIn('stage("thai", warm_thai)', source)
+
+
+class tempfile_app:
+    """A folder holding stand-ins for the two packaged programs."""
+
+    def __enter__(self):
+        import tempfile
+
+        self._tmp = tempfile.TemporaryDirectory()
+        app = Path(self._tmp.name).resolve()
+        for name in ("TetoRelay.exe", "TetoRelayConsole.exe"):
+            (app / name).write_bytes(b"")
+        return app
+
+    def __exit__(self, *exc):
+        self._tmp.cleanup()
 
 
 def types_module(**attrs):

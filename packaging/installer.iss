@@ -51,11 +51,13 @@ Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Teto Relay"; Filename: "{app}\TetoRelay.exe"
+; The panel window's taskbar identity (teto_relay.window.APP_ID): a pinned
+; button and these shortcuts are then one app on the taskbar.
+Name: "{group}\Teto Relay"; Filename: "{app}\TetoRelay.exe"; AppUserModelID: "KasaneTeto.TetoRelay"
 Name: "{group}\Teto Relay - check setup"; Filename: "{cmd}"; Parameters: "/k ""{app}\TetoRelayConsole.exe"" --doctor"
 Name: "{group}\Teto Relay setup guide"; Filename: "{app}\SETUP.md"
 Name: "{group}\Uninstall Teto Relay"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\Teto Relay"; Filename: "{app}\TetoRelay.exe"; Tasks: desktopicon
+Name: "{autodesktop}\Teto Relay"; Filename: "{app}\TetoRelay.exe"; AppUserModelID: "KasaneTeto.TetoRelay"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\TetoRelay.exe"; Description: "Start Teto Relay"; Flags: nowait postinstall skipifsilent

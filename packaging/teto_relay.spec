@@ -48,6 +48,8 @@ datas = [
     (str(ROOT / "teto_relay" / "web"), "teto_relay/web"),
     # Default pronunciations; the user's own copy goes in the data folder.
     (str(ROOT / "pronunciations.json"), "."),
+    # The panel window's title-bar icon (teto_relay.window).
+    (str(ROOT / "packaging" / "teto_relay.ico"), "."),
 ]
 # Data files the libraries read at run time.
 datas += optional(collect_data_files, "cmudict", "pykakasi", "librosa", "faster_whisper",

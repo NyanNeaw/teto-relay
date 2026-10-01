@@ -18,6 +18,9 @@ pykakasi>=2.2.1
 # runs on torch (requirements-gpu.txt); without torch Thai is sung from a
 # rule-based romanisation instead.
 pythainlp>=5.0
+# The control panel's own window (WebView2, the engine Edge uses): its taskbar
+# button is Teto Relay's, so it pins as Teto Relay rather than as Edge.
+pywebview>=5.0
 
 # GPU pitch tracking and word alignment are installed separately, because the
 # right torch build depends on your CUDA version - see requirements-gpu.txt.

@@ -106,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--config", type=Path, help="path to a config.json")
     p.add_argument("--doctor", action="store_true",
                    help="check the installation and settings, then exit")
+    p.add_argument("--window", metavar="URL",
+                   help="show the control panel at URL in Teto Relay's own window (used internally)")
     p.add_argument("--selftest", action="store_true",
                    help="run each model once on a test tone, say where it ran, then exit")
     p.add_argument("--no-browser", action="store_true",
@@ -135,6 +137,11 @@ def _apply_overrides(cfg: Config, args) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.window:
+        # Only the window: no relay, no config, no .NET 8 in this process.
+        from .window import run_window
+
+        return run_window(args.window)
     if args.version:
         from . import __version__
 
