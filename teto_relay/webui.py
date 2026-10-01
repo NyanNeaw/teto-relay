@@ -164,7 +164,6 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "no_speech_threshold": (0, 1, 0.05),
     "silence_ms": (100, 2000, 50),
     "min_chunk_ms": (100, 2000, 50),
-    "max_chunk_ms": (2000, 20000, 500),
     "note_gap_ms": (0, 60, 1),
     "min_note_seconds": (0.04, 0.6, 0.01),
     "seconds_per_syllable": (0.05, 0.6, 0.01),
@@ -266,7 +265,7 @@ LABELS: dict[str, list[str]] = {
     "persistent_output": ["Keep the output open", "Skips opening the device for every phrase. Experimental."],
     "silence_ms": ["Silence ends a phrase after", ""],
     "min_chunk_ms": ["Shortest phrase", ""],
-    "max_chunk_ms": ["Longest phrase", ""],
+    "max_chunk_ms": ["Longest phrase (ms)", "0 is no limit: she sings when you let go."],
 }
 
 

@@ -49,7 +49,10 @@ class Config:
     frame_ms: int = 20
     silence_ms: int = 400  # pause length that closes an utterance
     min_chunk_ms: int = 300  # shorter than this is a cough, not a phrase
-    max_chunk_ms: int = 10_000  # hard stop so one long rant cannot stall us
+    # The longest phrase, after which it is sung even with the key still held
+    # (or the speaker still going). 0 is no limit: a sung verse ran past the
+    # old 10 s cap and was cut mid-line.
+    max_chunk_ms: int = 0
     preroll_ms: int = 200  # audio kept from *before* onset, so we do not clip
     rms_threshold: float = 0.015  # on float32 samples in [-1, 1]
     auto_calibrate: bool = True  # measure room noise at startup
@@ -374,6 +377,10 @@ class Config:
         # Settings of removed features are dropped without a word: they are
         # in every config written before, and are gone after the next save.
         data = {k: v for k, v in data.items() if k not in RETIRED}
+        # A config from an older version spells out every value, so a changed
+        # default never reached it; an old default is dropped so the new one
+        # applies. A value the user chose differs and is kept.
+        data = {k: v for k, v in data.items() if OLD_DEFAULTS.get(k, _UNSET) != v}
         unknown = sorted(set(data) - known)
         if unknown:
             log.warning(
@@ -494,7 +501,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "frame_ms": (5, 200),
     "silence_ms": (20, 10_000),
     "min_chunk_ms": (0, 60_000),
-    "max_chunk_ms": (500, 120_000),
+    "max_chunk_ms": (0, 3_600_000),
     "preroll_ms": (0, 5_000),
     "calibrate_ms": (0, 10_000),
     "calibrate_margin": (0.1, 100.0),
@@ -547,6 +554,12 @@ RETIRED = {
     "rvc_index_rate", "rvc_filter_radius", "rvc_rms_mix_rate", "rvc_protect",
     "voice_streaming", "stream_block_ms", "stream_context_ms", "stream_crossfade_ms",
 }
+
+#: Defaults that changed, with the value they used to have.
+OLD_DEFAULTS = {
+    "max_chunk_ms": 10_000,  # 0.4.0: no limit
+}
+_UNSET = object()
 
 _TRUE = {"true", "yes", "on", "1"}
 _FALSE = {"false", "no", "off", "0"}

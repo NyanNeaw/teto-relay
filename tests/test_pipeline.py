@@ -339,6 +339,23 @@ class TestPushToTalkChunker(unittest.TestCase):
         self.assertEqual(emitted[0].reason, "max_length")
         self.assertFalse(chunker.recording)
 
+    def test_no_limit_by_default(self):
+        """A sung verse ran past the old 10 s cap and was cut mid-line."""
+        cfg = Config(capture_mode="ptt")
+        self.assertEqual(cfg.max_chunk_ms, 0)
+        chunker = PushToTalkChunker(cfg)
+        chunker.start()
+        self.assertFalse([c for f in self._frames(cfg, 25.0) if chunker.push(f)])
+        self.assertTrue(chunker.recording)
+        chunker.stop()
+        chunk = chunker.push(self._frames(cfg, 0.02)[0])
+        self.assertEqual(chunk.reason, "release")
+        self.assertGreater(chunk.duration, 24.9)
+
+    def test_an_old_config_loses_the_old_cap(self):
+        self.assertEqual(Config.from_dict({"max_chunk_ms": 10_000}).max_chunk_ms, 0)
+        self.assertEqual(Config.from_dict({"max_chunk_ms": 30_000}).max_chunk_ms, 30_000)
+
     def test_flush_emits_a_held_recording(self):
         cfg = Config(capture_mode="ptt")
         chunker = PushToTalkChunker(cfg)

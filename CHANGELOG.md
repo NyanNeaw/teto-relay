@@ -25,6 +25,10 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   `before-rvc-removal`.
 
 ### Fixed
+- **No 10 second limit on a phrase.** A sung verse was cut mid-line; a
+  phrase now lasts until you let go of the key (or stop, in automatic mode).
+  **Longest phrase** (`max_chunk_ms`) still sets one; 0 is none. Settings
+  files that still hold the old 10 s default get the new one.
 - **Long English words were sung in a hurry** ("control" at 72-83% of how
   long it was said, the "it" after it at 200-300%). Whisper gives the end of
   a word to the next one; the line between two touching words now moves to

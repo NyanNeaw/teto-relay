@@ -50,6 +50,13 @@ def rms(frame: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
 
 
+def max_frames(cfg) -> int | None:
+    """Frames after which a phrase is cut, or None for no limit (0)."""
+    if cfg.max_chunk_ms <= 0:
+        return None
+    return max(1, cfg.max_chunk_ms // cfg.frame_ms)
+
+
 class Chunker:
     """Accumulates frames and emits a Chunk once speech is followed by a pause."""
 
@@ -69,8 +76,8 @@ class Chunker:
         return max(1, self.cfg.silence_ms // self.cfg.frame_ms)
 
     @property
-    def _max_frames(self) -> int:
-        return max(1, self.cfg.max_chunk_ms // self.cfg.frame_ms)
+    def _max_frames(self) -> int | None:
+        return max_frames(self.cfg)
 
     @property
     def _min_voiced(self) -> int:
@@ -99,7 +106,7 @@ class Chunker:
 
         if self._silence_run >= self._silence_limit:
             return self._emit("pause")
-        if len(self._frames) >= self._max_frames:
+        if self._max_frames is not None and len(self._frames) >= self._max_frames:
             return self._emit("max_length")
         return None
 
@@ -185,7 +192,8 @@ class PushToTalkChunker:
                 self._preroll.append(frame)
             else:
                 self._frames.append(frame)
-                if len(self._frames) >= max(1, self.cfg.max_chunk_ms // self.cfg.frame_ms):
+                limit = max_frames(self.cfg)
+                if limit is not None and len(self._frames) >= limit:
                     self._active = False
                     log.warning("Hit the %.0fs recording limit", self.cfg.max_chunk_ms / 1000)
                     self._finish_locked("max_length")
