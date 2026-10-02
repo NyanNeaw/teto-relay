@@ -212,10 +212,38 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
   .patch svg{display:none}
   .patch svg.tall{display:block}
 }
+/* ---------------------------------------------------------------- scroll choreography
+   Set up by the script below, only when motion is welcome. Each block plays
+   once as it comes into view: headings rise letter by letter from behind a
+   mask, cards lift in turn, and inside each drawing the lines draw and the
+   shapes pop, in order. The playhead along the top follows the scroll. */
+:root{--out:cubic-bezier(.16,1,.3,1);--spring:cubic-bezier(.34,1.56,.64,1)}
+.progress{position:fixed;inset:0 0 auto 0;height:3px;z-index:10;pointer-events:none}
+.progress span{display:block;height:100%;background:var(--red);transform-origin:0 50%;transform:scaleX(0)}
+.word{display:inline-block;overflow:hidden;vertical-align:top;padding:.08em 0;margin:-.08em 0}
+html.anim [data-split] .ch{display:inline-block;transform:translateY(112%) rotate(6deg);
+  transition:transform 1s var(--spring) calc(var(--c) * 26ms)}
+html.anim [data-split].in .ch{transform:none}
+html.anim .r{opacity:0;transform:translateY(38px);
+  transition:opacity .7s var(--out) calc(var(--i,0) * 90ms + var(--d,0ms)),transform 1s var(--spring) calc(var(--i,0) * 90ms + var(--d,0ms))}
+html.anim .in > .r,html.anim .r.in{opacity:1;transform:none}
+html.anim .pp{opacity:0;transform:scale(.3);transform-box:fill-box;transform-origin:center;
+  transition:opacity .35s var(--out) calc(var(--i,0) * 90ms + 260ms + var(--j,0) * 42ms),
+             transform .8s var(--spring) calc(var(--i,0) * 90ms + 260ms + var(--j,0) * 42ms)}
+html.anim .in .pp{opacity:var(--o,1);transform:none}
+html.anim .dr{stroke-dasharray:var(--len);stroke-dashoffset:var(--len);
+  transition:stroke-dashoffset 1.2s var(--out) calc(var(--i,0) * 90ms + 200ms + var(--j,0) * 42ms)}
+html.anim .in .dr{stroke-dashoffset:0}
+html.anim .timeline::before{transform:scaleX(0);transform-origin:0 50%;transition:transform 1.6s var(--out)}
+html.anim .timeline.in::before{transform:none}
+html.anim .clip .bar::before{transform:scale(0);transition:transform .6s var(--spring) calc(var(--i,0) * 150ms + 200ms)}
+html.anim .timeline.in .clip .bar::before{transform:none}
+html.anim .timeline .clip{transition-delay:calc(var(--i) * 150ms + 150ms)}
 @media print{.keycap,.top nav{display:none}}
 </style>
 </head>
 <body>
+<div class="progress" aria-hidden="true"><span></span></div>
 <div class="wrap">
 
 <header class="top">
@@ -229,9 +257,9 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ hero -->
 <div class="hero">
   <p class="kana">テト・リレー</p>
-  <h1 class="display">You talk.<br><span class="her">She sings.</span></h1>
+  <h1 class="display" data-split>You talk.<br><span class="her">She sings.</span></h1>
 
-  <div class="stage">
+  <div class="stage" data-reveal="self" style="--i:4">
     <svg class="roll" viewBox="0 0 960 380" role="img"
          aria-label="Holding F8, your voice is recorded as a waveform. When you let go it becomes Teto's notes, hel, lo, there, and she sings them.">
       <!-- lanes: the black-key rows of one octave -->
@@ -275,7 +303,7 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
     <div class="keycap" aria-hidden="true">F8</div>
   </div>
 
-  <ol class="cues" aria-label="How it works">
+  <ol class="cues" aria-label="How it works" data-reveal style="--d:900ms">
     <li><b>1</b>Hold F8</li>
     <li><b>2</b>Talk or sing</li>
     <li><b>3</b>Let go</li>
@@ -286,10 +314,10 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ setup -->
 <section id="setup">
   <div class="head2">
-    <h2 class="display">Four things, once</h2>
-    <p>Teto Relay plugs into these. Install them before your first take.</p>
+    <h2 class="display" data-split>Four things, once</h2>
+    <p data-reveal="self" style="--i:3">Teto Relay plugs into these. Install them before your first take.</p>
   </div>
-  <div class="tracks">
+  <div class="tracks" data-reveal>
     <div class="track">
       <div class="chip" style="background:color-mix(in srgb,var(--ink) 9%,transparent)">
         <svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="4" y="7" width="26" height="20" rx="3"/><path d="M4 13h26M9 10h.01M13 10h.01" stroke-linecap="round"/></svg>
@@ -319,16 +347,16 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
       <a class="get" href="https://vb-audio.com/Cable/">Download</a>
     </div>
   </div>
-  <p class="stamp">Not sure what's missing? Press <b>Check setup</b> in the app. It lists anything that isn't there yet.</p>
+  <p class="stamp" data-reveal="self" style="--i:2">Not sure what's missing? Press <b>Check setup</b> in the app. It lists anything that isn't there yet.</p>
 </section>
 
 <!-- ============================================================ first take -->
 <section id="first">
   <div class="head2">
-    <h2 class="display">Your first take</h2>
-    <p>Five minutes the first time. After that, just Start.</p>
+    <h2 class="display" data-split>Your first take</h2>
+    <p data-reveal="self" style="--i:3">Five minutes the first time. After that, just Start.</p>
   </div>
-  <div class="timeline">
+  <div class="timeline" data-reveal>
     <div class="clip"><span class="bar">bar 1</span><div class="body">
       <div class="pic"><svg viewBox="0 0 200 120" aria-hidden="true"><rect x="30" y="18" width="140" height="84" rx="10" fill="var(--card)" stroke="var(--ink)" stroke-width="2.5"/><path d="M30 34h140" stroke="var(--ink)" stroke-width="2.5"/><circle cx="42" cy="26" r="3" fill="var(--red)"/><circle cx="100" cy="68" r="17" fill="var(--red)"/><path d="M97 59v14m0 0a4 4 0 1 1-4-4m4-10 8 3" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round"/></svg></div>
       <h3>Open it</h3><p>Right-click its taskbar button, Pin to taskbar.</p></div></div>
@@ -350,10 +378,10 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ stream -->
 <section id="stream">
   <div class="head2">
-    <h2 class="display">Put her on stream</h2>
-    <p>Teto sings into the cable. Discord and OBS listen to the other end.</p>
+    <h2 class="display" data-split>Put her on stream</h2>
+    <p data-reveal="self" style="--i:3">Teto sings into the cable. Discord and OBS listen to the other end.</p>
   </div>
-  <div class="patch">
+  <div class="patch" data-reveal="self">
     <svg viewBox="0 0 960 200" role="img" aria-label="Your mic goes into Teto Relay, which sings into CABLE Input. CABLE Output carries her into Discord or OBS.">
       <path class="cable" d="M140 100 H220 M400 100 H480 M620 100 C680 100 640 46 700 46 M620 100 C680 100 640 154 700 154"/>
       <circle class="spark" r="6">
@@ -379,11 +407,11 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
       <rect class="box" x="178" y="384" width="152" height="74" rx="14"/><text class="lbl" x="254" y="414" text-anchor="middle">OBS</text><text class="sub" x="254" y="436" text-anchor="middle">CABLE Output</text>
     </svg>
   </div>
-  <div class="recipes">
+  <div class="recipes" data-reveal>
     <div class="recipe"><b>Discord</b><div class="path"><span>User Settings</span> → <span>Voice &amp; Video</span> → <span>Input Device: CABLE Output</span></div></div>
     <div class="recipe"><b>OBS</b><div class="path"><span>Sources +</span> → <span>Audio Input Capture</span> → <span>CABLE Output</span></div></div>
   </div>
-  <div class="never">
+  <div class="never" data-reveal="self">
     <svg viewBox="0 0 58 58" fill="none" stroke="var(--red)" stroke-width="4" stroke-linecap="round" aria-hidden="true"><path d="M18 22a14 14 0 1 1-2 14"/><path d="M14 14l2 9 9-2"/><path d="M8 50 50 8"/></svg>
     <p><strong>Never set Teto Relay's Microphone to CABLE Output.</strong> She would hear herself and sing in a loop. Her microphone is always your real one.</p>
   </div>
@@ -392,10 +420,10 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ controls -->
 <section id="controls">
   <div class="head2">
-    <h2 class="display">The controls</h2>
-    <p>All on the main screen. Everything else lives under All settings.</p>
+    <h2 class="display" data-split>The controls</h2>
+    <p data-reveal="self" style="--i:3">All on the main screen. Everything else lives under All settings.</p>
   </div>
-  <div class="knobs">
+  <div class="knobs" data-reveal>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" font-family="Segoe UI,Leelawadee UI,Yu Gothic UI,sans-serif" font-weight="700" font-size="16" aria-hidden="true"><rect x="8" y="28" width="56" height="34" rx="17" fill="var(--card)" stroke="var(--grid)" stroke-width="2"/><text x="36" y="51" text-anchor="middle" fill="var(--ink)">EN</text><rect x="72" y="28" width="56" height="34" rx="17" fill="var(--red)"/><text x="100" y="51" text-anchor="middle" fill="#fff">ไทย</text><rect x="136" y="28" width="58" height="34" rx="17" fill="var(--card)" stroke="var(--grid)" stroke-width="2"/><text x="165" y="51" text-anchor="middle" fill="var(--ink)" font-size="14">日本語</text></svg></div>
       <h3>Language</h3><p>The language you speak. Any voicebank sings all three.</p>
@@ -426,10 +454,10 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ fixes -->
 <section id="fixes">
   <div class="head2">
-    <h2 class="display">Something off?</h2>
-    <p>Press Check setup first. It names the problem. Then:</p>
+    <h2 class="display" data-split>Something off?</h2>
+    <p data-reveal="self" style="--i:3">Press Check setup first. It names the problem. Then:</p>
   </div>
-  <div class="fixes">
+  <div class="fixes" data-reveal>
     <details><summary>Plain beeps instead of Teto</summary><p>OpenUtau couldn't start. Install the .NET 8 Desktop Runtime, or point All settings → Setup → OpenUtau folder at the folder with OpenUtau.exe.</p></details>
     <details><summary>She hears herself and loops</summary><p>Your Microphone is set to CABLE Output. Set it to your real mic.</p></details>
     <details><summary>Nothing happens when I hold F8</summary><p>Another app is taking the key. Pick a different Push-to-talk key.</p></details>
@@ -442,18 +470,18 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
 <!-- ============================================================ files -->
 <section id="files">
   <div class="head2">
-    <h2 class="display">Where things live</h2>
-    <p>Uninstalling keeps your settings, voicebanks and models. Reinstall and carry on.</p>
+    <h2 class="display" data-split>Where things live</h2>
+    <p data-reveal="self" style="--i:3">Uninstalling keeps your settings, voicebanks and models. Reinstall and carry on.</p>
   </div>
-  <div class="files">
+  <div class="files" data-reveal>
     <div class="file"><b>Installed</b><code>%LOCALAPPDATA%\TetoRelay</code><p>Settings, voicebanks and models. Delete it too if you want everything gone.</p></div>
     <div class="file"><b>Portable zip</b><code>data\</code><p>Everything stays in the data folder next to TetoRelay.exe.</p></div>
   </div>
 </section>
 
 <footer>
-  <span class="display end">Now go sing.</span>
-  <span>Singing by <a href="https://github.com/stakira/OpenUtau">OpenUtau</a>. Kasane Teto belongs to her creators.</span>
+  <span class="display end" data-split>Now go sing.</span>
+  <span data-reveal="self" style="--i:4">Singing by <a href="https://github.com/stakira/OpenUtau">OpenUtau</a>. Kasane Teto belongs to her creators.</span>
 </footer>
 </div>
 
@@ -472,6 +500,91 @@ footer .end{font-size:clamp(44px,7vw,84px);color:var(--ink);margin-right:auto}
     d += "M" + x + " " + (mid - a).toFixed(1) + "V" + (mid + a).toFixed(1);
   }
   path.setAttribute("d", d);
+})();
+
+/* Scroll choreography: see the styles above. Nothing is hidden until this
+   has run, so without scripts or with reduced motion every part shows. */
+(function () {
+  var root = document.documentElement;
+  if (!("IntersectionObserver" in window) || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  root.classList.add("anim");
+
+  var c = 0;
+  function split(el) {
+    el.setAttribute("aria-label", el.textContent.replace(/\s+/g, " ").trim());
+    Array.prototype.slice.call(el.childNodes).forEach(function (node) {
+      if (node.nodeType === 1) { if (node.tagName !== "BR") split(node); node.removeAttribute("aria-label"); return; }
+      if (node.nodeType !== 3) return;
+      var frag = document.createDocumentFragment();
+      node.textContent.split(/(\s+)/).forEach(function (part) {
+        if (!part) return;
+        if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(part)); return; }
+        var word = document.createElement("span");
+        word.className = "word";
+        word.setAttribute("aria-hidden", "true");
+        Array.prototype.forEach.call(part, function (ch) {
+          var span = document.createElement("span");
+          span.className = "ch";
+          span.textContent = ch;
+          span.style.setProperty("--c", c++);
+          word.appendChild(span);
+        });
+        frag.appendChild(word);
+      });
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  document.querySelectorAll("[data-split]").forEach(function (el) { c = 0; split(el); });
+
+  document.querySelectorAll("[data-reveal]").forEach(function (box) {
+    var items = box.getAttribute("data-reveal") === "self" ? [box] : Array.prototype.slice.call(box.children);
+    items.forEach(function (item, i) {
+      item.classList.add("r");
+      if (!item.style.getPropertyValue("--i")) item.style.setProperty("--i", i);
+    });
+    box.querySelectorAll("svg:not(.roll)").forEach(function (svg) {
+      var j = 0;
+      svg.querySelectorAll("rect,circle,path,line,text").forEach(function (shape) {
+        if (shape.closest("clipPath,defs")) return;
+        var style = getComputedStyle(shape);
+        var open = style.fill === "none" && style.stroke !== "none";
+        if (open && shape.getTotalLength) {
+          shape.classList.add("dr");
+          shape.style.setProperty("--len", Math.ceil(shape.getTotalLength()) + 1);
+        } else {
+          shape.classList.add("pp");
+          if (shape.hasAttribute("opacity")) shape.style.setProperty("--o", shape.getAttribute("opacity"));
+        }
+        shape.style.setProperty("--j", j++);
+      });
+    });
+  });
+
+  var watch = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      e.target.classList.add("in");
+      watch.unobserve(e.target);
+    });
+  }, { rootMargin: "0px 0px -12% 0px", threshold: 0.15 });
+  document.querySelectorAll("[data-reveal],[data-split]").forEach(function (el) { watch.observe(el); });
+
+  var bar = document.querySelector(".progress span"), queued = false;
+  function playhead() {
+    queued = false;
+    var room = root.scrollHeight - innerHeight;
+    bar.style.transform = "scaleX(" + (room > 0 ? scrollY / room : 0) + ")";
+    // The last lines can never rise past the trigger line: at the end of
+    // the page, whatever is still waiting plays.
+    if (scrollY >= room - 4) {
+      document.querySelectorAll("[data-reveal]:not(.in),[data-split]:not(.in)").forEach(function (el) {
+        el.classList.add("in");
+        watch.unobserve(el);
+      });
+    }
+  }
+  addEventListener("scroll", function () { if (!queued) { queued = true; requestAnimationFrame(playhead); } }, { passive: true });
+  playhead();
 })();
 </script>
 </body>
