@@ -32,6 +32,12 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   SHA-256 hashes, so the first start is quick. A failed or skipped download
   is fetched by the app when needed, as before. The Finish page opens the
   new how-to-use guide and launches Teto Relay.
+- **The installer gets .NET 8 and OpenUtau when they're missing** (ticked,
+  shown only then): the .NET 8 Desktop Runtime from Microsoft, and OpenUtau
+  0.1.565 (the version Teto Relay drives, checked against GitHub's
+  SHA-256) unzipped into `%LOCALAPPDATA%\Programs\OpenUtau`. A friend with
+  only .NET 10 got beeps. VB-Cable stays with VB-Audio (its terms); the
+  Finish page links to it when it is missing.
 - **How to use Teto Relay**, a one-page guide (`how-to-use.html`, in the Start
   menu and the portable zip): setup, first start, Discord and OBS, the
   controls, tips and troubleshooting.

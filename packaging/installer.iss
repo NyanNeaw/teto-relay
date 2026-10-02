@@ -44,12 +44,17 @@ LZMAUseSeparateProcess=yes
 LZMANumBlockThreads=2
 SolidCompression=yes
 WizardStyle=modern
+; OpenUtau comes as a .zip: the full extractor reads it (is7z.dll).
+ArchiveExtraction=full
 
 [Messages]
 WelcomeLabel2=This will install [name/ver] on your computer.%n%nSpeak or sing into your microphone and Teto sings it back.%n%nClose other applications before continuing.
-FinishedLabel=Teto Relay is installed. Hold F8, speak, let go - she sings it back.%n%nThe guide shows the one-time setup (OpenUtau, VB-Cable and a voicebank).
+FinishedLabel=Teto Relay is installed. Hold F8, speak, let go - she sings it back.%n%nStill to get yourself: a voicebank, and VB-Cable for Discord and OBS. The guide shows where.
 
 [Tasks]
+; Shown only when missing: what Teto Relay cannot sing without.
+Name: "dotnet"; Description: ".NET 8 Desktop &Runtime (60 MB, from Microsoft) - Windows asks to allow it"; GroupDescription: "Needed to sing, and not on this PC yet:"; Check: NeedsDotNet
+Name: "openutau"; Description: "&OpenUtau 0.1.565, the singing engine (135 MB)"; GroupDescription: "Needed to sing, and not on this PC yet:"; Check: NeedsOpenUtau
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "speechmodel"; Description: "&Speech model for English and Japanese (150 MB)"; GroupDescription: "Download now, so the first start is quick (needs internet; anything left out downloads the first time it is needed):"
 Name: "thaimodel"; Description: "&Thai speech model (480 MB) - if you speak Thai"; GroupDescription: "Download now, so the first start is quick (needs internet; anything left out downloads the first time it is needed):"
@@ -74,9 +79,11 @@ Name: "{group}\Uninstall Teto Relay"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\Teto Relay"; Filename: "{app}\TetoRelay.exe"; AppUserModelID: "KasaneTeto.TetoRelay"; Tasks: desktopicon
 
 [Run]
-; The Finish page's two ticked boxes.
+; The Finish page's ticked boxes.
 Filename: "{app}\how-to-use.html"; Description: "Open the how-to-use guide"; Flags: postinstall shellexec nowait skipifsilent
 Filename: "{app}\TetoRelay.exe"; Description: "Launch Teto Relay"; Flags: postinstall nowait skipifsilent
+; VB-Cable is a driver whose terms leave installing it to VB-Audio: its page, when it is missing.
+Filename: "https://vb-audio.com/Cable/"; Description: "Get VB-Cable, so Discord and OBS can hear her"; Flags: postinstall shellexec nowait skipifsilent; Check: NeedsVBCable
 
 [Code]
 const
@@ -89,9 +96,20 @@ const
   ThaiUrl = 'https://huggingface.co/wannaphong/typhoon-asr-realtime-onnx/resolve/04af3e7b6d822cb2807bc539301669d4f84691e7/';
   { torchaudio's MMS_FA checkpoint, where teto_relay.align._checkpoint looks. }
   TimingUrl = 'https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt';
+  { Microsoft's link to the newest .NET 8 Desktop Runtime (it is signed by
+    Microsoft; the patch level moves, so there is no fixed hash). }
+  DotNetUrl = 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe';
+  { The OpenUtau Teto Relay drives, pinned: it reaches into OpenUtau's
+    internals, so a newer one may not work. Hash as GitHub publishes it. }
+  OpenUtauUrl = 'https://github.com/openutau/OpenUtau/releases/download/0.1.565/OpenUtau-win-x64.zip';
+  OpenUtauSha = '6697e84469574d0d9abf3c0e1927475005e64114fb01efa302b7d82d778f439d';
+  { One of the places teto_relay.locate looks for it. }
+  OpenUtauFolder = '{localappdata}\Programs\OpenUtau';
 
 var
   DownloadPage: TDownloadWizardPage;
+  ExtractionPage: TExtractionWizardPage;
+  OpenUtauKnown: Integer;  { 0 not looked yet, 1 found, 2 missing }
   { Downloaded into Setup's temporary folder under a name of their own,
     moved into place once the program is installed. }
   PendingTemp: array of String;
@@ -114,11 +132,110 @@ begin
   end;
 end;
 
+function NeedsDotNet(): Boolean;
+begin
+  Result := not HasDotNet8Desktop();
+end;
+
+function HasCoreDll(const Folder: String): Boolean;
+begin
+  Result := (Folder <> '') and FileExists(AddBackslash(Folder) + 'OpenUtau.Core.dll');
+end;
+
+{ The OpenUtau folder Teto Relay was already given, from its settings. }
+function ConfiguredOpenUtau(): String;
+var
+  Text: AnsiString;
+  Json: String;
+  At, Stop: Integer;
+begin
+  Result := '';
+  if not LoadStringFromFile(ExpandConstant('{localappdata}\TetoRelay\config.json'), Text) then
+    Exit;
+  Json := String(Text);
+  At := Pos('"openutau_dir"', Json);
+  if At = 0 then
+    Exit;
+  Json := Copy(Json, At + 14, 1024);
+  At := Pos('"', Json);
+  if At = 0 then
+    Exit;
+  Json := Copy(Json, At + 1, 1024);
+  Stop := Pos('"', Json);
+  if Stop = 0 then
+    Exit;
+  Result := Copy(Json, 1, Stop - 1);
+  StringChangeEx(Result, '\\', '\', True);
+end;
+
+{ The same places as teto_relay.locate: the usual install folders, then each
+  drive's top and one folder down (D:\Work\OpenUtau). }
+function FindOpenUtau(): Boolean;
+var
+  Places: array of String;
+  I, Letter: Integer;
+  Root: String;
+  FindRec: TFindRec;
+begin
+  Result := True;
+  SetArrayLength(Places, 10);
+  Places[0] := ConfiguredOpenUtau();
+  Places[1] := GetEnv('OPENUTAU_DIR');
+  Places[2] := ExpandConstant('{localappdata}\OpenUtau\current');
+  Places[3] := ExpandConstant('{localappdata}\OpenUtau');
+  Places[4] := ExpandConstant(OpenUtauFolder);
+  Places[5] := ExpandConstant('{commonpf64}\OpenUtau');
+  Places[6] := ExpandConstant('{commonpf32}\OpenUtau');
+  Places[7] := GetEnv('USERPROFILE') + '\OpenUtau';
+  Places[8] := GetEnv('USERPROFILE') + '\Desktop\OpenUtau';
+  Places[9] := GetEnv('USERPROFILE') + '\Downloads\OpenUtau';
+  for I := 0 to GetArrayLength(Places) - 1 do
+    if HasCoreDll(Places[I]) then
+      Exit;
+  for Letter := Ord('C') to Ord('Z') do
+  begin
+    Root := Chr(Letter) + ':\';
+    if not DirExists(Root) then
+      Continue;
+    if HasCoreDll(Root + 'OpenUtau') then
+      Exit;
+    if FindFirst(Root + '*', FindRec) then
+    begin
+      try
+        repeat
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY <> 0) and (Copy(FindRec.Name, 1, 1) <> '$')
+             and (Copy(FindRec.Name, 1, 1) <> '.') and HasCoreDll(Root + FindRec.Name + '\OpenUtau') then
+            Exit;
+        until not FindNext(FindRec);
+      finally
+        FindClose(FindRec);
+      end;
+    end;
+  end;
+  Result := False;
+end;
+
+function NeedsOpenUtau(): Boolean;
+begin
+  if OpenUtauKnown = 0 then
+    if FindOpenUtau() then OpenUtauKnown := 1 else OpenUtauKnown := 2;
+  Result := OpenUtauKnown = 2;
+end;
+
+function NeedsVBCable(): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := not FindFirst(ExpandConstant('{sys}\drivers\vbaudio_cable*.sys'), FindRec);
+  if not Result then
+    FindClose(FindRec);
+end;
+
 procedure InitializeWizard;
 begin
-  DownloadPage := CreateDownloadPage('Downloading models',
-    'Teto Relay''s speech and timing models are being downloaded. You can skip this: ' +
-    'whatever is missing downloads the first time it is needed.', nil);
+  DownloadPage := CreateDownloadPage('Downloading',
+    'Getting what Teto Relay needs. A model you skip downloads the first time it is needed.', nil);
+  ExtractionPage := CreateExtractionPage('Unpacking OpenUtau', 'Putting the singing engine in place.', nil);
 end;
 
 { Queue one file, unless it is already in place and whole. }
@@ -170,6 +287,45 @@ begin
          '20ef12963ab4924bef49ac4fc7f58ad5da2ee43b2c11bc8c853c9b90ecdbc680');
 end;
 
+{ Unpack OpenUtau and run the .NET installer, whichever were downloaded.
+  Either failing leaves Setup going: the Finish message and Check setup in
+  the app say what is still missing. }
+procedure InstallPrerequisites;
+var
+  ResultCode: Integer;
+  Installer: String;
+begin
+  if FileExists(ExpandConstant('{tmp}\openutau.zip')) then
+  begin
+    ExtractionPage.Clear;
+    ExtractionPage.Add(ExpandConstant('{tmp}\openutau.zip'), ExpandConstant(OpenUtauFolder), True);
+    ExtractionPage.Show;
+    try
+      try
+        ExtractionPage.Extract;
+        OpenUtauKnown := 1;
+      except
+        if not ExtractionPage.AbortedByUser then
+          SuppressibleMsgBox('OpenUtau could not be unpacked:' + #13#10 + GetExceptionMessage + #13#10#13#10 +
+            'Get it from https://github.com/stakira/OpenUtau/releases and unzip it anywhere.',
+            mbInformation, MB_OK, IDOK);
+      end;
+    finally
+      ExtractionPage.Hide;
+    end;
+  end;
+  Installer := ExpandConstant('{tmp}\dotnet-desktop-8.exe');
+  if FileExists(Installer) then
+  begin
+    WizardForm.NextButton.Enabled := False;
+    { ShellExec, not Exec: Windows asks to allow it (it installs for all users). }
+    if not ShellExec('', Installer, '/install /quiet /norestart', '', SW_SHOW, ewWaitUntilTerminated, ResultCode)
+       or not ((ResultCode = 0) or (ResultCode = 3010) or (ResultCode = 1638)) then
+      Log('The .NET 8 Desktop Runtime installer did not finish: ' + IntToStr(ResultCode));
+    WizardForm.NextButton.Enabled := True;
+  end;
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
@@ -179,7 +335,11 @@ begin
   SetArrayLength(PendingTemp, 0);
   SetArrayLength(PendingTarget, 0);
   QueueModels;
-  if GetArrayLength(PendingTemp) = 0 then
+  if WizardIsTaskSelected('dotnet') then
+    DownloadPage.Add(DotNetUrl, 'dotnet-desktop-8.exe', '');
+  if WizardIsTaskSelected('openutau') then
+    DownloadPage.Add(OpenUtauUrl, 'openutau.zip', OpenUtauSha);
+  if (GetArrayLength(PendingTemp) = 0) and not WizardIsTaskSelected('dotnet') and not WizardIsTaskSelected('openutau') then
     Exit;
   DownloadPage.Show;
   try
@@ -196,6 +356,7 @@ begin
   finally
     DownloadPage.Hide;
   end;
+  InstallPrerequisites;
 end;
 
 { Downloads are moved, not copied: Setup's temporary folder and the data

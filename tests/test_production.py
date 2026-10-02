@@ -1537,6 +1537,11 @@ class TestInstallerModels(unittest.TestCase):
         self.assertIn(r"\.cache\torch\hub\checkpoints\model.pt", iss)
         # Every extra is ticked: none is marked unchecked.
         self.assertNotIn("unchecked", iss)
+        # What Teto Relay can't sing without is offered only when missing.
+        self.assertIn('Name: "dotnet"', iss)
+        self.assertIn("Check: NeedsDotNet", iss)
+        self.assertIn("Check: NeedsOpenUtau", iss)
+        self.assertIn("ArchiveExtraction=full", iss)  # OpenUtau is a .zip
 
 
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):

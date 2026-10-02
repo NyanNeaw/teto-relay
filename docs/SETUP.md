@@ -21,6 +21,12 @@ you may already have them. Install each one once.
 
 **Installer:** run `TetoRelay-<version>-setup.exe` and click through. It
 installs for your user only (no admin prompt) and adds Start menu entries.
+If the .NET 8 Desktop Runtime or OpenUtau isn't on the PC, it offers to get
+them too (ticked): .NET from Microsoft (Windows asks to allow it), and
+OpenUtau 0.1.565, the version Teto Relay is tested with, unzipped into
+`%LOCALAPPDATA%\Programs\OpenUtau`. VB-Cable is a driver whose terms leave
+installing it to VB-Audio, so the last page offers its download page instead.
+
 These extras are ticked; untick any you don't want:
 
 - a desktop shortcut;
