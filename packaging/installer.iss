@@ -69,6 +69,10 @@ Source: "..\docs\SETUP.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 
+[UninstallDelete]
+; Written at the end of setup (WriteInstalledState), so not in the install log.
+Type: files; Name: "{app}\installed.js"
+
 [Icons]
 ; The panel window's taskbar identity (teto_relay.window.APP_ID): a pinned
 ; button and these shortcuts are then one app on the taskbar.
@@ -380,11 +384,27 @@ begin
   end;
 end;
 
+function JsBool(const Value: Boolean): String;
+begin
+  if Value then Result := 'true' else Result := 'false';
+end;
+
+{ What is on this PC now, for the guide next to the program: the rows it
+  covers say "Installed" instead of offering a download. }
+procedure WriteInstalledState;
+begin
+  SaveStringToFile(ExpandConstant('{app}\installed.js'),
+    'window.tetoInstalled = {dotnet: ' + JsBool(HasDotNet8Desktop()) +
+    ', openutau: ' + JsBool(not NeedsOpenUtau()) +
+    ', vbcable: ' + JsBool(not NeedsVBCable()) + '};' + #13#10, False);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep <> ssPostInstall then
     Exit;
   PlaceDownloads;
+  WriteInstalledState;
   if (not HasDotNet8Desktop()) and (not WizardSilent()) then
     MsgBox('Teto Relay needs the .NET 8 Desktop Runtime (x64) to sing through OpenUtau, ' +
            'and it was not found.' + #13#10#13#10 +
