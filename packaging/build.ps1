@@ -140,7 +140,8 @@ $Zip = Join-Path $Root "dist\$PortableName.zip"
 # Streamed from the app folder: a staging copy needed the app's size again in
 # free space, and filled the disk on the test PC.
 & $Py (Join-Path $Root "packaging\portable_zip.py") $App $Zip $PortableName `
-    (Join-Path $Root "docs\SETUP.md") (Join-Path $Root "README.md") (Join-Path $Root "CHANGELOG.md")
+    (Join-Path $Root "docs\how-to-use.html") (Join-Path $Root "docs\SETUP.md") `
+    (Join-Path $Root "README.md") (Join-Path $Root "CHANGELOG.md")
 if ($LASTEXITCODE -ne 0) { Fail "could not write the portable zip" }
 
 # ---------------------------------------------------------------- 6. installer

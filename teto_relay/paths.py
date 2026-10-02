@@ -83,6 +83,12 @@ def cache_dir() -> Path:
     return data_dir() / ".cache"
 
 
+def models_dir() -> Path:
+    """Models the installer downloaded (packaging/installer.iss), each in a
+    folder of its own; looked in before anything is fetched at run time."""
+    return data_dir() / "models"
+
+
 def host_dir() -> Path:
     """Scratch space for the hosted OpenUtau runtime."""
     return data_dir() / ".openutau-host"

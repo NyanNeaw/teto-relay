@@ -266,6 +266,19 @@ def effective_model(cfg) -> str:
     return cfg.whisper_model
 
 
+def whisper_source(name: str) -> str:
+    """Where to load whisper `name` from: the installer's copy
+    (models/faster-whisper-<name>, packaging/installer.iss) when it is whole,
+    otherwise the name, which faster-whisper downloads."""
+    from . import paths
+
+    local = paths.models_dir() / f"faster-whisper-{name}"
+    needed = ("model.bin", "config.json", "tokenizer.json", "vocabulary.txt")
+    if all((local / part).is_file() for part in needed):
+        return str(local)
+    return name
+
+
 def _trim_loop(words: list[Word], out_of_budget: bool = False) -> list[Word]:
     """Cut a phrase that ends in one to three words said over and over.
 
@@ -444,7 +457,7 @@ class Transcriber:
             log.info("Loading whisper %r (%s, %s)...", self.cfg.whisper_model,
                      self.cfg.whisper_device, compute_type)
             self._model = WhisperModel(
-                self.cfg.whisper_model,
+                whisper_source(self.cfg.whisper_model),
                 device=self.cfg.whisper_device,
                 compute_type=compute_type,
             )

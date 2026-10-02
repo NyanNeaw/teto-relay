@@ -24,6 +24,18 @@ from the file): **Connect words** (`legato`) on, **Measure word timing**
   RVC settings are dropped quietly). The code is at the git tag
   `before-rvc-removal`.
 
+### Added
+- **A proper installer**: Welcome, folder, extras, Ready, Finish. The extras
+  are all ticked and can be unticked: a desktop shortcut, and the speech
+  model (150 MB), Thai speech model (480 MB) and word timing model (1.2 GB),
+  downloaded during setup with a progress bar and checked against pinned
+  SHA-256 hashes, so the first start is quick. A failed or skipped download
+  is fetched by the app when needed, as before. The Finish page opens the
+  new how-to-use guide and launches Teto Relay.
+- **How to use Teto Relay**, a one-page guide (`how-to-use.html`, in the Start
+  menu and the portable zip): setup, first start, Discord and OBS, the
+  controls, tips and troubleshooting.
+
 ### Changed
 - **Thai is heard by Typhoon ASR** (SCB 10X, CC BY 4.0) instead of Thonburian
   Whisper. Whisper made up whole sentences when a note was held after the

@@ -1479,6 +1479,66 @@ class TestTheProcessEndsWhenClosed(unittest.TestCase):
             self.assertIn("leave(main(", text, name)
 
 
+class TestInstallerModels(unittest.TestCase):
+    """The installer downloads models into models/ (installer.iss); the app
+    must find them there, and both must name the same pinned files."""
+
+    def test_whisper_uses_the_installed_copy_when_whole(self):
+        from teto_relay.stt import whisper_source
+
+        with _TempHome() as home:
+            folder = home / "models" / "faster-whisper-base"
+            folder.mkdir(parents=True)
+            for part in ("model.bin", "config.json", "tokenizer.json"):
+                (folder / part).write_text("x")
+            self.assertEqual(whisper_source("base"), "base")  # vocabulary.txt missing
+            (folder / "vocabulary.txt").write_text("x")
+            self.assertEqual(whisper_source("base"), str(folder))
+            self.assertEqual(whisper_source("small"), "small")
+
+    def test_thai_uses_the_installed_copy_and_checks_it(self):
+        import hashlib
+        import unittest.mock
+
+        from teto_relay import thai_asr
+
+        with _TempHome() as home:
+            folder = home / "models" / thai_asr.LOCAL_FOLDER
+            folder.mkdir(parents=True)
+            files = {}
+            for role, (name, _) in thai_asr.MODEL["files"].items():
+                body = f"{role} weights".encode()
+                (folder / Path(name).name).write_bytes(body)
+                files[role] = (name, hashlib.sha256(body).hexdigest())
+            model = {**thai_asr.MODEL, "files": files}
+            with unittest.mock.patch.object(thai_asr, "MODEL", model),                     unittest.mock.patch.object(thai_asr, "_download") as download:
+                got = thai_asr.model_files()
+                download.assert_not_called()
+                self.assertEqual(got["vocab"], folder / "vocab.json")
+                # Damaged: fetched again rather than used.
+                (folder / "vocab.json").write_bytes(b"broken")
+                (folder / "vocab.json.teto-relay-verified").unlink()
+                thai_asr.model_files()
+                download.assert_called_once()
+
+    def test_the_installer_pins_what_the_app_expects(self):
+        from teto_relay import thai_asr
+        from teto_relay.config import Config
+
+        iss = (Path(__file__).resolve().parent.parent / "packaging" / "installer.iss").read_text(encoding="utf-8")
+        self.assertIn(f"{thai_asr.MODEL['repo']}/resolve/{thai_asr.MODEL['revision']}/", iss)
+        for name, digest in thai_asr.MODEL["files"].values():
+            self.assertIn(digest, iss, name)
+            self.assertIn(Path(name).name, iss)
+        self.assertIn(f"{thai_asr.LOCAL_FOLDER}\\", iss)
+        # The speech model it downloads is the one the app starts with.
+        self.assertIn(f"faster-whisper-{Config().whisper_model}/resolve/", iss)
+        self.assertIn(f"faster-whisper-{Config().whisper_model}\model.bin", iss)
+        self.assertIn(r"\.cache\torch\hub\checkpoints\model.pt", iss)
+        # Every extra is ticked: none is marked unchecked.
+        self.assertNotIn("unchecked", iss)
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 

@@ -19,9 +19,18 @@ you may already have them. Install each one once.
 
 ## 2. Install Teto Relay
 
-**Installer:** run `TetoRelay-<version>-setup.exe`. It installs for your user
-only (no admin prompt) and adds Start menu entries. If the .NET 8 Desktop
-Runtime is missing, it tells you at the end.
+**Installer:** run `TetoRelay-<version>-setup.exe` and click through. It
+installs for your user only (no admin prompt) and adds Start menu entries.
+These extras are ticked; untick any you don't want:
+
+- a desktop shortcut;
+- the speech model for English and Japanese (150 MB), the Thai speech model
+  (480 MB) and the word timing model (1.2 GB), downloaded now with a progress
+  bar so the first start is quick. Anything left out downloads the first time
+  it is needed; a model already there is not downloaded again.
+
+The last page opens the how-to-use guide and starts Teto Relay (both ticked).
+If the .NET 8 Desktop Runtime is missing, it tells you at the end.
 
 **Portable zip:** unzip it anywhere you can write to (not `Program Files`).
 The `portable.txt` inside means settings, logs and downloaded models are kept
@@ -38,7 +47,7 @@ or deleted in one go.
    **Setup → Open the panel as** to *Browser tab*.
 2. Press **Check setup** (below the settings). Every line marked `[FAIL]` says
    what to do; fix those first. `[WARN]` lines are optional.
-3. Open **Show all settings → Setup**:
+3. Open **All settings → Setup**:
    - **OpenUtau folder**: the folder that contains `OpenUtau.exe`. Leave it
      empty and the usual install places are searched.
    - **Voicebank folder**: where your voicebanks are. Left empty, these are
@@ -50,11 +59,11 @@ or deleted in one go.
    - Changing the voicebank folder takes effect by itself (a running relay
      restarts for a moment); the OpenUtau folder only after quitting and
      restarting Teto Relay.
-4. Pick your **Microphone** and set **Output** to **CABLE Input**, then press
-   **Save settings**.
-5. Press **Start**. The first start downloads the speech model (about 150 MB)
-   and, with a GPU, the word-timing model (about 1.2 GB), so give it a few
-   minutes. Later starts take seconds.
+4. Pick your **Microphone** and set **Output** to **CABLE Input**. Settings
+   apply as soon as you change them.
+5. Press **Start**. Unless the installer already fetched them, the first
+   start downloads the speech model (about 150 MB) and the word-timing model
+   (about 1.2 GB), so give it a few minutes. Later starts take seconds.
 6. Hold **F8**, say something, let go. Teto sings it a couple of seconds later.
 
 To hear her in **Discord**, **OBS** or anything else, pick **CABLE Output** as

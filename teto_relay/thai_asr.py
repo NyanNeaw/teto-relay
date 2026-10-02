@@ -50,30 +50,53 @@ JOIN = 0.3
 STEP = 0.08
 
 
+#: The installer's copy: models/<this>/<file name>, checked like a download.
+LOCAL_FOLDER = "typhoon-asr-realtime"
+
+
 def model_files() -> dict[str, Path]:
-    """Download (once) and verify the model; returns its files by role."""
+    """The model's files by role: the installer's copy when it is whole,
+    otherwise downloaded (once). Either way checked against MODEL's hashes."""
+    from . import paths
+
+    local = paths.models_dir() / LOCAL_FOLDER
+    files = {role: local / Path(name).name for role, (name, _) in MODEL["files"].items()}
+    if all(path.is_file() for path in files.values()):
+        try:
+            return {role: _verified(path, MODEL["files"][role][1]) for role, path in files.items()}
+        except RuntimeError:
+            log.warning("The installed Thai speech model is damaged; downloading it again")
+    return _download()
+
+
+def _download() -> dict[str, Path]:
     from huggingface_hub import hf_hub_download
 
-    out = {}
-    for role, (name, digest) in MODEL["files"].items():
-        path = Path(hf_hub_download(MODEL["repo"], name, revision=MODEL["revision"]))
-        marker = path.with_name(path.name + ".teto-relay-verified")
-        if not marker.exists() or marker.read_text().strip() != digest:
-            sha = hashlib.sha256()
-            with open(path, "rb") as f:
-                for block in iter(lambda: f.read(1 << 20), b""):
-                    sha.update(block)
-            if sha.hexdigest() != digest:
-                raise RuntimeError(
-                    f"The Thai speech model ({name}) did not match the expected download; "
-                    "it was not used. Turn off 'Thai speech model' in Listening to use Whisper."
-                )
-            try:
-                marker.write_text(digest)
-            except OSError:
-                pass
-        out[role] = path
-    return out
+    return {
+        role: _verified(Path(hf_hub_download(MODEL["repo"], name, revision=MODEL["revision"])), digest)
+        for role, (name, digest) in MODEL["files"].items()
+    }
+
+
+def _verified(path: Path, digest: str) -> Path:
+    """`path`, after checking it against `digest` (once: a marker remembers)."""
+    marker = path.with_name(path.name + ".teto-relay-verified")
+    if marker.exists() and marker.read_text().strip() == digest:
+        return path
+    sha = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            sha.update(block)
+    if sha.hexdigest() != digest:
+        raise RuntimeError(
+            f"The Thai speech model ({path.name}) did not match the expected download; "
+            "it was not used. Turn off 'Thai speech model' in Listening to use Whisper."
+        )
+    try:
+        marker.write_text(digest)
+    except OSError:
+        pass
+    return path
 
 
 class ThaiTranscriber:
