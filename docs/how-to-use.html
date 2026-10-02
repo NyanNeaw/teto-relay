@@ -147,6 +147,7 @@ a.get:hover{background:var(--red);color:#fff}
 .clip .pic{background:var(--lane);height:150px;display:grid;place-items:center}
 .clip .pic svg{height:88%;width:auto;max-width:94%}
 .clip h3{margin:14px 16px 2px;font-size:17px}
+.clip h3:last-child,.knob h3:last-child{margin-bottom:16px}
 .clip p{margin:0 16px 16px;color:var(--soft);font-size:14px}
 
 /* stream: a patch cable */
@@ -442,35 +443,34 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
 <section id="setup">
   <div class="head2">
     <h2 class="display" data-split>Install these first</h2>
-    <p data-reveal="self" style="--i:3">Teto Relay needs all four. You only do this once.</p>
   </div>
   <div class="tracks" data-reveal>
     <div class="track">
       <div class="chip" style="background:color-mix(in srgb,var(--ink) 9%,transparent)">
         <svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linejoin="round"><rect x="4" y="7" width="26" height="20" rx="3"/><path d="M4 13h26M9 10h.01M13 10h.01" stroke-linecap="round"/></svg>
       </div>
-      <div><h3>.NET 8 Desktop Runtime</h3><p>Microsoft's runtime the singing engine needs. Get "Desktop Runtime 8" for Windows x64.</p></div>
+      <div><h3>.NET 8 Desktop Runtime</h3><p>The "Desktop Runtime 8" one, for Windows x64.</p></div>
       <a class="get" href="https://dotnet.microsoft.com/download/dotnet/8.0">Download</a>
     </div>
     <div class="track">
       <div class="chip" style="background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)">
         <svg viewBox="0 0 34 34"><rect x="4" y="8" width="11" height="6" rx="2" fill="currentColor"/><rect x="17" y="14" width="13" height="6" rx="2" fill="currentColor"/><rect x="9" y="22" width="15" height="6" rx="2" fill="currentColor"/></svg>
       </div>
-      <div><h3>OpenUtau</h3><p>The program that does the actual singing. It runs in the background; you never open it.</p></div>
+      <div><h3>OpenUtau</h3><p>Does the singing in the background.</p></div>
       <a class="get" href="https://github.com/stakira/OpenUtau/releases">Download</a>
     </div>
     <div class="track">
       <div class="chip" style="background:color-mix(in srgb,var(--cyan) 18%,transparent);color:var(--cyan)">
         <svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 17h1M10 11v12M14 7v20M18 12v10M22 9v16M26 14v6M29 17h1"/></svg>
       </div>
-      <div><h3>A voicebank</h3><p>This is her voice. Teto's 単独音 (tandoku) bank sounds best, but any UTAU voicebank works. Drag its .zip into the app.</p></div>
+      <div><h3>A voicebank</h3><p>Her voice. Any UTAU voicebank; Teto's 単独音 bank sounds best.</p></div>
       <span class="get quiet">In the app</span>
     </div>
     <div class="track">
       <div class="chip" style="background:color-mix(in srgb,var(--ink) 9%,transparent)">
         <svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 22c6 0 6-10 13-10s7 10 13 10"/><circle cx="4" cy="22" r="2.5" fill="currentColor"/><circle cx="30" cy="22" r="2.5" fill="currentColor"/></svg>
       </div>
-      <div><h3>VB-Cable</h3><p>A fake audio cable, so Discord and OBS can hear her. Restart your PC after installing it.</p></div>
+      <div><h3>VB-Cable</h3><p>So Discord and OBS can hear her. Restart after installing.</p></div>
       <a class="get" href="https://vb-audio.com/Cable/">Download</a>
     </div>
   </div>
@@ -481,7 +481,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
 <section id="first">
   <div class="head2">
     <h2 class="display" data-split>Getting started</h2>
-    <p data-reveal="self" style="--i:3">Point at a step (or tap it) to see how it's done. Steps 2 to 4 are a one-time thing.</p>
+    <p data-reveal="self" style="--i:3">Point at a step to watch it.</p>
   </div>
   <div class="timeline" data-reveal>
     <div class="clip" tabindex="0"><span class="bar">bar 1</span><div class="body">
@@ -494,7 +494,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
         <g class="pin"><circle cx="122" cy="99" r="5.5" fill="var(--ink)"/><path d="M122 96v4.5M120 97.5h4" stroke="var(--card)" stroke-width="1.6" stroke-linecap="round"/></g>
         <path class="cur" d="M0 0V15l4-4 3 7 2.5-1-3-7H12Z" fill="var(--ink)" stroke="var(--card)" stroke-width="1.2" stroke-linejoin="round"/>
       </svg></div>
-      <h3>Open Teto Relay</h3><p>Right-click its icon on the taskbar and pin it, so it's always there.</p></div></div>
+      <h3>Open Teto Relay</h3></div></div>
 
     <div class="clip" tabindex="0"><span class="bar">bar 2</span><div class="body">
       <div class="pic"><svg class="demo d2" viewBox="0 0 200 120" aria-hidden="true" font-family="Cascadia Mono,Consolas,monospace" font-size="12" font-weight="700">
@@ -504,7 +504,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
         <g class="row r3"><text class="fix" x="28" y="102" fill="var(--red)">FIX</text><text class="ok3" x="36" y="102" fill="var(--cyan)">OK</text><rect class="bar3" x="66" y="94" width="88" height="8" rx="4"/></g>
         <path class="cur" d="M0 0V15l4-4 3 7 2.5-1-3-7H12Z" fill="var(--ink)" stroke="var(--card)" stroke-width="1.2" stroke-linejoin="round"/>
       </svg></div>
-      <h3>Press Check setup</h3><p>Anything in red needs fixing, and it tells you how.</p></div></div>
+      <h3>Press Check setup</h3></div></div>
 
     <div class="clip" tabindex="0"><span class="bar">bar 3</span><div class="body">
       <div class="pic"><svg class="demo d3" viewBox="0 0 200 120" aria-hidden="true">
@@ -516,7 +516,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
         <text x="143" y="83" text-anchor="middle" font-family="Cascadia Mono,Consolas,monospace" font-size="10" fill="var(--soft)">drop .zip</text>
         <g class="zip"><path d="M0 0h15l7 7v21H0Z" fill="var(--card)" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/><path d="M15 0v7h7" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round"/><rect x="3" y="15" width="16" height="9" rx="2" fill="var(--red)"/><text x="11" y="22.5" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="6.5" font-weight="700" fill="#fff">ZIP</text></g>
       </svg></div>
-      <h3>Pick a voice</h3><p>Choose a voicebank from the list, or drop a .zip onto Add a voicebank.</p></div></div>
+      <h3>Pick a voice</h3></div></div>
 
     <div class="clip" tabindex="0"><span class="bar">bar 4</span><div class="body">
       <div class="pic"><svg class="demo d4" viewBox="0 0 200 120" aria-hidden="true" font-family="Segoe UI,sans-serif">
@@ -531,7 +531,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
         <g class="list"><rect x="22" y="82" width="156" height="34" rx="7" fill="var(--card)" stroke="var(--grid)" stroke-width="1.5"/><rect class="pick" x="25" y="99" width="150" height="14" rx="4" fill="var(--lane)"/><text x="31" y="94" font-size="10" fill="var(--soft)">Speakers</text><text x="31" y="109.5" font-size="10" font-weight="700" fill="var(--ink)">CABLE Input</text></g>
         <path class="cur" d="M0 0V15l4-4 3 7 2.5-1-3-7H12Z" fill="var(--ink)" stroke="var(--card)" stroke-width="1.2" stroke-linejoin="round"/>
       </svg></div>
-      <h3>Set your mic and output</h3><p>Microphone: your real mic. Output: CABLE Input. No save button, it just sticks.</p></div></div>
+      <h3>Set your mic and output</h3></div></div>
 
     <div class="clip" tabindex="0"><span class="bar">bar 5</span><div class="body">
       <div class="pic"><svg class="demo d5" viewBox="0 0 200 120" aria-hidden="true" font-family="Segoe UI,sans-serif" font-weight="700" font-size="15">
@@ -542,7 +542,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
         <g class="notes" fill="var(--red)"><g class="nt n1"><circle cx="62" cy="28" r="4.5"/><rect x="65" y="12" width="2" height="16"/></g><g class="nt n2"><circle cx="100" cy="22" r="4.5"/><rect x="103" y="6" width="2" height="16"/></g><g class="nt n3"><circle cx="138" cy="28" r="4.5"/><rect x="141" y="12" width="2" height="16"/></g></g>
         <path class="cur" d="M0 0V15l4-4 3 7 2.5-1-3-7H12Z" fill="var(--ink)" stroke="var(--card)" stroke-width="1.2" stroke-linejoin="round"/>
       </svg></div>
-      <h3>Press Start</h3><p>The very first start takes a minute while it loads. Then hold F8 and talk.</p></div></div>
+      <h3>Press Start</h3><p>The first start takes a minute.</p></div></div>
   </div>
 </section>
 
@@ -550,7 +550,6 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
 <section id="stream">
   <div class="head2">
     <h2 class="display" data-split>Discord &amp; OBS</h2>
-    <p data-reveal="self" style="--i:3">Teto Relay plays into VB-Cable, and Discord or OBS pick her up from the other end.</p>
   </div>
   <div class="patch" data-reveal="self">
     <svg viewBox="0 0 960 200" role="img" aria-label="Your mic goes into Teto Relay, which sings into CABLE Input. CABLE Output carries her into Discord or OBS.">
@@ -584,7 +583,7 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
   </div>
   <div class="never" data-reveal="self">
     <svg viewBox="0 0 58 58" fill="none" stroke="var(--red)" stroke-width="4" stroke-linecap="round" aria-hidden="true"><path d="M18 22a14 14 0 1 1-2 14"/><path d="M14 14l2 9 9-2"/><path d="M8 50 50 8"/></svg>
-    <p><strong>Don't set Teto Relay's Microphone to CABLE Output.</strong> She'll hear herself and keep singing in a loop. It should always be your real mic.</p>
+    <p><strong>Don't set Teto Relay's Microphone to CABLE Output.</strong> She'll hear herself and loop.</p>
   </div>
 </section>
 
@@ -592,32 +591,31 @@ html.anim .timeline > .clip{--dl:calc(var(--i) * 180ms + 150ms);
 <section id="controls">
   <div class="head2">
     <h2 class="display" data-split>What the buttons do</h2>
-    <p data-reveal="self" style="--i:3">These are on the main screen. Everything else is under All settings.</p>
   </div>
   <div class="knobs" data-reveal>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" font-family="Segoe UI,Leelawadee UI,Yu Gothic UI,sans-serif" font-weight="700" font-size="16" aria-hidden="true"><rect x="8" y="28" width="56" height="34" rx="17" fill="var(--card)" stroke="var(--grid)" stroke-width="2"/><text x="36" y="51" text-anchor="middle" fill="var(--ink)">EN</text><rect x="72" y="28" width="56" height="34" rx="17" fill="var(--red)"/><text x="100" y="51" text-anchor="middle" fill="#fff">ไทย</text><rect x="136" y="28" width="58" height="34" rx="17" fill="var(--card)" stroke="var(--grid)" stroke-width="2"/><text x="165" y="51" text-anchor="middle" fill="var(--ink)" font-size="14">日本語</text></svg></div>
-      <h3>Language</h3><p>Pick the language you speak. Any voicebank can sing all three.</p>
+      <h3>Language</h3>
     </div>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 54c10-22 18 14 28-6s14-18 22 0 16 6 26-10" stroke="var(--cyan)"/><path d="M110 64h22v-18h22v-14h22v26h16" stroke="var(--red)"/><text x="46" y="84" text-anchor="middle" font-family="Cascadia Mono,Consolas,monospace" font-size="11" fill="var(--soft)" stroke="none">speech</text><text x="150" y="84" text-anchor="middle" font-family="Cascadia Mono,Consolas,monospace" font-size="11" fill="var(--soft)" stroke="none">sung</text></svg></div>
-      <h3>Singing style</h3><p>Speech copies your voice exactly. Sung snaps it to a key and adds vibrato.</p>
+      <h3>Singing style</h3><p>Speech copies you exactly. Sung puts it in a key.</p>
     </div>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" fill="none" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M10 50c14-30 28 30 42 0s28 30 42 0 28 30 42 0 28 30 42 0" stroke="var(--red)"/><path d="M18 42c14-30 28 30 42 0s28 30 42 0 28 30 42 0 28 30 42 0" stroke="var(--cyan)" opacity=".85"/></svg></div>
-      <h3>Double voice</h3><p>Layers a second voice for a fuller sound, only on lines you sing.</p>
+      <h3>Double voice</h3>
     </div>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" aria-hidden="true"><rect x="44" y="6" width="112" height="80" rx="8" fill="var(--card)" stroke="var(--grid)" stroke-width="2"/><rect x="56" y="18" width="70" height="6" rx="3" fill="var(--grid)"/><rect x="52" y="32" width="96" height="14" rx="4" fill="var(--red)" opacity=".18"/><rect x="56" y="36" width="84" height="6" rx="3" fill="var(--red)"/><rect x="56" y="54" width="62" height="6" rx="3" fill="var(--grid)"/><rect x="56" y="68" width="78" height="6" rx="3" fill="var(--grid)"/></svg></div>
-      <h3>Song lyrics</h3><p>Singing an actual song? Paste the lyrics in first so every word comes out right.</p>
+      <h3>Song lyrics</h3><p>Paste the lyrics before you sing a song.</p>
     </div>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" aria-hidden="true"><g stroke="var(--grid)" stroke-width="2" fill="var(--card)"><rect x="30" y="20" width="20" height="60" rx="3"/><rect x="50" y="20" width="20" height="60" rx="3"/><rect x="70" y="20" width="20" height="60" rx="3"/><rect x="90" y="20" width="20" height="60" rx="3"/><rect x="110" y="20" width="20" height="60" rx="3"/></g><rect x="90" y="56" width="20" height="24" rx="3" fill="var(--red)"/><g fill="var(--ink)"><rect x="43" y="20" width="14" height="36" rx="2"/><rect x="63" y="20" width="14" height="36" rx="2"/><rect x="103" y="20" width="14" height="36" rx="2"/></g><path d="M152 46l12-14 12 14M152 58l12 14 12-14" stroke="var(--red)" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
-      <h3>Transpose &amp; volume</h3><p>Shift her higher or lower, and set how loud she is.</p>
+      <h3>Transpose &amp; volume</h3>
     </div>
     <div class="knob">
       <div class="pic"><svg viewBox="0 0 200 90" aria-hidden="true"><rect x="72" y="14" width="56" height="56" rx="12" fill="var(--card)" stroke="var(--ink)" stroke-width="2.5"/><path d="M72 64v6a6 6 0 0 0 6 6h44a6 6 0 0 0 6-6v-6" fill="none" stroke="var(--ink)" stroke-width="2.5"/><text x="100" y="49" text-anchor="middle" font-family="Cascadia Mono,Consolas,monospace" font-weight="700" font-size="20" fill="var(--ink)">F8</text></svg></div>
-      <h3>Push-to-talk key</h3><p>F8 by default. Change it if another app already uses F8.</p>
+      <h3>Push-to-talk key</h3>
     </div>
   </div>
 </section>
