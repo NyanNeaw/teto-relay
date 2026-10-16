@@ -8,7 +8,8 @@ comes out of a virtual audio cable, so Discord, OBS or a game can use her as
 your microphone. It speaks English, ไทย and 日本語, and works with any UTAU
 voicebank.
 
-*Inspired by [Acrylic](https://www.youtube.com/@hi-im-acrylic)'s video [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU).*
+*Inspired by [Acrylic](https://www.youtube.com/@hi-im-acrylic)'s video [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU)
+and project [speech-to-text-to-speech](https://github.com/acrylicc/speech-to-text-to-speech).*
 
 > [!WARNING]
 > **This is a beta.** It works, and it's fun, but expect rough edges: about
@@ -128,7 +129,8 @@ own licenses (see Credits).
 
 Huge thanks to **[Acrylic](https://www.youtube.com/@hi-im-acrylic)**: the video
 [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU) is what
-started this project. Go watch it!
+started this project, along with their
+[speech-to-text-to-speech](https://github.com/acrylicc/speech-to-text-to-speech) project. Go check them out!
 
 ## Credits
 
