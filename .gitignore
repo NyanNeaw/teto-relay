@@ -1,0 +1,58 @@
+# Virtualenvs - multi-GB, rebuilt from requirements.txt
+.venv/
+.venv-rvc/
+.venv-build/
+
+# Model caches: torch, HuggingFace, the 1.2 GB aligner, pip wheels.
+# Redirected here by teto_relay/__init__.py to keep them off C:.
+.cache/
+
+# Generated per utterance (.ustx + .wav), trimmed to the most recent 50
+out/
+
+# Written by the hosted OpenUtau runtime
+.openutau-host/
+
+# Your settings - written by the control panel, specific to your machine
+config.json
+config.json.tmp
+
+# Downloaded voices, when kept inside a source checkout
+voicebanks/
+voices/
+
+# Logs
+*.log
+teto-relay.log
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# pip --report output, not source
+_main_report.json
+
+# Packaging output (packaging/build.ps1)
+build/
+dist/
+panel_smoke.png
+
+# Per-utterance latency rows (written to the data folder, which is this
+# folder in a source checkout).
+latency.csv
+
+# Your own voice recordings for tuning (tools/tuning_eval.py) - personal.
+my_voice/
+# Names you gave voicebanks in the panel (teto_relay.voicebank.rename).
+voicebank_names.json
+# Where build.ps1 parks dist\TetoRelay\data during a rebuild.
+.kept-from-dist/
+# The panel window's browser storage (teto_relay.window) in a dev data folder.
+window/
+
+# Developer notes kept on this PC, not published
+ROADMAP.md
+docs/NOTES.md
+docs/RELEASE.md
+docs/CHANGELOG-dev.md

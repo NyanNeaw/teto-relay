@@ -1,0 +1,20 @@
+{
+  "phonemes": {
+    "teto": "t E t oU",
+    "kasane": "k A s A n E",
+    "miku": "m i k u",
+    "hatsune": "h A t s u n E",
+    "utau": "u t A u",
+    "vocaloid": "v oU k A l OI d",
+    "vocalo": "v oU k A l oU"
+  },
+  "respellings": {
+    "teto": "teh toe",
+    "kasane": "kah sah neh",
+    "miku": "mee koo",
+    "hatsune": "hot sue neh",
+    "vocaloid": "vocal oid",
+    "utau": "oo tah oo",
+    "vocalo": "vocal oh"
+  }
+}

@@ -1,0 +1,2 @@
+# Tests and packaging. Install on top of requirements.txt.
+pyinstaller>=6.6

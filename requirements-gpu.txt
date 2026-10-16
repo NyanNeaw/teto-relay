@@ -1,0 +1,13 @@
+# GPU extras: crepe pitch tracking and forced word alignment.
+#
+# Install torch for your CUDA version first, from https://pytorch.org, e.g.:
+#   python -m pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+# then:
+#   python -m pip install -r requirements-gpu.txt
+#
+# Known good on the author's PC: torch 2.5.1+cu121 with the matching
+# torchaudio.
+#
+# Without these the relay still works: pitch falls back to pyin (slower) and
+# whisper's own word timings are used (about 0.12 s early).
+torchcrepe>=0.0.22

@@ -1,0 +1,961 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teto Relay</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<meta name="theme-color" content="#ffffff">
+<style>
+/* Flat and plain, the way system apps look: solid cards on a solid page, one
+   accent colour, no blur, glow or gradients. The accent is the only colour on
+   the page and it comes from the selected voicebank's artwork (applyAccent),
+   so each voice still brings its own look. Light is the default; dark follows
+   the system until the toggle says otherwise. */
+:root{
+  /* Native widgets - the select popup, scrollbars - follow this. Without it
+     the open dropdown list stays white on a dark page. */
+  color-scheme:light;
+  --bg:#f5f5f7; --card:#fff; --sink:#f0f0f3; --line:#e2e2e7;
+  --text:#1d1d1f; --muted:#6e6e73; --faint:#8e8e93;
+  --accent:#d31b45; --accent-weak:rgba(211,27,69,.12);
+  --warn-bg:#fff6e5; --warn-line:#f0c46b;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  color-scheme:dark;
+  --bg:#000; --card:#1c1c1e; --sink:#2c2c2e; --line:#38383a;
+  --text:#f5f5f7; --muted:#a1a1a6; --faint:#8e8e93;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18);
+  --warn-bg:#3a2c10; --warn-line:#8a6420;
+}}
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#000; --card:#1c1c1e; --sink:#2c2c2e; --line:#38383a;
+  --text:#f5f5f7; --muted:#a1a1a6; --faint:#8e8e93;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18);
+  --warn-bg:#3a2c10; --warn-line:#8a6420;
+}
+*{box-sizing:border-box}
+html,body{background-color:var(--bg)}
+body{margin:0;color:var(--text);font-size:15px;line-height:1.4;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden}
+
+/* ---------- top bar ---------- */
+.bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:14px;
+  padding:10px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+.mark{font-size:16px;font-weight:700;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.mark i{width:8px;height:8px;border-radius:50%;background:var(--faint);font-style:normal}
+.live .mark i{background:var(--accent)}
+.spacer{margin-left:auto}
+/* A segmented control, like a system settings switch. */
+.tabs{display:flex;padding:2px;background:var(--sink);border-radius:9px}
+.tabs button{background-color:transparent;color:var(--muted);padding:6px 16px;border-radius:7px;
+  font-size:13px;font-weight:600}
+.tabs button[aria-selected=true]{background-color:var(--card);color:var(--text);
+  box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.tabs button:not([aria-selected=true]):hover{color:var(--text);background-color:transparent}
+.switch{display:inline-flex}
+.switch button{padding:7px 16px;font-size:14px}
+.state{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
+.state i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal}
+.live .state i{background:var(--accent);animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.3}}
+
+/* ---------- layout ---------- */
+.wrap{max-width:1120px;margin:24px auto;padding:0 24px 56px;display:grid;
+  grid-template-columns:320px minmax(0,1fr);gap:20px;align-items:start}
+.col-voice{display:flex;flex-direction:column;gap:20px;position:sticky;top:76px}
+.col-set{display:flex;flex-direction:column;gap:14px;min-width:0}
+@media(max-width:900px){
+  .wrap{grid-template-columns:minmax(0,1fr);padding:0 16px 48px}
+  .col-voice{position:static}
+}
+.pane{background:var(--card);border:1px solid var(--line);border-radius:14px}
+.bar.pane{border-radius:0;border-width:0 0 1px}
+.tag{font-size:13px;font-weight:600;color:var(--muted);margin:0}
+
+/* ---------- buttons ---------- */
+button{font-family:inherit;font-size:14px;font-weight:600;border:0;border-radius:980px;
+  padding:8px 18px;cursor:pointer;background-color:var(--accent);color:#fff}
+button:hover{filter:brightness(1.06)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.live #toggle{background-color:var(--sink);color:var(--text)}
+.icon{background-color:transparent;color:var(--muted);padding:0;width:34px;height:34px;
+  border-radius:50%;display:grid;place-items:center}
+.icon:hover{background-color:var(--sink);color:var(--text);filter:none}
+.ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px}
+.ghost:hover{background-color:var(--sink);filter:none}
+
+/* ---------- the voice card ---------- */
+.voice{padding:16px;display:flex;flex-direction:column;gap:12px}
+.portrait{aspect-ratio:1;border-radius:10px;overflow:hidden;background-color:var(--sink);
+  display:grid;place-items:center}
+.portrait img{width:100%;height:100%;object-fit:cover;display:block}
+.vname{font-size:18px;font-weight:700;margin:0;line-height:1.25}
+.vmeta{font-size:13px;color:var(--muted);margin:3px 0 0}
+.vname{display:flex;align-items:center;gap:6px}
+/* display:flex beats the hidden attribute; renaming swaps these two. */
+.vname[hidden],.renamebox[hidden]{display:none}
+.icon.rename{width:28px;height:28px;flex:none;opacity:.55}
+.icon.rename:hover{opacity:1}
+.renamebox{display:flex;gap:6px;align-items:center;margin:2px 0 0}
+.renamebox input{flex:1;min-width:0}
+.voice select{width:100%;background-color:var(--sink);border:1px solid transparent;color:var(--text);
+  font:inherit;font-size:15px;padding:9px 12px;border-radius:10px;cursor:pointer}
+/* A file input is unstyleable and says "No file chosen"; the label is the
+   button and the real input sits behind it. */
+.addvoice{position:relative;display:block}
+.addvoice input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.addvoice span{display:block;text-align:center;font-size:14px;color:var(--muted);
+  padding:9px;border:1px dashed var(--line);border-radius:10px}
+.addvoice:hover span{color:var(--accent);border-color:var(--accent)}
+
+/* ---------- what was heard and sung ---------- */
+.stage{padding:18px 20px 20px}
+.stagehead{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.heard{font-size:24px;font-weight:600;line-height:1.25;letter-spacing:-.01em;margin:0;
+  overflow-wrap:break-word}
+.kana{font-family:"Yu Gothic UI","Meiryo",sans-serif;font-size:18px;line-height:1.5;
+  color:var(--muted);margin:8px 0 0;overflow-wrap:break-word}
+.sungtag{font-size:11px;font-weight:600;color:var(--accent);background:var(--accent-weak);
+  border-radius:980px;padding:2px 8px;margin-left:8px;vertical-align:middle;white-space:nowrap}
+.idle{font-size:16px;color:var(--muted);margin:0;line-height:1.5}
+.idle kbd{font:inherit;font-size:13px;font-weight:600;background:var(--sink);border-radius:6px;
+  padding:2px 8px;color:var(--text);border:1px solid var(--line)}
+.roll{margin-top:18px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px}
+.rollinner{min-width:max-content;position:relative}
+.ribbon{position:absolute;left:0;top:6px;pointer-events:none;overflow:visible}
+.ribbon path{fill:none;stroke:var(--accent);stroke-width:1.5;stroke-linejoin:round;
+  stroke-linecap:round;opacity:.6}
+/* Every note sits at the pitch it is sung at, so a phrase reads as a melody.
+   x is note order (the payload carries no durations), y is the tone. */
+.notes{position:relative;height:132px;margin-top:6px}
+.lane{position:absolute;left:0;right:0;height:1px;background:var(--line)}
+.lane s{position:absolute;left:0;top:-15px;font-size:10px;color:var(--faint);text-decoration:none;
+  font-variant-numeric:tabular-nums}
+.note{position:absolute;background-color:var(--accent-weak);border-radius:7px;text-align:center;
+  padding:5px 0 4px;animation:rise .25s backwards}
+@keyframes rise{from{opacity:0;transform:translateY(5px)}}
+.note b{font-family:"Yu Gothic UI","Meiryo",sans-serif;font-size:15px;font-weight:500;display:block;
+  line-height:1.15}
+.note s{font-size:10px;color:var(--muted);display:block;text-decoration:none;
+  font-variant-numeric:tabular-nums}
+.meters{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:14px;
+  margin:18px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+.meters dt{font-size:12px;color:var(--muted)}
+.meters dd{margin:3px 0 0;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ---------- controls ---------- */
+.deckhead{padding:16px 20px 0}
+.deck{padding:4px 20px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+  gap:4px 24px}
+.ctl{padding:12px 0}
+.ctl label{display:block;font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
+.ctl .help{display:block;font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4}
+.slide{display:flex;align-items:center;gap:10px}
+.readout{font-size:15px;font-weight:600;min-width:58px;text-align:center;
+  font-variant-numeric:tabular-nums}
+/* -/+ beside a slider: one exact step, which a thin track makes fiddly. */
+.step{background-color:var(--sink);color:var(--text);padding:0;width:30px;height:30px;
+  border-radius:50%;font-size:17px;line-height:1;flex:none}
+.step:hover{filter:brightness(.95)}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:22px;background:none;
+  cursor:pointer;min-width:0}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;
+  background:linear-gradient(90deg,var(--accent) var(--pct,0%),var(--line) var(--pct,0%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;
+  border-radius:50%;background:#fff;margin-top:-8px;border:0;
+  box-shadow:0 1px 4px rgba(0,0,0,.3),0 0 0 .5px rgba(0,0,0,.1)}
+input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+input[type=text],input[type=number],select.box{width:100%;background:var(--sink);color:var(--text);
+  border:1px solid transparent;border-radius:10px;padding:9px 12px;font:inherit;font-size:15px}
+select.box{cursor:pointer}
+select option{background:var(--card);color:var(--text)}
+input:focus-visible,select.box:focus-visible{outline:0;border-color:var(--accent)}
+/* A switch, like a system toggle. */
+input[type=checkbox]{appearance:none;width:44px;height:26px;border-radius:13px;background:var(--line);
+  position:relative;cursor:pointer;margin:0;flex:none;transition:background .2s}
+input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:22px;height:22px;
+  border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .2s}
+input[type=checkbox]:checked{background-color:var(--accent)}
+input[type=checkbox]:checked::after{transform:translateX(18px)}
+
+/* ---------- all settings ---------- */
+.advbar{display:flex;align-items:center;gap:6px}
+.adv{display:none;padding:4px 20px 18px}
+.open .adv{display:block}
+.advtoggle span{display:inline-block;transition:transform .2s;margin-right:8px;font-size:10px}
+.open .advtoggle span{transform:rotate(90deg)}
+.group{padding:16px 0;border-top:1px solid var(--line)}
+.group:first-child{border-top:0}
+details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:10px;
+  flex-wrap:wrap}
+details.group>summary::-webkit-details-marker{display:none}
+details.group>summary::before{content:"\25B6";font-size:10px;color:var(--muted);
+  transition:transform .2s;display:inline-block}
+details.group[open]>summary::before{transform:rotate(90deg)}
+.gtitle{font-size:17px;font-weight:700;color:var(--text)}
+.gnote{font-size:13px;color:var(--muted)}
+details.group[open]>.grouprows{margin-top:6px}
+.grouprows{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 24px}
+#log{margin:10px 0 0;background:var(--sink);border-radius:10px;padding:12px;height:200px;
+  overflow:auto;font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;font-size:12px;
+  line-height:1.6;white-space:pre-wrap;color:var(--muted)}
+/* A snackbar: dark on light, light on dark. */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(8px);z-index:60;
+  padding:11px 18px;font-size:14px;border-radius:10px;opacity:0;pointer-events:none;
+  transition:opacity .2s,transform .2s;background:var(--text);color:var(--bg);
+  box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+/* Problems the relay is having right now, and the setup check. */
+.alert{margin:0;padding:12px 16px;border-radius:12px;font-size:14px;line-height:1.5;
+  background:var(--warn-bg);border:1px solid var(--warn-line)}
+.alert p{margin:0}.alert p+p{margin-top:6px}
+.checks{margin:10px 0 0;font:12px/1.55 "Cascadia Mono",Consolas,ui-monospace,monospace;
+  white-space:pre-wrap;max-height:320px;overflow:auto}
+@media (max-width:720px){
+  .bar{padding:10px 16px;gap:10px}
+  .heard{font-size:21px} .kana{font-size:16px}
+  .stage,.deck,.adv,.deckhead{padding-left:16px;padding-right:16px}
+}
+
+/* ---------- motion ----------
+   Springy and a little cartoony, on the flat look: things overshoot and
+   settle instead of sliding linearly. --spring overshoots; --soft doesn't. */
+:root{--spring:cubic-bezier(.34,1.56,.64,1);--soft:cubic-bezier(.22,1,.36,1)}
+.pane{border-radius:18px}
+button{transition:transform .38s var(--spring),filter .15s,background-color .2s,color .2s,box-shadow .3s}
+button:not(:disabled):hover{transform:translateY(-2px)}
+button:not(:disabled):active{transform:scale(.9);transition-duration:.07s}
+.icon:not(:disabled):hover{transform:rotate(-14deg) scale(1.1)}
+.pane.enter{animation:popin .7s var(--spring) backwards}
+@keyframes popin{from{opacity:0;transform:translateY(18px) scale(.96)}}
+/* a switch: the selected pill slides between options */
+.switch{position:relative;isolation:isolate}
+.switch .thumb{position:absolute;top:2px;bottom:2px;left:2px;width:0;border-radius:7px;z-index:-1;
+  background:var(--card);box-shadow:0 1px 3px rgba(0,0,0,.16);
+  transition:left .5s var(--spring),width .5s var(--spring)}
+.switch button,.switch button[aria-selected=true]{background-color:transparent!important;box-shadow:none}
+.switch button:not(:disabled):hover{transform:none}
+input[type=checkbox]::after{transition:transform .5s var(--spring),width .18s var(--soft)}
+input[type=checkbox]:active::after{width:28px}
+input[type=checkbox]:checked:active::after{transform:translateX(12px)}
+input[type=range]::-webkit-slider-thumb{transition:transform .35s var(--spring)}
+input[type=range]:active::-webkit-slider-thumb{transform:scale(1.35)}
+.readout.bump{animation:bump .45s var(--spring)}
+@keyframes bump{40%{transform:scale(1.3)}}
+.heard .w{display:inline-block;animation:wordpop .55s var(--spring) backwards}
+@keyframes wordpop{from{opacity:0;transform:translateY(12px) scale(.6)}}
+.note{animation:notepop .6s var(--spring) backwards}
+@keyframes notepop{from{opacity:0;transform:translateY(22px) scale(.35)}}
+.live #toggle{animation:ring 2.2s var(--soft) infinite}
+@keyframes ring{0%{box-shadow:0 0 0 0 var(--accent-weak)}70%,100%{box-shadow:0 0 0 12px transparent}}
+.live .mark i{animation:beat 1.1s var(--spring) infinite}
+@keyframes beat{0%,60%,100%{transform:scale(1)}30%{transform:scale(1.6)}}
+.restarting .state i{background:var(--accent);animation:spinpulse .8s linear infinite}
+@keyframes spinpulse{50%{transform:scale(.4);opacity:.4}}
+.toast{transition:opacity .2s,transform .55s var(--spring)}
+.toast.show{transform:translateX(-50%) translateY(0) scale(1)}
+.toast:not(.show){transform:translateX(-50%) translateY(18px) scale(.9)}
+details.group>summary{transition:transform .3s var(--spring)}
+details.group>summary:hover{transform:translateX(3px)}
+details.group>summary::before{transition:transform .45s var(--spring)}
+.alert{animation:shake .5s var(--spring)}
+@keyframes shake{20%{transform:translateX(-5px)}40%{transform:translateX(5px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
+/* ---------- starting up ----------
+   Loading the models takes 10-30 s. A bar fills along the bottom of the
+   header as each one loads, the button spins, and the line under the status
+   says what it is loading. */
+.bar{position:sticky}
+.loadbar{position:absolute;left:0;right:0;bottom:-1px;height:3px;pointer-events:none;
+  opacity:0;transition:opacity .3s}
+.loadbar i{display:block;height:100%;width:0;background:var(--accent);border-radius:0 3px 3px 0;
+  transition:width .9s var(--soft)}
+.loading .loadbar{opacity:1}
+.loading .loadbar i{animation:breathe 1.4s ease-in-out infinite}
+@keyframes breathe{50%{opacity:.55}}
+.spin{display:inline-block;width:12px;height:12px;margin-right:8px;vertical-align:-1px;
+  border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading .state i{background:var(--accent);animation:spinpulse .8s linear infinite}
+.loading #toggle{opacity:.85;cursor:progress}
+.idle.getting-ready::after{content:"";display:inline-block;width:1.2em;text-align:left;
+  animation:dots 1.2s steps(4,end) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+:root[data-motion=off] *,:root[data-motion=off] *::before,:root[data-motion=off] *::after{
+  animation:none!important;transition:none!important}
+</style>
+
+<div id="app">
+<header class="bar pane">
+  <span class="mark" id="mark"><i></i>Teto Relay</span>
+  <span class="spacer"></span>
+  <span class="state"><i></i><span id="stateText">stopped</span></span>
+  <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
+  <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
+  <button id="toggle">Start</button>
+  <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
+</header>
+
+<div class="wrap">
+  <div class="col-voice">
+    <section class="voice pane">
+      <div class="portrait"><img id="avatar" alt=""></div>
+      <div>
+        <p class="vname"><span id="vname">&nbsp;</span><button class="icon rename" id="rename"
+          title="Rename this voicebank" aria-label="Rename this voicebank"></button></p>
+        <form class="renamebox" id="renamebox" hidden>
+          <input type="text" id="renameinput" maxlength="60" aria-label="Voicebank name" autocomplete="off">
+          <button type="submit">Save</button>
+          <button type="button" class="ghost" id="renamecancel">Cancel</button>
+        </form>
+        <p class="vmeta" id="vmeta"></p>
+      </div>
+      <select id="bank" aria-label="Choose voicebank"></select>
+      <label class="addvoice" id="addvoice">
+        <input type="file" id="up-bank" accept=".zip,.uar">
+        <span id="addvoicetext">Add a voicebank</span>
+      </label>
+      <p class="help" id="up-status"></p>
+    </section>
+
+    <div class="alert" id="alert" hidden></div>
+    <section class="stage pane">
+      <div class="stagehead">
+        <p class="tag" id="stagetag">what she sang</p>
+      </div>
+      <div id="hero"></div>
+      <div class="roll" id="roll" hidden>
+        <div class="rollinner">
+          <svg class="ribbon" id="ribbon" aria-hidden="true"></svg>
+          <div class="notes" id="notes"></div>
+        </div>
+      </div>
+      <dl class="meters" id="meters"></dl>
+    </section>
+  </div>
+
+  <div class="col-set">
+    <section class="pane">
+      <p class="tag deckhead">most used - changes apply straight away</p>
+      <div class="deck" id="deck"></div>
+    </section>
+    <div class="advbar">
+      <button class="ghost advtoggle" id="advtoggle"><span>&#9654;</span>All settings</button>
+      <span class="spacer"></span>
+      <button class="ghost" id="doctor" title="Check OpenUtau, .NET, devices, voicebanks and GPU">Check setup</button>
+      <button class="ghost" id="quit" title="Stop Teto Relay and close the control panel">Quit</button>
+    </div>
+    <div class="adv pane" id="adv">
+      <div class="group" id="checkgroup" hidden>
+        <p class="tag">setup check</p>
+        <pre class="checks" id="checks"></pre>
+      </div>
+      <div id="groups"></div>
+      <div class="group">
+        <p class="tag">activity</p>
+        <pre id="log">Waiting for the relay to start.</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* Every request carries this header. A page on another site cannot add a
+   custom header to a request here without a CORS preflight, which this server
+   never approves - that is what stops a website from driving the panel. */
+const _fetch=window.fetch.bind(window);
+window.fetch=(url,opts={})=>_fetch(url,{...opts,headers:{...(opts.headers||{}),'X-Teto-Relay':'1'}});
+let cfg={}, meta={}, lastKey='';
+const $=id=>document.getElementById(id);
+const app=()=>$('app');
+
+/* ---------- theme: follow the system until told otherwise ---------- */
+/* Drawn rather than typed: the sun and moon code points render as a weak
+   asterisk in the Windows UI font. */
+const SUN='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/>'+
+  '<path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.3 5.3l1.6 1.6'+
+  'M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></svg>';
+const MOON='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'+
+  '<path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z"/></svg>';
+const SPARKLE='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.7" stroke-linejoin="round"><path d="M10 3.5l1.7 4.8 4.8 1.7-4.8 1.7L10 16.5l-1.7-4.8'+
+  'L3.5 10l4.8-1.7z"/><path d="M18 14l.8 2.2 2.2.8-2.2.8L18 20l-.8-2.2-2.2-.8 2.2-.8z"/></svg>';
+const STILL='<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"><path d="M10 3.5l1.7 4.8 4.8 1.7'+
+  '-4.8 1.7L10 16.5l-1.7-4.8L3.5 10l4.8-1.7z" opacity=".45"/><path d="M4 20L20 4"/></svg>';
+/* Animations on or off; off is remembered, for PCs where they stutter. */
+function applyMotion(on){
+  if(on) document.documentElement.removeAttribute('data-motion');
+  else document.documentElement.setAttribute('data-motion','off');
+  $('motion').innerHTML=on?SPARKLE:STILL;
+  $('motion').title=on?'Turn animations off':'Turn animations on';
+  $('motion').setAttribute('aria-pressed',String(on));
+}
+(function(){let saved=null;try{saved=localStorage.getItem('teto.motion');}catch(e){}
+  applyMotion(saved!=='off');})();
+$('motion').onclick=()=>{
+  const on=document.documentElement.getAttribute('data-motion')==='off';
+  applyMotion(on);
+  try{localStorage.setItem('teto.motion',on?'on':'off');}catch(e){}
+  toast(on?'Animations on':'Animations off');
+};
+function applyTheme(mode){
+  if(mode) document.documentElement.setAttribute('data-theme',mode);
+  else document.documentElement.removeAttribute('data-theme');
+  const dark=(mode==='dark')||(!mode&&matchMedia('(prefers-color-scheme:dark)').matches);
+  $('theme').innerHTML=dark?SUN:MOON;
+  $('theme').title=dark?'Switch to light':'Switch to dark';
+}
+(function(){let saved=null;try{saved=localStorage.getItem('teto.theme');}catch(e){}
+  applyTheme(saved);})();
+$('theme').onclick=()=>{
+  const dark=document.documentElement.getAttribute('data-theme')==='dark'||
+    (!document.documentElement.hasAttribute('data-theme')&&
+      matchMedia('(prefers-color-scheme:dark)').matches);
+  const next=dark?'light':'dark';
+  applyTheme(next);
+  try{localStorage.setItem('teto.theme',next);}catch(e){}
+};
+
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),2800);
+}
+function labelOf(k){return (meta.labels&&meta.labels[k])?meta.labels[k][0]:k.replace(/_/g,' ');}
+function helpOf(k){return (meta.labels&&meta.labels[k])?meta.labels[k][1]:'';}
+function fmt(k,v){
+  if(meta.seconds&&meta.seconds.includes(k)) return Math.round(v*1000)+' ms';
+  if(k.endsWith('_ms')) return v+' ms';
+  if(k==='transpose') return (v>0?'+':'')+v;
+  return String(Math.round(v*100)/100);
+}
+function paint(el){const a=+el.min,b=+el.max;el.style.setProperty('--pct',((el.value-a)/(b-a)*100)+'%');}
+
+async function load(){
+  const d=await (await fetch('api/config')).json();
+  cfg=d.config; meta=d.meta;
+  renderPicker(); renderDeck(); renderGroups();
+}
+function renderPicker(){
+  const pick=$('bank'); pick.innerHTML='';
+  for(const b of (meta.banks||[])){
+    // A name the user gave the bank; otherwise its short key, as before.
+    const o=document.createElement('option'); o.value=b.key; o.textContent=b.custom_name||b.key;
+    if(b.key===cfg.voicebank) o.selected=true; pick.appendChild(o);
+  }
+  showBank(cfg.voicebank);
+}
+function showBank(key){
+  const b=(meta.banks||[]).find(x=>x.key===key), img=$('avatar');
+  // No such bank (none installed yet): no picture to ask for.
+  img.hidden=!b;
+  img.onerror=()=>{img.hidden=true;};
+  if(b) img.src='api/bank-image?bank='+encodeURIComponent(key)+'&t='+Date.now();
+  img.alt=b?('Voicebank '+b.key):'';
+  img.title='';
+  /* The name and what it is were a tooltip nobody would find. */
+  $('vname').textContent=b?b.name:key;
+  $('rename').hidden=!b;
+  $('vmeta').textContent=b?(b.flavour+' · '+b.entries+' samples · sings '+b.lyrics):'';
+  applyAccent(b&&b.accent);
+}
+/* Each voice colours the panel with the main colour of its own artwork, so a
+   bank you add brings its own look instead of borrowing Teto's red. One solid
+   colour, plus a pale version of it for note blocks and tags. */
+function applyAccent(hex){
+  const root=document.documentElement;
+  if(!hex){root.style.removeProperty('--accent'); root.style.removeProperty('--accent-weak'); return;}
+  root.style.setProperty('--accent',hex);
+  const n=parseInt(hex.slice(1),16);
+  root.style.setProperty('--accent-weak','rgba('+(n>>16&255)+','+(n>>8&255)+','+(n&255)+',.14)');
+}
+
+/* Devices are a name substring in config, so whatever is saved stays an option
+   even when it is shorter than the full device name. */
+function deviceOptions(k){
+  const kind=(k==='input_device')?'input':'output';
+  const list=((meta.devices||{})[kind]||[]).slice();
+  const current=cfg[k]||'';
+  if(current&&!list.some(n=>n===current)) list.unshift(current);
+  return {list:list,blank:(kind==='input')?'System default':''};
+}
+function control(k){
+  const wrap=document.createElement('div'); wrap.className='ctl';
+  const lab=document.createElement('label'); lab.textContent=labelOf(k); lab.htmlFor='f-'+k;
+  wrap.appendChild(lab);
+  const range=meta.ranges?meta.ranges[k]:null;
+  const isDevice=(k==='input_device'||k==='output_device');
+  let inp,out=null;
+  if(isDevice&&((meta.devices||{}).input||[]).length){
+    const {list,blank}=deviceOptions(k);
+    inp=document.createElement('select'); inp.className='box';
+    if(blank!==''){const o=document.createElement('option'); o.value=''; o.textContent=blank;
+      if(!cfg[k]) o.selected=true; inp.appendChild(o);}
+    for(const n of list){
+      const o=document.createElement('option'); o.value=n; o.textContent=n;
+      if(cfg[k]===n) o.selected=true; inp.appendChild(o);
+    }
+    wrap.appendChild(inp);
+  } else if(meta.choices[k] && (meta.essentials||[]).includes(k) && meta.choices[k].length<=3){
+    /* A switch: one click, and you can see every option at once. */
+    const seg=document.createElement('div'); seg.className='tabs switch'; seg.setAttribute('role','radiogroup');
+    seg.setAttribute('aria-label',labelOf(k));
+    inp=document.createElement('input'); inp.type='hidden'; inp.value=cfg[k];
+    const names=(meta.option_labels||{})[k]||{};
+    for(const opt of meta.choices[k]){
+      const b=document.createElement('button'); b.type='button'; b.textContent=names[opt]||opt;
+      b.setAttribute('role','radio'); b.setAttribute('aria-selected',String(String(cfg[k])===String(opt)));
+      b.onclick=()=>{
+        if(inp.value===String(opt)) return;
+        inp.value=opt;
+        for(const other of seg.querySelectorAll('button')) other.setAttribute('aria-selected',String(other===b));
+        placeThumb(seg);
+        inp.dispatchEvent(new Event('change'));
+      };
+      seg.appendChild(b);
+    }
+    const thumb=document.createElement('span'); thumb.className='thumb'; seg.prepend(thumb);
+    wrap.appendChild(seg); wrap.appendChild(inp);
+    requestAnimationFrame(()=>placeThumb(seg));
+  } else if(meta.choices[k]){
+    inp=document.createElement('select'); inp.className='box';
+    // A value the list does not offer (e.g. "base.en" from an older config)
+    // is kept as its own option. Left out, the select showed the first choice
+    // instead, and Save quietly wrote that over the real setting.
+    const choices=[...meta.choices[k]];
+    if(cfg[k]!=null&&cfg[k]!==''&&!choices.map(String).includes(String(cfg[k]))) choices.unshift(cfg[k]);
+    for(const opt of choices){
+      const o=document.createElement('option'); o.value=opt; o.textContent=opt;
+      if(String(cfg[k])===String(opt)) o.selected=true; inp.appendChild(o);
+    }
+    wrap.appendChild(inp);
+  } else if(typeof cfg[k]==='boolean'){
+    inp=document.createElement('input'); inp.type='checkbox'; inp.checked=cfg[k];
+    wrap.appendChild(inp);
+  } else if(range&&typeof cfg[k]==='number'){
+    inp=document.createElement('input'); inp.type='range';
+    inp.min=range[0]; inp.max=range[1]; inp.step=range[2]; inp.value=cfg[k];
+    out=document.createElement('span'); out.className='readout'; out.textContent=fmt(k,cfg[k]);
+    inp.addEventListener('input',()=>{out.textContent=fmt(k,+inp.value); paint(inp); bump(out);});
+    const slider=inp;
+    const step=(sign,label)=>{
+      const b=document.createElement('button'); b.type='button'; b.className='step';
+      b.textContent=label; b.setAttribute('aria-label',(sign<0?'Lower ':'Raise ')+labelOf(k));
+      b.onclick=()=>{
+        // Rounded to the step, so 0.05 steps don't drift into 0.30000000000000004.
+        const s=+slider.step, raw=+slider.value+sign*s;
+        const next=Math.min(+slider.max,Math.max(+slider.min,Math.round(raw/s)*s));
+        if(next===+slider.value) return;
+        slider.value=next; out.textContent=fmt(k,+slider.value); paint(slider); bump(out);
+        slider.dispatchEvent(new Event('change',{bubbles:true}));
+      };
+      return b;
+    };
+    const row=document.createElement('div'); row.className='slide';
+    row.appendChild(step(-1,'\u2212')); row.appendChild(inp); row.appendChild(step(1,'+'));
+    row.appendChild(out); wrap.appendChild(row);
+  } else {
+    inp=document.createElement('input');
+    inp.type=(typeof cfg[k]==='number')?'number':'text';
+    if(typeof cfg[k]==='number') inp.step='any';
+    inp.value=cfg[k]===null?'':cfg[k];
+    wrap.appendChild(inp);
+  }
+  inp.id='f-'+k; inp.dataset.key=k; inp.className=(inp.className||'')+' field';
+  const help=helpOf(k);
+  if(help){const s=document.createElement('span'); s.className='help'; s.textContent=help;
+    wrap.appendChild(s);}
+  if(inp.type==='range') paint(inp);
+  /* Every setting applies as you change it. There used to be a Save button
+     for everything below the main screen, and a change that sat unsaved
+     behind it looked exactly like a change that did nothing. */
+  inp.addEventListener('change',()=>saveOne(k));
+  return wrap;
+}
+function renderDeck(){
+  const host=$('deck'); host.innerHTML='';
+  for(const k of (meta.essentials||[])) host.appendChild(control(k));
+}
+async function saveOne(k){
+  const value=collect()[k];
+  if(value===undefined) return;
+  cfg[k]=value;
+  const d=await (await fetch('api/config',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:value})})).json();
+  if(!d.ok){ toast('Could not save: '+d.error); return; }
+  // A new voicebank or OpenUtau folder means a different list of voices.
+  if(k==='voicebank_root'||k==='openutau_dir') refreshBanks();
+  toast(labelOf(k)+(d.restarting ? ': applying \u2014 Teto is restarting'
+    : d.restart&&d.restart.length ? ': saved \u2014 quit and reopen Teto Relay to use it' : ': applied'));
+}
+/* The voicebank list and pictures, fetched again without rebuilding the rest
+   of the page: after the voicebank folder changed they stayed empty until the
+   program was reopened. */
+async function refreshBanks(){
+  try{
+    const d=await (await fetch('api/config')).json();
+    meta.banks=d.meta.banks; meta.choices.voicebank=d.meta.choices.voicebank;
+    cfg.voicebank=d.config.voicebank;
+    renderPicker();
+  }catch(e){}
+}
+/* Each group folds. The ones most people never need start folded, and
+   whatever you open or close is remembered. */
+function groupOpen(name,info){
+  try{const v=localStorage.getItem('teto.group.'+name); if(v!==null) return v==='1';}catch(e){}
+  return !info.collapsed;
+}
+function renderGroups(){
+  const host=$('groups'); host.innerHTML='';
+  for(const [name,keys] of Object.entries(meta.groups)){
+    if(!keys.length) continue;
+    const info=(meta.group_info||{})[name]||{};
+    const sec=document.createElement('details'); sec.className='group';
+    sec.open=groupOpen(name,info);
+    sec.addEventListener('toggle',()=>{
+      try{localStorage.setItem('teto.group.'+name,sec.open?'1':'0');}catch(e){}});
+    const sum=document.createElement('summary');
+    const t=document.createElement('span'); t.className='gtitle'; t.textContent=name;
+    sum.appendChild(t);
+    if(info.note){const n=document.createElement('span'); n.className='gnote'; n.textContent=info.note;
+      sum.appendChild(n);}
+    sec.appendChild(sum);
+    sum.addEventListener('click',e=>{e.preventDefault(); foldGroup(sec);});
+    const rows=document.createElement('div'); rows.className='grouprows';
+    for(const k of keys) rows.appendChild(control(k));
+    sec.appendChild(rows); host.appendChild(sec);
+  }
+}
+function collect(){
+  const out={};
+  for(const el of document.querySelectorAll('.field')){
+    const k=el.dataset.key;
+    if(el.type==='checkbox') out[k]=el.checked;
+    else if(el.type==='number'||el.type==='range') out[k]=el.value===''?null:Number(el.value);
+    else out[k]=el.value;
+  }
+  return out;
+}
+
+/* Words arrive one after another, each with a little hop. */
+function popWords(el,text){
+  text.split(/(\s+)/).forEach((part,i)=>{
+    if(/^\s+$/.test(part)){ el.append(part); return; }
+    const w=document.createElement('span'); w.className='w'; w.textContent=part;
+    w.style.animationDelay=Math.min(i*45,700)+'ms'; el.append(w);
+  });
+}
+function tag(t){const s=document.createElement('span'); s.className='sungtag'; s.textContent=t; return s;}
+function renderHero(d){
+  const busy=!!(d.starting||d.restarting);
+  const key=JSON.stringify([d.heard,d.kana,d.notes,d.running,d.last,busy,d.stage]);
+  if(key===lastKey) return;
+  lastKey=key;
+  const hero=$('hero'), roll=$('roll');
+  hero.innerHTML='';
+  if(busy){
+    const p=document.createElement('p'); p.className='idle getting-ready';
+    p.textContent='Getting Teto ready \u2014 '+(d.stage||'starting').toLowerCase();
+    hero.appendChild(p); roll.hidden=true; return;
+  }
+  if(!d.notes.length){
+    const p=document.createElement('p'); p.className='idle';
+    if(d.running){
+      // Built from nodes: the key name comes from the config file.
+      const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
+      p.append('Hold ',kbd,' and speak.');
+    }
+    else p.textContent='Start the relay, then hold your push-to-talk key and speak.';
+    hero.appendChild(p); roll.hidden=true; return;
+  }
+  const sung=d.lyrics==='morae';
+  const en=document.createElement('p'); en.className='heard'; popWords(en,d.heard||'\u2014');
+  if(!sung) en.appendChild(tag('sung'));
+  hero.appendChild(en);
+  if(d.kana){
+    const jp=document.createElement('p'); jp.className='kana'; jp.textContent=d.kana;
+    if(sung) jp.appendChild(tag('sung'));
+    hero.appendChild(jp);
+  }
+  roll.hidden=false;
+  renderNotes(d.notes);
+}
+/* Where a tone sits in the lane, 0 at the bottom. Shared by the blocks and the
+   ribbon so they cannot drift apart. A phrase on one note would divide by zero
+   and also deserves to sit in the middle rather than on the floor, so the span
+   never goes below four semitones. */
+const ROLL={h:132, box:34, gap:5, pad:20};
+function toneY(tone,lo,span){
+  return ROLL.pad + (1-(tone-lo)/span)*(ROLL.h-ROLL.box-ROLL.pad*2);
+}
+function rollRange(notes){
+  const t=notes.map(n=>n.tone), lo=Math.min(...t), hi=Math.max(...t);
+  const span=Math.max(hi-lo,4), mid=(lo+hi)/2;
+  return {lo:mid-span/2, span:span};
+}
+function renderNotes(notes){
+  const host=$('notes'); host.innerHTML='';
+  const {lo,span}=rollRange(notes);
+  host.style.width=(notes.length*(ROLL.box+ROLL.gap))+'px';
+  // Two rules mark the range being sung, so the heights mean something.
+  [lo+span,lo].forEach((tone,i)=>{
+    const l=document.createElement('div'); l.className='lane';
+    l.style.top=(toneY(tone,lo,span)+ROLL.box/2)+'px';
+    const s=document.createElement('s'); s.textContent=Math.round(tone);
+    l.appendChild(s); host.appendChild(l);
+  });
+  notes.forEach((n,i)=>{
+    const d=document.createElement('div'); d.className='note';
+    d.style.animationDelay=Math.min(i*20,420)+'ms';
+    d.style.left=(i*(ROLL.box+ROLL.gap))+'px';
+    d.style.top=toneY(n.tone,lo,span)+'px';
+    d.style.width=ROLL.box+'px';
+    d.title=n.lyric+' at MIDI '+n.tone;
+    const b=document.createElement('b'); b.textContent=n.lyric;
+    const s=document.createElement('s'); s.textContent=n.tone;
+    d.appendChild(b); d.appendChild(s); host.appendChild(d);
+  });
+  requestAnimationFrame(()=>drawRibbon(notes));
+}
+/* One hairline through the blocks, at the same coordinates they use, so the
+   contour reads across the gaps. The old version drew a second curve above the
+   row; now that the blocks carry the pitch themselves, a separate chart of the
+   same numbers would just be decoration. */
+function drawRibbon(notes){
+  const svg=$('ribbon');
+  if(!notes.length){svg.innerHTML='';return;}
+  const w=notes.length*(ROLL.box+ROLL.gap), h=ROLL.h;
+  svg.setAttribute('width',w); svg.setAttribute('height',h);
+  svg.setAttribute('viewBox','0 0 '+w+' '+h);
+  const {lo,span}=rollRange(notes);
+  const pts=notes.map((n,i)=>[i*(ROLL.box+ROLL.gap)+ROLL.box/2,
+    toneY(n.tone,lo,span)+ROLL.box/2]);
+  const dpath=pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' ');
+  svg.innerHTML='<path d="'+dpath+'"></path>';
+  const line=svg.querySelector('path');
+  if(!matchMedia('(prefers-reduced-motion:reduce)').matches&&line.getTotalLength){
+    const len=line.getTotalLength();
+    line.animate([{strokeDasharray:len,strokeDashoffset:len},{strokeDasharray:len,strokeDashoffset:0}],
+      {duration:Math.min(160+notes.length*22,900),easing:'ease-out'});
+  }
+}
+function renderMeters(s){
+  const m=$('meters'); m.innerHTML='';
+  for(const [k,v] of [['heard',s.speech!=null?s.speech+'s':'\u2014'],
+                      ['analysed',s.analyse!=null?s.analyse+'s':'\u2014'],
+                      ['rendered',s.render!=null?s.render+'s':'\u2014'],
+                      ['to sound',s.behind!=null?s.behind+'s':'\u2014'],
+                      ['pitch',s.method||'\u2014']]){
+    const d=document.createElement('div');
+    const dt=document.createElement('dt'); dt.textContent=k;
+    const dd=document.createElement('dd'); dd.textContent=v;
+    if(k==='pitch') dd.style.fontSize='12px';
+    d.appendChild(dt); d.appendChild(dd); m.appendChild(d);
+  }
+}
+
+/* ---------- renaming a voicebank ----------
+   The name lives in Teto Relay's data folder, not in the bank; an empty name
+   goes back to the bank's own. */
+const PENCIL='<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+  ' stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/>'+
+  '<path d="M13.5 6.5l4 4"/></svg>';
+$('rename').innerHTML=PENCIL;
+function renaming(on){
+  $('renamebox').hidden=!on; $('vname').parentElement.hidden=on;
+  if(on){
+    const b=(meta.banks||[]).find(x=>x.key===cfg.voicebank);
+    $('renameinput').value=b?(b.custom_name||b.name):'';
+    $('renameinput').focus(); $('renameinput').select();
+  }
+}
+$('rename').onclick=()=>renaming(true);
+$('renamecancel').onclick=()=>renaming(false);
+$('renameinput').addEventListener('keydown',e=>{if(e.key==='Escape') renaming(false);});
+$('renamebox').onsubmit=async e=>{
+  e.preventDefault();
+  const key=cfg.voicebank, name=$('renameinput').value.trim();
+  const d=await (await fetch('api/voicebank/rename',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({bank:key,name})})).json();
+  if(!d.ok){ toast('Could not rename: '+d.error); return; }
+  renaming(false);
+  // Straight from the answer: reloading every setting (and the device list)
+  // took over a second and a half to show the new name.
+  const b=(meta.banks||[]).find(x=>x.key===key);
+  if(b){ b.custom_name=d.name||''; b.name=d.name||b.own_name||b.key; }
+  renderPicker();
+  toast(d.name?('Renamed to '+d.name):'Back to its own name');
+};
+$('bank').onchange=async e=>{
+  const key=e.target.value;
+  const d=await (await fetch('api/voicebank',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({bank:key})})).json();
+  if(d.ok){cfg.voicebank=key; showBank(key);
+    toast(d.applied?('Now singing as '+key):(key+' loads when you start the relay.'));
+  } else toast('Could not switch: '+d.error);
+};
+/* The Start button while the relay loads: a spinner and what it is doing.
+   Set straight away on the click, then kept up by poll() from the program's
+   own progress - it used to flip back to "Start" until loading finished. */
+let busyLabel='', startAsked=false, shownProgress=0;
+function showBusy(label, stage, progress){
+  const btn=$('toggle');
+  app().classList.add('loading');
+  btn.disabled=true;
+  if(busyLabel!==label){ busyLabel=label; btn.innerHTML='<span class="spin"></span>'+label; }
+  $('stateText').textContent=(stage||label).toLowerCase()+'\u2026';
+  // A step can take half a minute (the speech model), and a bar that sits
+  // still looks frozen: it creeps on while waiting, never past the next step.
+  shownProgress=Math.max(progress||0, Math.min(shownProgress+0.006, (progress||0)+0.3, 0.93));
+  $('loadbar').firstElementChild.style.width=Math.max(3,Math.round(shownProgress*100))+'%';
+}
+function clearBusy(){
+  if(!busyLabel) return;
+  busyLabel=''; shownProgress=0;
+  app().classList.remove('loading');
+  $('loadbar').firstElementChild.style.width='0';
+}
+$('toggle').onclick=async e=>{
+  const btn=e.currentTarget, starting=btn.dataset.state!=='running';
+  if(starting){ startAsked=true; showBusy('Starting','Getting ready',0.02); }
+  else { btn.disabled=true; btn.textContent='Stopping'; }
+  try{
+    const d=await (await fetch(starting?'api/start':'api/stop',{method:'POST'})).json();
+    if(d&&d.ok===false) toast('Could not start: '+d.error);
+  }catch(err){toast('Could not reach the relay.');}
+  startAsked=false; btn.disabled=false; poll();
+};
+/* Uploads: the body is the file and the name rides in the query, so there is
+   no multipart parser on either end. */
+async function upload(kind, file, note){
+  if(!file) return;
+  const status=$('up-status');
+  status.textContent='Uploading '+file.name+' ('+(file.size/1e6).toFixed(0)+' MB)…';
+  try{
+    const r=await fetch('api/install/'+kind+'?name='+encodeURIComponent(file.name),
+      {method:'POST',body:file});
+    const d=await r.json();
+    if(!d.ok){status.textContent=d.error; toast('Could not install it'); return;}
+    status.textContent=note(d.installed);
+    toast('Installed');
+    await load();                       // the picker and accents refresh
+  }catch(err){ status.textContent='Upload failed: '+err; }
+}
+$('up-bank').onchange=e=>upload('voicebank',e.target.files[0],
+  i=>'Installed '+i.name+' — '+i.samples+' samples. Pick it in the top bar.');
+
+$('advtoggle').onclick=()=>{
+  const open=app().classList.toggle('open');
+  $('advtoggle').innerHTML='<span>&#9654;</span>'+(open?'Hide settings':'All settings');
+  try{localStorage.setItem('teto.adv',open?'1':'0');}catch(e){}
+};
+if((()=>{try{return localStorage.getItem('teto.adv')==='1';}catch(e){return false;}})()){
+  app().classList.add('open');
+  $('advtoggle').innerHTML='<span>&#9654;</span>Hide settings';
+}
+
+function renderAlert(h){
+  const box=$('alert'); box.textContent='';
+  for(const problem of (h.problems||[])){
+    const p=document.createElement('p'); p.textContent=problem; box.appendChild(p);
+  }
+  box.hidden=!(h.problems||[]).length;
+}
+$('quit').onclick=async()=>{
+  if(!confirm('Quit Teto Relay?')) return;
+  try{await fetch('api/quit',{method:'POST'});}catch(e){}
+  document.body.textContent='Teto Relay has stopped. You can close this tab.';
+};
+$('doctor').onclick=async()=>{
+  const out=$('checks'); $('checkgroup').hidden=false; out.textContent='Checking...';
+  app().classList.add('open');
+  try{
+    const d=await (await fetch('api/doctor')).json();
+    out.textContent=d.text;
+    toast(d.ok?'Setup looks ready.':'Some things need fixing - see "setup check".');
+  }catch(e){out.textContent='Could not run the check: '+e;}
+};
+
+async function poll(){
+  try{
+    const d=await (await fetch('api/status')).json();
+    app().classList.toggle('live',d.running);
+    if(d.version) $('mark').title='Teto Relay '+d.version;
+    const btn=$('toggle');
+    btn.dataset.state=d.running?'running':'stopped';
+    app().classList.toggle('restarting',!!d.restarting);
+    if(wasRestarting&&!d.restarting) refreshBanks();
+    wasRestarting=!!d.restarting;
+    if(d.starting||d.restarting||(startAsked&&!d.running)){
+      // Start/Stop mid-restart started a second relay beside the one coming up.
+      showBusy(d.restarting?'Restarting':'Starting', d.stage, d.progress);
+    } else {
+      clearBusy();
+      btn.textContent=d.running?'Stop':'Start';
+      btn.disabled=false;
+      $('stateText').textContent=d.running?(d.paused?'paused':'listening'):'stopped';
+    }
+    if(d.restart_error&&d.restart_error!==lastRestartError) toast('Could not restart: '+d.restart_error);
+    lastRestartError=d.restart_error||'';
+    const pick=$('bank');
+    // Only when the picker can actually show that bank; with none installed
+    // this used to refetch a missing picture every second.
+    if(d.bank&&d.bank!==pick.value&&[...pick.options].some(o=>o.value===d.bank)){
+      pick.value=d.bank; showBank(d.bank);
+    }
+    renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{});
+    const box=$('log');
+    const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-24;
+    box.textContent=d.log.join('\n')||'Waiting for the relay to start.';
+    if(stick) box.scrollTop=box.scrollHeight;
+  }catch(e){}
+}
+
+/* ---------- motion helpers ---------- */
+let lastRestartError='', wasRestarting=false;
+const calm=()=>document.documentElement.getAttribute('data-motion')==='off'||
+  matchMedia('(prefers-reduced-motion:reduce)').matches;
+function placeThumb(seg){
+  const thumb=seg.querySelector('.thumb'), on=seg.querySelector('button[aria-selected=true]');
+  if(!thumb||!on) return;
+  thumb.style.left=on.offsetLeft+'px'; thumb.style.width=on.offsetWidth+'px';
+}
+addEventListener('resize',()=>document.querySelectorAll('.switch').forEach(placeThumb));
+function bump(el){el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');}
+/* Folding: the rows spring open to their height and tuck away again. */
+function foldGroup(sec){
+  const rows=sec.querySelector('.grouprows');
+  if(calm()||!rows||!rows.animate){ sec.open=!sec.open; return; }
+  if(sec.open){
+    const h=rows.offsetHeight;
+    rows.animate([{height:h+'px',opacity:1},{height:'0px',opacity:0}],
+      {duration:260,easing:'cubic-bezier(.22,1,.36,1)'}).onfinish=()=>{sec.open=false;};
+  } else {
+    sec.open=true;
+    const h=rows.offsetHeight;
+    rows.animate([{height:'0px',opacity:0,transform:'translateY(-6px)'},
+                  {height:h+'px',opacity:1,transform:'none'}],
+      {duration:520,easing:'cubic-bezier(.34,1.56,.64,1)'});
+  }
+}
+/* Cards pop in one after another when the page opens. */
+document.querySelectorAll('.pane').forEach((el,i)=>{
+  el.style.animationDelay=(i*70)+'ms'; el.classList.add('enter');
+  el.addEventListener('animationend',()=>el.classList.remove('enter'),{once:true});
+});
+load().then(poll); setInterval(poll,1000);
+/* Closing the window closes Teto Relay (the program waits a few seconds, so
+   a reload doesn't). sendBeacon, because it still goes out while the page is
+   being torn down. */
+addEventListener('pagehide',()=>{ try{ navigator.sendBeacon('api/closing'); }catch(e){} });
+/* Installable as an app from Edge/Chrome; see sw.js. */
+if('serviceWorker' in navigator){ navigator.serviceWorker.register('/sw.js').catch(()=>{}); }
+</script>
