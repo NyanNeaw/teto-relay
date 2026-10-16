@@ -8,6 +8,8 @@ comes out of a virtual audio cable, so Discord, OBS or a game can use her as
 your microphone. It speaks English, ไทย and 日本語, and works with any UTAU
 voicebank.
 
+*Inspired by [Acrylic](https://www.youtube.com/@hi-im-acrylic)'s video [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU).*
+
 > [!WARNING]
 > **This is a beta.** It works, and it's fun, but expect rough edges: about
 > two seconds of delay, the odd misheard word, and an installer that has only
@@ -121,6 +123,12 @@ Teto Relay is free software under the [GNU General Public License v3.0](LICENSE)
 you may use, share and change it, and anything you build from it and share
 must be under the same license. The libraries and models it uses keep their
 own licenses (see Credits).
+
+## Thanks
+
+Huge thanks to **[Acrylic](https://www.youtube.com/@hi-im-acrylic)**: the video
+[How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU) is what
+started this project. Go watch it!
 
 ## Credits
 
