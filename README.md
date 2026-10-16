@@ -9,7 +9,7 @@ your microphone. It speaks English, ไทย and 日本語, and works with any 
 voicebank.
 
 *Inspired by [Acrylic](https://www.youtube.com/@hi-im-acrylic)'s video [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU)
-and project [speech-to-text-to-speech](https://github.com/acrylicc/speech-to-text-to-speech).*
+and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-to-teto).*
 
 > [!WARNING]
 > **This is a beta.** It works, and it's fun, but expect rough edges: about
@@ -130,7 +130,7 @@ own licenses (see Credits).
 Huge thanks to **[Acrylic](https://www.youtube.com/@hi-im-acrylic)**: the video
 [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU) is what
 started this project, along with their
-[speech-to-text-to-speech](https://github.com/acrylicc/speech-to-text-to-speech) project. Go check them out!
+[speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-to-teto) project. Go check them out!
 
 ## Credits
 
