@@ -102,15 +102,11 @@ def _track_pyin(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:
 _CREPE_WARNED = False
 
 
-def _track_crepe(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:
-    """torchcrepe on the GPU. ~0.09s per utterance and consistent.
-
-    crepe is trained at 16 kHz, which is what the capture stage produces, so no
-    resampling is needed on the normal path.
-    """
+def crepe_device_model(cfg) -> tuple[str, str]:
+    """Where crepe runs and which model: the configured ones, or the tiny model
+    on the CPU when there is no CUDA."""
     global _CREPE_WARNED
     import torch
-    import torchcrepe
 
     device = cfg.crepe_device
     model = cfg.crepe_model
@@ -123,7 +119,28 @@ def _track_crepe(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:
             log.info("No CUDA for crepe; tracking pitch on the CPU with the tiny model")
             _CREPE_WARNED = True
         device, model = "cpu", "tiny"
+    return device, model
 
+
+def crepe_track(f0: np.ndarray, periodicity: np.ndarray, sample_rate: int, cfg, method: str) -> F0Track:
+    """The F0Track for crepe's decoded output (shared with teto_relay.live)."""
+    hop_length = max(1, sample_rate // 100)
+    voiced = periodicity > cfg.crepe_voiced_threshold
+    voiced &= np.isfinite(f0)
+    times = np.arange(len(f0)) * hop_length / sample_rate
+    return F0Track(times=times, f0=f0, voiced=voiced, sample_rate=sample_rate, method=method)
+
+
+def _track_crepe(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:
+    """torchcrepe on the GPU. ~0.09s per utterance and consistent.
+
+    crepe is trained at 16 kHz, which is what the capture stage produces, so no
+    resampling is needed on the normal path.
+    """
+    import torch
+    import torchcrepe
+
+    device, model = crepe_device_model(cfg)
     hop_length = max(1, sample_rate // 100)  # 10 ms, matching the pyin path
     # crepe needs at least one full analysis window (1024 samples).
     if audio.size < 1024:
@@ -141,17 +158,8 @@ def _track_crepe(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:
         device=device,
         return_periodicity=True,
     )
-    f0 = f0[0].detach().cpu().numpy().astype(float)
-    voiced = periodicity[0].detach().cpu().numpy() > cfg.crepe_voiced_threshold
-    voiced &= np.isfinite(f0)
-    times = np.arange(len(f0)) * hop_length / sample_rate
-    return F0Track(
-        times=times,
-        f0=f0,
-        voiced=voiced,
-        sample_rate=sample_rate,
-        method=f"crepe/{model}@{device}",
-    )
+    return crepe_track(f0[0].detach().cpu().numpy().astype(float), periodicity[0].detach().cpu().numpy(),
+                       sample_rate, cfg, f"crepe/{model}@{device}")
 
 
 def track_f0(audio: np.ndarray, sample_rate: int, cfg) -> F0Track:

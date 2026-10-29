@@ -5,6 +5,8 @@
 - **Teto answers sooner.** About 0.6 s was lost on every phrase inside
   OpenUtau, and pitch is now measured while the words are being heard: on
   the same recordings, 3.4 s → 2.4 s from letting go of the key to her voice.
+- **Pitch is worked out while you're still talking**, so less is left to do
+  when you let go: 2.2 s → 2.0 s more on the same recordings.
 - **No more 6–10 s wait** on the first phrase after switching language or
   voicebank: the timing model loads in the background after Start.
 

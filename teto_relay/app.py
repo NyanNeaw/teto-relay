@@ -197,6 +197,11 @@ class TetoRelay:
                 log.exception("calibration failed; using the configured threshold")
 
         chunker = make_chunker(cfg, threshold)
+        if hasattr(chunker, "live_factory") and (cfg.pitch_method or "crepe").lower() == "crepe":
+            # Pitch is worked out while the key is held (teto_relay.live).
+            from .live import LivePitch
+
+            chunker.live_factory = lambda: LivePitch(self.cfg, self.cfg.sample_rate)
         self._player = Player(cfg, self.wav_q, out_dev.index, on_playback=self._on_playback)
         self._capture = MicCapture(
             cfg, self.chunk_q, in_dev.index if in_dev else None, threshold, chunker=chunker
@@ -225,6 +230,13 @@ class TetoRelay:
             log.info("Teto Relay running. Hold [%s] and speak into %s.", cfg.ptt_key.upper(), mic_name)
         else:
             log.info("Teto Relay running. Speak into %s.", mic_name)
+
+    def _pitch_for(self, chunk):
+        """The phrase's pitch: finished from what was worked out while it was
+        recorded (teto_relay.live), or tracked now."""
+        live = getattr(chunk, "live", None)
+        track = live.finish(chunk.audio) if live is not None else None
+        return track or pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
 
     def _side_work(self):
         """One worker thread for analysis that can run beside whisper."""
@@ -557,7 +569,7 @@ class TetoRelay:
         )
         # Pitch needs only the audio, so it is measured while whisper listens:
         # 0.2-0.6 s of every phrase that used to come after it.
-        pitch = self._side_work().submit(pitch_mod.track_f0, chunk.audio, chunk.sample_rate, self.cfg)
+        pitch = self._side_work().submit(self._pitch_for, chunk)
         words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
         timeline.lap("asr")
         if not words:

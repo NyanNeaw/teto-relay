@@ -1680,6 +1680,93 @@ class TestFasterReplies(unittest.TestCase):
                 self.assertEqual(loaded.wait(2.0), expected)
 
 
+class TestPitchWhileRecording(unittest.TestCase):
+    """teto_relay.live: crepe's frames are worked out while the key is held,
+    so at the release only the last few and the decoding are left."""
+
+    @unittest.skipUnless(__import__("importlib").util.find_spec("torchcrepe"), "needs torchcrepe")
+    def test_the_track_matches_tracking_after_the_release(self):
+        import time
+
+        import numpy as np
+
+        from teto_relay import pitch as pitch_mod
+        from teto_relay.config import Config
+        from teto_relay.live import LivePitch
+
+        cfg = Config(crepe_device="cpu", crepe_model="tiny")
+        t = np.arange(int(1.6 * 16000)) / 16000
+        hz = 180 + 40 * np.sin(2 * np.pi * 0.8 * t)  # a gliding voice
+        audio = (0.3 * np.sin(2 * np.pi * np.cumsum(hz) / 16000)).astype(np.float32)
+        audio[: 3200] = 0.0  # starts with silence, like a key pressed early
+        live = LivePitch(cfg, 16000)
+        for i in range(0, len(audio), 320):
+            live.feed(audio[i:i + 320])
+        time.sleep(0.3)
+        got = live.finish(audio)
+        ref = pitch_mod.track_f0(audio, 16000, cfg)
+        self.assertIsNotNone(got)
+        self.assertEqual(len(got.f0), len(ref.f0))
+        self.assertGreater(np.mean(got.voiced == ref.voiced), 0.97)
+        both = got.voiced & ref.voiced
+        # crepe dithers each frame by up to a bin (20 cents) at random.
+        cents = np.abs(1200 * np.log2(got.f0[both] / ref.f0[both]))
+        self.assertLess(np.median(cents), 15)
+        self.assertLess(abs(got.median_midi(0.3, 1.6) - ref.median_midi(0.3, 1.6)), 0.15)
+
+    def test_different_or_short_audio_falls_back(self):
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.live import LivePitch
+
+        live = object.__new__(LivePitch)
+        live._closing = False
+        live._failed = False
+        live._wake = __import__("threading").Event()
+        live._thread = __import__("threading").Thread(target=lambda: None)
+        live._thread.start()
+        live._lock = __import__("threading").Lock()
+        live._pieces = [np.ones(4000, np.float32)]
+        self.assertIsNone(live.finish(np.zeros(4000, np.float32)))  # not what it heard
+        self.assertIsNone(live.finish(np.ones(500, np.float32)))  # under one crepe window
+
+    def test_the_chunker_feeds_it_the_phrase_and_hands_it_over(self):
+        import numpy as np
+
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config
+
+        class Recorder:
+            def __init__(self):
+                self.heard, self.cancelled = [], False
+
+            def feed(self, audio):
+                self.heard.append(np.array(audio))
+
+            def cancel(self):
+                self.cancelled = True
+
+        cfg = Config(capture_mode="ptt")
+        chunker = PushToTalkChunker(cfg)
+        made = []
+        chunker.live_factory = lambda: made.append(Recorder()) or made[-1]
+        frame = lambda v: np.full(cfg.frame_samples, v, np.float32)  # noqa: E731
+        chunker.push(frame(0.1))  # preroll, before the key
+        chunker.start()
+        for i in range(30):
+            chunker.push(frame(0.2))
+        chunker.stop()
+        chunk = chunker.push(frame(0.0))
+        self.assertIs(chunk.live, made[0])
+        self.assertTrue(np.array_equal(np.concatenate(made[0].heard), chunk.audio))
+        # A tap too short to be a phrase: its live analysis is stopped.
+        chunker.start()
+        chunker.push(frame(0.2))
+        chunker.stop()
+        self.assertTrue(made[1].cancelled)
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 

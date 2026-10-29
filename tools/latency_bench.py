@@ -29,6 +29,8 @@ def main() -> int:
     ap.add_argument("--bank", default=None)
     ap.add_argument("--language", default="en")
     ap.add_argument("--rounds", type=int, default=2)
+    ap.add_argument("--live", action="store_true",
+                    help="feed each recording in real time first, as if the talk key were held")
     ap.add_argument("--set", nargs="*", default=[], help="config overrides, key=value")
     args = ap.parse_args()
 
@@ -84,8 +86,18 @@ def main() -> int:
 
     for round_no in range(args.rounds):
         for name, audio in clips:
+            live = None
+            if args.live:
+                # As in the app: the phrase arrives 20 ms at a time while the
+                # key is held, and the clock starts at the release.
+                from teto_relay.live import LivePitch
+
+                live = LivePitch(cfg, 16000)
+                for i in range(0, len(audio), 320):
+                    live.feed(audio[i:i + 320])
+                    time.sleep(0.02)
             began = time.monotonic()
-            job = relay.analyse(Chunk(audio=audio, sample_rate=16000, reason="file", captured_at=began))
+            job = relay.analyse(Chunk(audio=audio, sample_rate=16000, reason="file", captured_at=began, live=live))
             if job is None:
                 continue
             analysed = time.monotonic() - began

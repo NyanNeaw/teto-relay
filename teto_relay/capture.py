@@ -38,6 +38,8 @@ class Chunk:
     reason: str  # "pause" or "max_length"
     # When the utterance closed, for end-to-end latency accounting.
     captured_at: float = field(default_factory=time.monotonic)
+    # Analysis done while it was recorded (teto_relay.live.LivePitch), if any.
+    live: object = None
 
     @property
     def duration(self) -> float:
@@ -160,20 +162,36 @@ class PushToTalkChunker:
         self._active = False
         self._pending: deque[Chunk] = deque()
         self._lock = threading.Lock()
+        # Makes a teto_relay.live.LivePitch for each phrase, fed as it is
+        # recorded; set by the relay. None: everything waits for the release.
+        self.live_factory = None
+        self._live = None
 
     @property
     def recording(self) -> bool:
         return self._active
 
     def start(self) -> None:
+        live = None
+        if self.live_factory is not None and not self._active:
+            try:
+                live = self.live_factory()
+            except Exception:  # noqa: BLE001 - the phrase is analysed after the release
+                log.debug("could not start live analysis", exc_info=True)
         with self._lock:
             if self._active:
+                if live is not None:
+                    live.cancel()
                 return
             # Keep a little audio from before the key went down, so a word
             # started fractionally early is not clipped.
             self._frames = list(self._preroll)
             self._preroll.clear()
             self._active = True
+            self._live = live
+            if live is not None:
+                for frame in self._frames:
+                    live.feed(frame)
         log.info("Recording...")
 
     def stop(self) -> None:
@@ -192,6 +210,8 @@ class PushToTalkChunker:
                 self._preroll.append(frame)
             else:
                 self._frames.append(frame)
+                if self._live is not None:
+                    self._live.feed(frame)
                 limit = max_frames(self.cfg)
                 if limit is not None and len(self._frames) >= limit:
                     self._active = False
@@ -211,10 +231,13 @@ class PushToTalkChunker:
 
     def _finish_locked(self, reason: str) -> Chunk | None:
         frames, self._frames = self._frames, []
+        live, self._live = self._live, None
         min_frames = max(1, self.cfg.min_chunk_ms // self.cfg.frame_ms)
         if len(frames) < min_frames:
+            if live is not None:
+                live.cancel()
             return None
-        chunk = Chunk(np.concatenate(frames), self.cfg.sample_rate, reason)
+        chunk = Chunk(np.concatenate(frames), self.cfg.sample_rate, reason, live=live)
         self._pending.append(chunk)
         return chunk
 
