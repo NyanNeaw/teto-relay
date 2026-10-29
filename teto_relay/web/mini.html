@@ -1,0 +1,145 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teto Relay mini</title>
+<style>
+/* The mini player: what the app window shows, pinned on top, while it is
+   minimized (window.py). Same colours and theme as the panel; its voice's
+   accent like the panel's. The picture and the text drag the window
+   (pywebview-drag-region); the buttons do not. */
+:root{
+  color-scheme:light;
+  --bg:#ffffff; --sink:#f0f0f3; --line:#e2e2e7; --text:#1d1d1f; --muted:#5b5b61;
+  --accent:#d31b45; --accent-weak:rgba(211,27,69,.12); --on-accent:#fff; --ok:#1f9d48;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  color-scheme:dark;
+  --bg:#1c1c1e; --sink:#2c2c2e; --line:#38383a; --text:#f5f5f7; --muted:#a1a1a6;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18); --on-accent:#141414; --ok:#30d158;
+}}
+:root[data-theme=dark]{
+  color-scheme:dark;
+  --bg:#1c1c1e; --sink:#2c2c2e; --line:#38383a; --text:#f5f5f7; --muted:#a1a1a6;
+  --accent:#ff4a70; --accent-weak:rgba(255,74,112,.18); --on-accent:#141414; --ok:#30d158;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);overflow:hidden}
+body{color:var(--text);font:13px/1.35 -apple-system,BlinkMacSystemFont,"Segoe UI Variable Text","Segoe UI",
+  "Leelawadee UI","Yu Gothic UI",system-ui,sans-serif;user-select:none;cursor:default}
+.pywebview-drag-region{cursor:grab}
+.card{height:100%;display:flex;gap:12px;padding:12px;border:1px solid var(--line)}
+/* The picture is as tall as the card, so a window that comes out another size
+   (display scaling) still fits; very short, the quote line goes first. */
+.pic{height:calc(100vh - 24px);aspect-ratio:1;max-width:120px;flex:none;border-radius:14px;background:var(--sink);overflow:hidden;
+  position:relative;display:grid;place-items:center;color:var(--muted);font-size:28px;font-weight:700}
+.pic img{width:100%;height:100%;object-fit:cover;display:block}
+.pic img[hidden]{display:none}
+.pic::after{content:"";position:absolute;inset:0;border-radius:14px;box-shadow:inset 0 0 0 3px var(--ring,transparent);
+  transition:box-shadow .2s}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.top{display:flex;align-items:center;gap:4px}
+.name{flex:1;min-width:0;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.state{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+.state i{width:7px;height:7px;border-radius:50%;background:var(--dot,var(--muted));flex:none}
+@media (max-height:118px){.line{display:none}}
+.line{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-height:18px}
+.controls{margin-top:auto;display:flex;align-items:center;gap:6px}
+button{font:inherit;border:0;cursor:pointer;display:grid;place-items:center;color:var(--text);background:var(--sink)}
+button:hover{filter:brightness(1.08)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default;filter:none}
+.round{width:34px;height:34px;border-radius:50%;flex:none}
+.round.on{background:var(--accent);color:var(--on-accent)}
+.talk{flex:1;height:34px;border-radius:999px;font-size:12px;font-weight:600;padding:0 12px;white-space:nowrap}
+.talk.on{background:var(--accent);color:var(--on-accent)}
+.tiny{width:26px;height:26px;border-radius:50%;background:transparent;color:var(--muted)}
+.tiny:hover{background:var(--sink);color:var(--text)}
+</style>
+<div class="card">
+  <div class="pic pywebview-drag-region" id="pic"><img id="avatar" alt="" hidden draggable="false"><span id="initial">♪</span></div>
+  <div class="main">
+    <div class="top">
+      <span class="name pywebview-drag-region" id="name">Teto Relay</span>
+      <button class="tiny" id="expand" title="Open Teto Relay" aria-label="Open Teto Relay"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-8 8M10 20H4v-6"/></svg></button>
+      <button class="tiny" id="close" title="Hide the mini player" aria-label="Hide the mini player"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    </div>
+    <span class="state pywebview-drag-region" id="state"><i></i><span id="statetext">stopped</span></span>
+    <span class="line pywebview-drag-region" id="line"></span>
+    <div class="controls">
+      <button class="round" id="run" title="Start" aria-label="Start"></button>
+      <button class="round" id="rec" title="Record a take" aria-label="Record a take"><svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg></button>
+      <button class="talk" id="talk" title="Hold to talk - like holding your talk key">Hold to talk</button>
+    </div>
+  </div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+// The panel refuses a post without this header (see webui.py); the main page
+// adds it the same way.
+const post=(url,body)=>fetch(url,{method:'POST',headers:{'X-Teto-Relay':'1','Content-Type':'application/json'},
+  body:body===undefined?'':JSON.stringify(body)}).then(r=>r.json()).catch(()=>({}));
+try{ const t=localStorage.getItem('teto.theme'); if(t==='light'||t==='dark') document.documentElement.setAttribute('data-theme',t); }catch(e){}
+
+const ICON={
+  play:'<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
+  stop:'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>'};
+let banks=[], shownBank=null, key='', last={};
+
+async function loadBanks(){
+  try{ banks=((await (await fetch('api/config')).json()).meta||{}).banks||[]; }catch(e){}
+}
+function showBank(k){
+  if(k===shownBank) return; shownBank=k;
+  const b=banks.find(x=>x.key===k);
+  $('name').textContent=b?b.name:'Teto Relay';
+  $('initial').textContent=b?(b.name||'?').trim().charAt(0):'♪';
+  const img=$('avatar');
+  img.onload=()=>{ img.hidden=false; $('initial').hidden=true; };
+  img.onerror=()=>{ img.hidden=true; $('initial').hidden=false; };
+  if(b) img.src='api/bank-image?bank='+encodeURIComponent(k); else img.hidden=true;
+  const S=document.documentElement.style;
+  if(b&&/^#[0-9a-f]{6}$/i.test(b.accent||'')) S.setProperty('--accent',b.accent); else S.removeProperty('--accent');
+}
+function render(d){
+  const run=$('run'), t=d.take||{};
+  const busy=!!(d.starting||d.restarting);
+  run.innerHTML=d.running?ICON.stop:ICON.play;
+  run.title=d.running?'Stop':'Start'; run.setAttribute('aria-label',run.title);
+  run.disabled=busy; run.classList.toggle('on',!!d.running);
+  $('rec').disabled=!d.running||!!d.take_finishing;
+  $('rec').classList.toggle('on',!!t.recording);
+  $('rec').title=t.recording?'Stop and save the take':'Record a take';
+  $('talk').disabled=!d.running;
+  $('talk').classList.toggle('on',!!d.talking);
+  let text, dot='var(--muted)';
+  if(busy){ text=(d.stage||'starting').toLowerCase()+'…'; }
+  else if(!d.running){ text='stopped'; }
+  else if(t.recording){ text='recording a take · '+Math.floor((t.seconds||0)/60)+':'+String(Math.floor((t.seconds||0)%60)).padStart(2,'0'); dot='var(--accent)'; }
+  else if(d.talking){ text='hearing you…'; dot='var(--accent)'; }
+  else { text='listening'; dot='var(--ok)'; }
+  $('state').style.setProperty('--dot',dot); $('statetext').textContent=text;
+  $('pic').style.setProperty('--ring',d.talking||t.recording?'var(--accent)':'transparent');
+  $('line').textContent=d.heard?'“'+d.heard+'”':(d.running?'Hold your talk key, or the button, and talk.':'Press ▶ to start.');
+  $('line').title=d.heard||'';
+}
+async function poll(){
+  let d; try{ d=await (await fetch('api/status')).json(); }catch(e){ return; }
+  if(d.bank!==key){ key=d.bank; await loadBanks(); shownBank=null; }
+  showBank(d.bank); render(d); last=d;
+}
+
+$('run').onclick=async()=>{ $('run').disabled=true; await post(last.running?'api/stop':'api/start'); poll(); };
+$('rec').onclick=async()=>{ await post((last.take||{}).recording?'api/take/stop':'api/take/start'); poll(); };
+let holding=false;
+const talk=down=>{ if(holding===down) return; holding=down; $('talk').classList.toggle('on',down); post('api/talk',{down}); };
+$('talk').addEventListener('pointerdown',e=>{ e.preventDefault(); $('talk').setPointerCapture(e.pointerId); talk(true); });
+$('talk').addEventListener('pointerup',()=>talk(false));
+$('talk').addEventListener('pointercancel',()=>talk(false));
+$('talk').addEventListener('lostpointercapture',()=>talk(false));
+// Opened in a browser for testing there is no window to restore or hide.
+const api=()=>window.pywebview&&window.pywebview.api;
+$('expand').onclick=()=>{ if(api()) api().expand(); };
+$('close').onclick=()=>{ if(api()) api().hide(); };
+window.addEventListener('pywebviewready',()=>{ $('expand').hidden=$('close').hidden=false; });
+poll(); setInterval(poll,700);
+</script>

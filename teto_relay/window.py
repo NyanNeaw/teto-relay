@@ -249,6 +249,66 @@ def stop_request_hook(window) -> bool:
         return False
 
 
+#: The mini player's size, and its gap from the screen's bottom-right corner
+#: (the bottom one clears the taskbar).
+MINI_SIZE = (380, 132)
+MINI_MARGIN = (24, 72)
+#: pywebview sizes a frameless window as if it had a title bar and borders,
+#: and takes those off: asked for 380 x 132 it came out 364 x 100, buttons cut.
+MINI_FRAME = (16, 32)
+
+
+class MiniApi:
+    """The mini player's own calls (pywebview js_api). As with PanelApi,
+    everything public here is offered to the page: the windows stay private."""
+
+    def __init__(self):
+        self._main = None
+        self._mini = None
+
+    def expand(self) -> None:
+        """Back to the full window."""
+        if self._mini is not None:
+            self._mini.hide()
+        if self._main is not None:
+            self._main.restore()
+
+    def hide(self) -> None:
+        """Put the mini player away; the app stays minimized on the taskbar."""
+        if self._mini is not None:
+            self._mini.hide()
+
+
+def add_mini_player(webview, window, url: str):
+    """A small window pinned on top while the panel is minimized, like
+    Spotify's mini player: the voice, what she is doing, the last line, and
+    Start / Record / hold-to-talk (teto_relay/web/mini.html). It appears when
+    the panel is minimized, goes when it is restored, and closes with it."""
+    try:
+        api = MiniApi()
+        x = y = None
+        try:
+            screen = webview.screens[0]
+            x = int(screen.width - MINI_SIZE[0] - MINI_MARGIN[0])
+            y = int(screen.height - MINI_SIZE[1] - MINI_MARGIN[1])
+        except Exception:  # noqa: BLE001 - pywebview places it then
+            pass
+        mini = webview.create_window(
+            f"{TITLE} mini", url.rstrip("/") + "/mini.html",
+            width=MINI_SIZE[0] + MINI_FRAME[0], height=MINI_SIZE[1] + MINI_FRAME[1],
+            x=x, y=y, frameless=True, easy_drag=False, on_top=True, hidden=True, resizable=False,
+            background_color="#1c1c1e", js_api=api)
+        api._main, api._mini = window, mini
+        window.events.minimized += lambda: mini.show()
+        window.events.restored += lambda: mini.hide()
+        window.events.maximized += lambda: mini.hide()
+        window.events.closed += lambda: mini.destroy()
+    except Exception:  # noqa: BLE001 - the panel works without it
+        log.warning("could not make the mini player", exc_info=True)
+        return None
+    return mini
+
+
 def run_window(url: str) -> int:
     """Show the panel in our own window until it is closed. 0, or 1 if no
     window could be made (no WebView2) - the caller falls back to Edge."""
@@ -277,6 +337,7 @@ def run_window(url: str) -> int:
             hooked[0] = not stop_request_hook(window)
 
     window.events.loaded += loaded
+    add_mini_player(webview, window, url)
     try:
         # Takes are downloaded from the panel (.wav, .ustx, .zip); pywebview
         # blocks downloads unless told otherwise.

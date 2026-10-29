@@ -308,6 +308,8 @@ STATIC = {
     "sw.js": "text/javascript; charset=utf-8",
     "icon-192.png": "image/png",
     "icon-512.png": "image/png",
+    # The mini player the app window shows while it is minimized (window.py).
+    "mini.html": "text/html; charset=utf-8",
 }
 
 
@@ -462,6 +464,15 @@ class Controller:
             raise TetoRelayError("Press Start first: fixing a word sings the line again.")
         return relay.resing(folder, line_no, texts)
 
+    def talk(self, down: bool) -> bool:
+        """The mini player's hold-to-talk button: what holding the talk key does."""
+        relay = self.relay
+        chunker = getattr(getattr(relay, "_capture", None), "chunker", None) if relay else None
+        if not self.running or not hasattr(chunker, "start"):
+            return False
+        (chunker.start if down else chunker.stop)()
+        return True
+
     def start_take(self) -> None:
         relay = self.relay
         if relay is None or not self.running:
@@ -562,6 +573,9 @@ class Controller:
             "bank": relay.bank.key if relay and relay.bank else self.cfg.voicebank,
             "lyrics": ("morae" if relay._japanese_lyrics() else "words") if relay else "",
             "paused": bool(relay and relay.paused),
+            # The talk key (or the mini player's button) is held right now.
+            "talking": bool(getattr(getattr(getattr(relay, "_capture", None), "chunker", None),
+                                    "recording", False)) if relay else False,
             "health": relay.health() if relay else {"microphone": "stopped", "problems": []},
             "take": relay.take_status() if relay else {"recording": False},
             "take_finishing": self.take_finishing,
@@ -867,6 +881,13 @@ def make_handler(controller: Controller):
             elif route == "api/stop":
                 controller.stop()
                 self._json({"ok": True})
+            elif route == "api/talk":
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    down = bool((json.loads(self.rfile.read(length) or b"{}") or {}).get("down"))
+                except ValueError:
+                    down = False
+                self._json({"ok": controller.talk(down)})
             elif route == "api/take/start":
                 try:
                     controller.start_take()

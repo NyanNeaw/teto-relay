@@ -4208,7 +4208,8 @@ class TestTakes(unittest.TestCase):
 
         from teto_relay import window
 
-        events = types.SimpleNamespace(shown=_Hooks(), loaded=_Hooks())
+        events = types.SimpleNamespace(shown=_Hooks(), loaded=_Hooks(), minimized=_Hooks(),
+                                       restored=_Hooks(), maximized=_Hooks(), closed=_Hooks())
         fake_window = types.SimpleNamespace(events=events, native=None)
         fake_webview = types.SimpleNamespace(
             create_window=lambda *a, **k: fake_window, settings={},
@@ -4222,6 +4223,76 @@ class TestTakes(unittest.TestCase):
         self.assertEqual(stopped, [fake_window])
         # Without .NET (or pywebview's WebView2) it says so and carries on.
         self.assertFalse(window.stop_request_hook(types.SimpleNamespace(native=None)))
+
+    def test_minimizing_shows_the_mini_player(self):
+        import types
+
+        from teto_relay import window
+
+        made = {}
+
+        class Fake:
+            def __init__(self):
+                self.events = types.SimpleNamespace(minimized=_Hooks(), restored=_Hooks(),
+                                                    maximized=_Hooks(), closed=_Hooks())
+                self.calls = []
+
+            def show(self):
+                self.calls.append("show")
+
+            def hide(self):
+                self.calls.append("hide")
+
+            def destroy(self):
+                self.calls.append("destroy")
+
+            def restore(self):
+                self.calls.append("restore")
+
+        main = Fake()
+
+        def create_window(title, url, **kw):
+            made.update(kw, url=url)
+            return Fake()
+
+        fake_webview = types.SimpleNamespace(create_window=create_window,
+                                             screens=[types.SimpleNamespace(width=1920, height=1080)])
+        mini = window.add_mini_player(fake_webview, main, "http://127.0.0.1:1/")
+        self.assertTrue(made["on_top"] and made["frameless"] and made["hidden"])
+        self.assertFalse(made["easy_drag"])            # the buttons must not drag the window
+        self.assertEqual(made["url"], "http://127.0.0.1:1/mini.html")
+        self.assertLess(made["x"], 1920)
+        main.events.minimized.fire()
+        main.events.restored.fire()
+        main.events.minimized.fire()
+        main.events.closed.fire()
+        self.assertEqual(mini.calls, ["show", "hide", "show", "destroy"])
+        # Its page can bring the panel back, and nothing else: no windows to crawl.
+        api = made["js_api"]
+        self.assertEqual([n for n in dir(api) if not n.startswith("_")], ["expand", "hide"])
+        api.expand()
+        self.assertEqual(main.calls, ["restore"])
+
+    def test_the_mini_player_talks_like_the_talk_key(self):
+        import types
+
+        from teto_relay import webui
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config
+
+        controller = webui.Controller(Config())
+        try:
+            self.assertFalse(controller.talk(True))          # not running
+            chunker = PushToTalkChunker(Config())
+            controller.relay = types.SimpleNamespace(_capture=types.SimpleNamespace(chunker=chunker))
+            self.assertTrue(controller.talk(True))
+            self.assertTrue(chunker.recording)
+            self.assertTrue(controller.talk(False))
+            self.assertFalse(chunker.recording)
+        finally:
+            import logging
+
+            logging.getLogger().removeHandler(controller.buffer)
 
     def test_the_window_drags_only_take_files(self):
         import unittest.mock
