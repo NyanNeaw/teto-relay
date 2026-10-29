@@ -557,6 +557,7 @@ class Controller:
                 {"lyric": lyric, "tone": tone}
                 for lyric, tone in (getattr(relay, "last_notes", []) if relay else [])
             ],
+            "history": list(getattr(relay, "history", ())) if relay else [],
             "stats": (getattr(relay, "last_stats", {}) if relay else {}) or {},
             "bank": relay.bank.key if relay and relay.bank else self.cfg.voicebank,
             "lyrics": ("morae" if relay._japanese_lyrics() else "words") if relay else "",

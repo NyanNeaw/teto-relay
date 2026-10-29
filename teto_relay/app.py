@@ -15,6 +15,7 @@ import logging
 import queue
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -100,6 +101,8 @@ def warm_thai() -> None:
 
 #: How long stop() waits for the phrase being analysed or rendered to finish.
 STOP_WAIT_SECONDS = 30.0
+#: How many earlier phrases the panel can list.
+HISTORY_SIZE = 6
 
 
 class TetoRelay:
@@ -159,6 +162,8 @@ class TetoRelay:
         self.last_kana = ""
         self.last_notes: list[tuple[str, int]] = []
         self.last_stats: dict[str, float | str] = {}
+        # The last few phrases as heard, newest last, for the panel's list.
+        self.history: deque[dict] = deque(maxlen=HISTORY_SIZE)
 
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
@@ -660,6 +665,9 @@ class TetoRelay:
             )
         except Exception:
             self.last_kana = ""
+        if getattr(self, "history", None) is None:  # a relay built without __init__ (tests, tools)
+            self.history = deque(maxlen=HISTORY_SIZE)
+        self.history.append({"heard": self.last_source, "sung": self.last_text, "count": len(notes)})
         path = self.cfg.out_path / f"relay_{stamp}.ustx"
         curves = expression_curves(notes, chunk.audio, chunk.sample_rate, self.cfg)
         write_ustx(notes, path, self.bank, self.cfg, curves)
