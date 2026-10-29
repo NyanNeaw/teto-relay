@@ -377,6 +377,8 @@ class Controller:
         self.takes_changed = 0
         # Said once when a take ends without being kept (nothing was sung).
         self.take_notice = ""
+        # The take that was just saved, which the panel opens.
+        self.last_take = ""
         # While the relay starts (10-30 s of model loading), what it is doing
         # and roughly how far along: the page showed "Start" again meanwhile,
         # because all it knew was "not running yet".
@@ -441,9 +443,24 @@ class Controller:
         return paths.data_dir() / "takes"
 
     def _took(self, info: dict | None) -> None:
-        self.take_notice = ("Nothing was sung while recording, so that take wasn't kept. "
-                            "Press Record, then hold your talk key and sing."
-                            if info and info.get("discarded") else "")
+        discarded = bool(info and info.get("discarded"))
+        self.take_notice = ("Nothing was sung while recording, so that take wasn't kept."
+                            if discarded else "")
+        self.last_take = "" if discarded or not info else str(info.get("id", ""))
+
+    def current_take(self) -> dict:
+        """The take being recorded, line by line, for the panel's sheet."""
+        relay = self.relay
+        take = getattr(relay, "_take", None) if relay is not None else None
+        if take is None:
+            return {"recording": False, "lines": []}
+        return {"recording": True, "seconds": round(take.seconds, 1), "lines": take.lines()}
+
+    def resing(self, folder, line_no: int, texts: list) -> dict:
+        relay = self.relay
+        if relay is None or not self.running:
+            raise TetoRelayError("Press Start first: fixing a word sings the line again.")
+        return relay.resing(folder, line_no, texts)
 
     def start_take(self) -> None:
         relay = self.relay
@@ -549,6 +566,7 @@ class Controller:
             "take_finishing": self.take_finishing,
             "takes_changed": self.takes_changed,
             "take_notice": self.take_notice,
+            "last_take": self.last_take,
             "log": list(self.buffer.lines)[-60:],
         }
 
@@ -787,17 +805,28 @@ def make_handler(controller: Controller):
                 from .takes import listing
 
                 self._json({"takes": listing(controller.takes_root())})
+            elif route == "api/take":
+                from .takes import detail
+
+                folder, _ = self._take_query()
+                if folder is None:
+                    self._json({"error": "no such take"}, 404)
+                else:
+                    self._json(detail(folder))
+            elif route == "api/take/current":
+                self._json(controller.current_take())
             elif route == "api/take/file":
-                from .takes import FILES, zip_take
+                from .takes import take_file, zip_take
 
                 folder, name = self._take_query()
+                path = take_file(folder, name) if folder is not None else None
                 if folder is None:
                     self._json({"error": "no such take"}, 404)
                 elif name == "zip":
                     self._download(zip_take(folder), f"{folder.name}.zip", "application/zip")
-                elif name in FILES and (folder / name).is_file():
+                elif path is not None:
                     kind = "audio/wav" if name.endswith(".wav") else "application/octet-stream"
-                    self._download((folder / name).read_bytes(), f"{folder.name}-{name}", kind)
+                    self._download(path.read_bytes(), f"{folder.name}-{name.replace('/', '-')}", kind)
                 else:
                     self._json({"error": "no such file"}, 404)
             elif route == "api/bank-image":
@@ -846,6 +875,36 @@ def make_handler(controller: Controller):
             elif route == "api/take/stop":
                 controller.stop_take()
                 self._json({"ok": True})
+            elif route == "api/take/line":
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    texts = body.get("words")
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    elif not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+                        self._json({"ok": False, "error": "words must be a list of strings"}, 400)
+                    else:
+                        self._json({"ok": True, "take": controller.resing(folder, int(body.get("line", 0)), texts)})
+                except (TetoRelayError, ValueError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+                except Exception as exc:  # noqa: BLE001 - a render that failed: say so
+                    log.exception("could not sing the line again")
+                    self._json({"ok": False, "error": f"Could not sing it again: {exc}"}, 500)
+            elif route == "api/take/delete":
+                from .takes import discard
+
+                folder, _ = self._take_query()
+                if folder is None:
+                    self._json({"ok": False, "error": "no such take"}, 404)
+                else:
+                    try:
+                        discard(folder)
+                        controller.takes_changed += 1
+                        self._json({"ok": True})
+                    except OSError as exc:
+                        self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/take/open":
                 folder, _ = self._take_query()
                 if folder is None:

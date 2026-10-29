@@ -167,6 +167,54 @@ def _tell_panel_closed(url: str) -> None:
         log.debug("could not tell the panel it closed", exc_info=True)
 
 
+class PanelApi:
+    """What the panel page may ask of its own window (pywebview's js_api):
+    `window.pywebview.api.drag_take(id, name)` from the take sheet's tile."""
+
+    def __init__(self):
+        self.window = None
+
+    def drag_take(self, take_id: str, name: str = "teto.wav") -> bool:
+        """Drag one of a take's files out of the window as a real file.
+
+        A web page can only drag a download link (Chromium's DownloadURL),
+        which Explorer takes but DAWs such as FL Studio do not. A WinForms
+        drag with the file's path (CF_HDROP) is what a file dragged from
+        Explorer is, and every DAW takes that. Called while the mouse button
+        is still down; returns once the file has been dropped (or not).
+        """
+        from . import paths
+        from .takes import take_file, take_folder
+
+        folder = take_folder(paths.data_dir() / "takes", str(take_id))
+        path = take_file(folder, str(name)) if folder is not None else None
+        if path is None or self.window is None:
+            return False
+        return _drag_file(self.window.native, path)
+
+
+def _drag_file(form, path: Path) -> bool:
+    try:
+        import clr
+
+        clr.AddReference("System.Windows.Forms")
+        from System import Action, Array, String
+        from System.Windows.Forms import DataFormats, DataObject, DragDropEffects
+
+        data = DataObject(DataFormats.FileDrop, Array[String]([str(path)]))
+        result = {}
+
+        def drag():
+            result["effect"] = str(form.DoDragDrop(data, DragDropEffects.Copy))
+
+        form.Invoke(Action(drag))
+        log.info("Dragged %s out (%s)", path.name, result.get("effect"))
+        return result.get("effect") not in (None, "None")
+    except Exception:  # noqa: BLE001 - the page falls back to a download
+        log.warning("could not drag %s out of the window", path, exc_info=True)
+        return False
+
+
 def run_window(url: str) -> int:
     """Show the panel in our own window until it is closed. 0, or 1 if no
     window could be made (no WebView2) - the caller falls back to Edge."""
@@ -177,8 +225,10 @@ def run_window(url: str) -> int:
         log.warning("pywebview is not available; using an Edge window instead", exc_info=True)
         return 1
 
+    api = PanelApi()
     window = webview.create_window(TITLE, url, width=SIZE[0], height=SIZE[1],
-                                   min_size=(420, 520), background_color="#ffffff")
+                                   min_size=(420, 520), background_color="#ffffff", js_api=api)
+    api.window = window
 
     def shown() -> None:
         hwnd = _find_hwnd()

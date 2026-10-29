@@ -64,6 +64,12 @@ class Job:
     input_audio: object = None
     input_rate: int = 16000
     wav_origin: float = 0.0
+    # Also only while a take records: what it takes to build the line again
+    # from corrected words (resing) - the words with their timing, the pitch
+    # track, and build_notes' running state as it was for this phrase.
+    words: list | None = None
+    track: object = None
+    context: dict | None = None
 
     @property
     def age(self) -> float:
@@ -104,6 +110,9 @@ class TetoRelay:
     _take = None
     _busy_phrases = 0
     _take_lock = threading.Lock()
+    # A render and the origin it leaves behind (renderer.last_origin) are
+    # read together: a line sung again from the panel renders too.
+    _render_gate = threading.Lock()
 
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config.load()
@@ -611,6 +620,8 @@ class TetoRelay:
         if not track.any_voiced:
             log.info("No voiced frames; skipping this utterance")
             return None
+        context = {"previous_shift": self._octave_shift, "target_tone": self._target_tone,
+                   "baseline": self._voice_baseline, "mora_floor": self._mora_floor}
 
         notes = build_notes(
             words, track, self.cfg, self._octave_shift, self._target_tone,
@@ -667,6 +678,8 @@ class TetoRelay:
             input_audio=chunk.audio if getattr(self, "_take", None) is not None else None,
             input_rate=chunk.sample_rate,
         )
+        if getattr(self, "_take", None) is not None:
+            job.words, job.track, job.context = list(words), track, context
         log.info(
             "Analysed %.2fs of speech in %.2fs [%s] via %s",
             chunk.duration,
@@ -727,8 +740,7 @@ class TetoRelay:
             job.timeline.lap("wait_render", began)
             try:
                 job.wav_path = job.ustx_path.with_suffix(".wav")
-                self.renderer.render(job.ustx_path, job.wav_path)
-                job.wav_origin = float(getattr(self.renderer, "last_origin", 0.0) or 0.0)
+                job.wav_origin = self._render(job.ustx_path, job.wav_path)
                 self.finish_render(job)
                 take = getattr(self, "_take", None)
                 if take is not None:
@@ -753,7 +765,66 @@ class TetoRelay:
                 self._in_progress(-1)
                 self._trim_output()
 
+    def _render(self, ustx_path: Path, wav_path: Path) -> float:
+        """Render; returns where in the phrase's recording the audio starts."""
+        with self._render_gate:
+            self.renderer.render(ustx_path, wav_path)
+            return float(getattr(self.renderer, "last_origin", 0.0) or 0.0)
+
     # ---------------------------------------------------------------- takes
+    def resing(self, folder: Path, line_no: int, texts: list[str]) -> dict:
+        """Fix the words of one line of a finished take and sing it again.
+
+        The line is built again from the corrected words with the timing and
+        the pitch it was sung with (what analyse kept for it), rendered with
+        the current voicebank, and the take is put together again. Returns
+        the take's detail.
+        """
+        import copy
+
+        import soundfile as sf
+
+        from . import takes as takes_mod
+
+        folder = Path(folder)
+        with takes_mod.edit_lock(folder):
+            info = takes_mod.read_info(folder)
+            line = next((p for p in info["phrases"] if int(p["n"]) == int(line_no)), None)
+            if line is None:
+                raise TetoRelayError(f"This take has no line {line_no}.")
+            if not line.get("editable"):
+                raise TetoRelayError("This line was recorded before words could be fixed.")
+            stem = folder / takes_mod.LINES / f"{int(line_no):02d}"
+            words = [Word(w["text"], w["start"], w["end"])
+                     for w in takes_mod.respace(line["words"], texts)]
+            track = takes_mod.load_track(stem.with_name(stem.name + "-pitch.npz"))
+            audio, rate = sf.read(str(stem.with_name(stem.name + "-voice.wav")), dtype="float32")
+            context = line.get("context") or {}
+            japanese = self._japanese_lyrics()
+            notes = build_notes(
+                words, track, self.cfg, context.get("previous_shift"), context.get("target_tone"),
+                context.get("baseline"), japanese, context.get("mora_floor"),
+                # A copy: fixing a word must not move the live key detection.
+                copy.deepcopy(self._singing_state), audio=audio, sample_rate=rate,
+                mora_timer=(lambda morae: align.vowel_onsets(morae, audio, rate, self.cfg))
+                if japanese and self.cfg.align_morae else None,
+            )
+            if not notes:
+                raise TetoRelayError("Nothing to sing in that line with these words.")
+            ustx = stem.with_suffix(".ustx")
+            wav = stem.with_suffix(".wav")
+            write_ustx(notes, ustx, self.bank, self.cfg,
+                       expression_curves(notes, audio, rate, self.cfg))
+            line["origin"] = self._render(ustx, wav)
+            self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav,
+                                   sung=bool(line.get("sung"))))
+            line["words"] = [{"text": w.text, "start": w.start, "end": w.end} for w in words]
+            line["text"] = " ".join(w.text for w in words)
+            line["edited"] = True
+            takes_mod.assemble(folder, info)
+            log.info("Sang line %d of %s again: %s", line_no, folder.name, line["text"])
+        return takes_mod.detail(folder)
+
     def _in_progress(self, change: int) -> None:
         """Phrases between the microphone and a finished render."""
         with self._take_lock:
@@ -792,7 +863,9 @@ class TetoRelay:
         take = getattr(self, "_take", None)
         if take is None:
             return {"recording": False}
-        return {"recording": True, "seconds": round(take.seconds, 1), "phrases": len(take.phrases)}
+        return {"recording": True, "seconds": round(take.seconds, 1), "phrases": len(take.phrases),
+                "hands_free": bool(getattr(getattr(getattr(self, "_capture", None), "chunker", None),
+                                           "hands_free", False))}
 
     def _recording_now(self) -> bool:
         """The talk key is still held, or a phrase has not reached analysis

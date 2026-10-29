@@ -87,23 +87,88 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px}
 .ghost:hover{background-color:var(--sink);filter:none}
 
-/* ---------- takes: record, then download ---------- */
-#rec{background-color:var(--sink);color:var(--text);display:inline-flex;align-items:center;gap:8px;
-  font-variant-numeric:tabular-nums}
-#rec i{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
-#rec.on{background-color:var(--accent);color:#fff}
-#rec.on i{background:#fff;border-radius:2px;animation:pulse 1.4s ease-in-out infinite}
-.takes{padding:16px 18px 18px}
-.takelist{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:10px}
-.take{background:var(--sink);border-radius:14px;padding:12px 14px}
-.take b{display:block;font-size:14px}
-.take span{font-size:12px;color:var(--muted)}
-.takebtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-.takebtns a,.takebtns button{font-size:12px;font-weight:600;padding:5px 11px;border-radius:980px;
-  background:var(--card);color:var(--text);text-decoration:none;border:1px solid var(--line);line-height:1.4}
-.takebtns a:hover,.takebtns button:hover{border-color:var(--accent);color:var(--accent);filter:none}
-.takebtns a.all{background:var(--accent);color:#fff;border-color:transparent}
-.takebtns a.all:hover{color:#fff;filter:brightness(1.06)}
+/* ---------- takes: the record button and the take sheet ---------- */
+.recbtn{width:36px;height:36px;padding:0;border-radius:50%;display:grid;place-items:center;
+  background-color:var(--sink);position:relative;flex:none}
+.recbtn i{width:12px;height:12px;border-radius:50%;background:var(--accent);
+  transition:border-radius .2s,width .2s,height .2s}
+.recbtn:hover{filter:none;background-color:var(--line)}
+.recbtn.on{background-color:var(--accent)}
+.recbtn.on i{width:11px;height:11px;border-radius:3px;background:#fff}
+.recbtn.on::after{content:"";position:absolute;inset:-4px;border-radius:50%;
+  border:2px solid var(--accent);animation:ring 1.6s ease-out infinite}
+@keyframes ring{from{opacity:.8;transform:scale(.9)}to{opacity:0;transform:scale(1.25)}}
+.sheet{position:fixed;z-index:30;top:66px;right:16px;width:min(460px,calc(100vw - 32px));
+  max-height:calc(100vh - 82px);overflow:auto;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.22);padding:16px 18px 18px;
+  animation:sheetIn .22s cubic-bezier(.2,.8,.2,1)}
+.sheet[hidden]{display:none}
+@keyframes sheetIn{from{opacity:0;transform:translateY(-6px) scale(.985)}}
+.sh-head{display:flex;align-items:center;gap:4px;margin:-4px -6px 8px 0}
+.sh-title{font-size:15px;color:var(--muted);font-weight:600;margin-right:auto;display:flex;align-items:center;gap:8px}
+.sh-title b{color:var(--text);font-size:17px;font-variant-numeric:tabular-nums}
+.sh-title i{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}
+.chips{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);margin:0 0 10px}
+.chips span{display:inline-flex;align-items:center;gap:6px}
+.chips span::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dot,var(--accent))}
+.roll{display:block;width:100%;height:84px;background:var(--sink);border-radius:12px}
+.roll rect.n{fill:var(--accent)}
+.roll .dim rect.n{opacity:.35}
+.roll .hit{fill:transparent;cursor:pointer}
+.roll .hit:hover{fill:var(--accent-weak)}
+.roll .sel .hit{fill:var(--accent-weak)}
+.roll .head{stroke:var(--text);stroke-width:1.5}
+.axis{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);
+  margin:6px 2px 0;font-variant-numeric:tabular-nums}
+.axis .mini{width:32px;height:32px;background-color:var(--sink);color:var(--text)}
+.sh-sec{font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+.lines{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.line{border-radius:12px}
+.line.open{background:var(--sink)}
+.lrow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:12px;cursor:pointer}
+.lrow:hover{background:var(--sink)}
+.lrow .num{width:20px;text-align:right;font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;flex:none}
+.lrow .txt{flex:1;min-width:0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lrow .fixed{font-size:11px;color:var(--accent);font-weight:600;flex:none}
+.mini{background-color:transparent;color:var(--muted);padding:0;width:28px;height:28px;border-radius:50%;
+  display:grid;place-items:center;flex:none}
+.mini:hover{background-color:var(--line);color:var(--text);filter:none}
+.editor{padding:4px 10px 12px}
+.lineroll{display:block;width:100%;background:var(--card);border-radius:10px;border:1px solid var(--line)}
+.lineroll .row{fill:var(--sink)}
+.lineroll rect.n{fill:var(--accent)}
+.lineroll text{fill:#fff;font-size:11px;font-weight:600;pointer-events:none;
+  font-family:"Yu Gothic UI","Segoe UI",system-ui,sans-serif}
+.words{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
+.words input{font:inherit;font-size:14px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);
+  background:var(--card);color:var(--text);min-width:2.5ch;field-sizing:content}
+.words input:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.words input.changed{border-color:var(--accent);color:var(--accent)}
+.hint{font-size:12px;color:var(--muted);margin:2px 0 10px}
+.ed-btns{display:flex;gap:8px;align-items:center}
+.ed-btns .busy{font-size:13px;color:var(--muted)}
+.tile{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px 14px;border-radius:14px;
+  background:var(--sink);cursor:grab;user-select:none;border:1px solid transparent;transition:border-color .15s}
+.tile:hover{border-color:var(--line)}
+.tile.dragging{border-color:var(--accent);cursor:grabbing}
+.tile .doc{width:34px;height:40px;flex:none;color:var(--accent)}
+.tile b{display:block;font-size:14px}
+.tile span{font-size:12px;color:var(--muted)}
+.tile .grip{margin-left:auto;color:var(--faint);flex:none}
+.formats{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.formats a{font-size:12px;font-weight:600;padding:5px 11px;border-radius:980px;text-decoration:none;
+  color:var(--text);border:1px solid var(--line)}
+.formats a:hover{border-color:var(--accent);color:var(--accent)}
+.sh-foot{display:flex;align-items:center;gap:8px;margin-top:14px}
+.sh-foot .danger{margin-left:auto;background-color:transparent;color:var(--muted);font-weight:500}
+.sh-foot .danger:hover{color:var(--accent);background-color:var(--accent-weak);filter:none}
+.stopbtn{width:100%;margin-top:14px}
+.empty{font-size:14px;color:var(--muted);padding:6px 2px}
+.tlist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.tlist button{width:100%;display:flex;align-items:baseline;gap:10px;text-align:left;background-color:transparent;
+  color:var(--text);padding:9px 10px;border-radius:12px;font-weight:500}
+.tlist button:hover{background-color:var(--sink);filter:none}
+.tlist span{font-size:12px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
 
 /* ---------- the voice card ---------- */
 .voice{padding:16px;display:flex;flex-direction:column;gap:12px}
@@ -314,7 +379,8 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
   <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
-  <button id="rec" disabled title="Record a take: sing, no key needed - each pause ends a line. Press again to stop. Use headphones for the music."><i></i><span id="rectext">Record</span></button>
+  <button class="icon" id="takesBtn" title="Your takes" aria-label="Your takes" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+  <button class="recbtn" id="rec" disabled aria-label="Record a take" title="Record a take for a song cover: sing, no key needed - each pause ends a line. Use headphones for the music."><i></i></button>
   <button id="toggle">Start</button>
   <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
@@ -355,10 +421,6 @@ details.group>summary::before{transition:transform .45s var(--spring)}
       </div>
       <dl class="meters" id="meters"></dl>
     </section>
-    <section class="takes pane" id="takes" hidden>
-      <p class="tag">your takes</p>
-      <ul class="takelist" id="takelist"></ul>
-    </section>
   </div>
 
   <div class="col-set">
@@ -386,6 +448,14 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   </div>
 </div>
 </div>
+<aside class="sheet" id="sheet" hidden aria-label="Take">
+  <div class="sh-head">
+    <span class="sh-title" id="shTitle"></span>
+    <button class="icon" id="shHistory" title="Your takes" aria-label="Your takes"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+    <button class="icon" id="shClose" title="Close" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div id="shBody"></div>
+</aside>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -856,68 +926,348 @@ $('toggle').onclick=async e=>{
   }catch(err){toast('Could not reach the relay.');}
   startAsked=false; btn.disabled=false; poll();
 };
-/* ---------- takes: Record collects what she sings; each take downloads as
-   her singing (.wav), an OpenUtau project (.ustx) and your voice, or a .zip. */
-let takesSeen=-1;
-$('rec').onclick=async()=>{
-  const on=$('rec').classList.contains('on');
-  try{
-    const d=await (await fetch(on?'api/take/stop':'api/take/start',{method:'POST'})).json();
-    if(d&&d.ok===false) toast(d.error);
-  }catch(err){toast('Could not reach the relay.');}
-  poll();
-};
+/* ---------- takes: the round Record button, and the sheet beside it.
+   While recording the sheet shows the lines as they arrive; a saved take
+   shows them on a piano roll, plays them, and fixes a word whisper got
+   wrong: the line is sung again from the corrected words (api/take/line).
+   The tile drags teto.wav out as a real file, into FL Studio or any DAW. */
+const SVGNS='http://www.w3.org/2000/svg';
+const sheet={view:'',take:null,open:0,edited:{},busy:false,dismissed:false,live:null,liveCount:-1};
+let takesSeen=-1, lastTakeSeen='', takeCount=0;
+const player=new Audio();
 function clock(sec){
   sec=Math.max(0,Math.round(sec||0));
   return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0');
 }
+function el(tag,cls,text){const e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e;}
+function sv(tag,attrs){const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e;}
+function fileUrl(id,name){return 'api/take/file?take='+encodeURIComponent(id)+'&file='+encodeURIComponent(name);}
+function pad2(n){return String(n).padStart(2,'0');}
+function plural(n,one,many){return n+' '+(n===1?one:(many||one+'s'));}
+async function api(url,body){
+  const r=await fetch(url,body===undefined?{method:'POST'}:
+    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+
+$('rec').onclick=async()=>{
+  const on=$('rec').classList.contains('on');
+  try{
+    const d=await api(on?'api/take/stop':'api/take/start');
+    if(d&&d.ok===false) toast(d.error);
+    else if(!on){ sheet.dismissed=false; showSheet('live'); }
+  }catch(err){toast('Could not reach the relay.');}
+  poll();
+};
+$('takesBtn').onclick=()=>{ sheet.view==='list'&&!$('sheet').hidden?closeSheet():showSheet('list'); };
+$('shHistory').onclick=()=>showSheet('list');
+$('shClose').onclick=closeSheet;
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!$('sheet').hidden&&!(e.target&&e.target.tagName==='INPUT')) closeSheet();
+});
+function closeSheet(){
+  $('sheet').hidden=true; sheet.dismissed=true; player.pause();
+}
+
 function renderTake(d){
   const btn=$('rec'), t=d.take||{};
   btn.disabled=!d.running||!!d.take_finishing;
   btn.classList.toggle('on',!!t.recording);
-  // While recording she listens hands-free (no key): until the first phrase
-  // is in, the button says to just sing.
-  $('rectext').textContent=d.take_finishing?'Saving take':
-    !t.recording?'Record':
-    t.phrases?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):
-    clock(t.seconds)+' \u00b7 sing, no key needed';
   btn.title=t.recording?'Stop and save the take':
-    'Record a take: sing, no key needed - each pause ends a line. Press again to stop. Use headphones for the music.';
+    'Record a take for a song cover: sing, no key needed - each pause ends a line. Use headphones for the music.';
+  if(t.recording){
+    if(!sheet.dismissed&&(sheet.view!=='live'||$('sheet').hidden)) showSheet('live');
+    if(sheet.view==='live'){ setTitle('Take',clock(t.seconds),true); if(t.phrases!==sheet.liveCount) loadLive(); }
+  }else if(d.take_finishing&&sheet.view==='live'&&!$('sheet').hidden){
+    setTitle('Take','saving…',false);
+  }
   if(d.takes_changed!==takesSeen){
-    if(takesSeen!==-1&&d.take_notice) toast(d.take_notice);
-    takesSeen=d.takes_changed; refreshTakes();
+    const first=takesSeen===-1;
+    takesSeen=d.takes_changed;
+    if(!first&&d.take_notice) toast(d.take_notice);
+    refreshCount();
+    if(!first&&d.last_take&&d.last_take!==lastTakeSeen&&sheet.view==='live'&&!$('sheet').hidden) openTake(d.last_take);
+    else if(!first&&sheet.view==='live'&&!$('sheet').hidden&&!t.recording) closeSheet();
+    else if(sheet.view==='list'&&!$('sheet').hidden) showSheet('list');
+    lastTakeSeen=d.last_take||'';
   }
 }
-const TAKE_FILES={'teto.wav':'Teto (.wav)','teto.ustx':'OpenUtau (.ustx)','your-voice.wav':'Your voice (.wav)'};
-async function refreshTakes(){
-  let d;
-  try{ d=await (await fetch('api/takes')).json(); }catch(e){ return; }
-  const list=$('takelist'); list.textContent='';
-  $('takes').hidden=!(d.takes&&d.takes.length);
-  for(const t of (d.takes||[]).slice(0,5)){
-    const li=document.createElement('li'); li.className='take';
-    const when=new Date(t.created);
-    const title=document.createElement('b');
-    title.textContent=isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'});
-    const meta=document.createElement('span');
-    const n=(t.phrases||[]).length;
-    meta.textContent=clock(t.length||t.seconds)+' \u00b7 '+n+(n===1?' phrase':' phrases');
-    const btns=document.createElement('div'); btns.className='takebtns';
-    const link=(file,label,cls)=>{
-      const a=document.createElement('a');
-      a.href='api/take/file?take='+encodeURIComponent(t.id)+'&file='+file;
-      a.setAttribute('download',''); a.textContent=label; if(cls) a.className=cls; btns.append(a);
-    };
-    if(t.files&&t.files.length) link('zip','Download all (.zip)','all');
-    for(const f of t.files||[]) link(f,TAKE_FILES[f]||f);
-    const open=document.createElement('button'); open.type='button'; open.textContent='Open folder';
-    open.onclick=async()=>{
-      try{ const r=await (await fetch('api/take/open?take='+encodeURIComponent(t.id),{method:'POST'})).json();
-           if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); }
-    };
-    btns.append(open);
-    li.append(title,meta,btns); list.append(li);
+async function refreshCount(){
+  try{ const d=await (await fetch('api/takes')).json(); takeCount=(d.takes||[]).length; }catch(e){ return; }
+  $('takesBtn').hidden=!takeCount;
+}
+function setTitle(word,value,live){
+  const h=$('shTitle'); h.textContent='';
+  if(live) h.append(el('i'));
+  h.append(word+' ');
+  if(value) h.append(el('b','',value));
+}
+function showSheet(view){
+  sheet.view=view; $('sheet').hidden=false;
+  if(view==='live'){ sheet.liveCount=-1; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
+  else if(view==='list') showList();
+}
+
+/* ---- recording: the lines so far ---- */
+async function loadLive(){
+  let d; try{ d=await (await fetch('api/take/current')).json(); }catch(e){ return; }
+  if(sheet.view!=='live') return;
+  sheet.liveCount=d.lines?d.lines.length:0;
+  const body=$('shBody'); body.textContent='';
+  const chips=el('div','chips');
+  chips.append(el('span','',plural(sheet.liveCount,'line')));
+  const hint=el('span','','sing \u00b7 each pause ends a line'); hint.style.setProperty('--dot','#30d158');
+  chips.append(hint); body.append(chips);
+  const svg=sv('svg',{class:'roll'}); body.append(svg);
+  requestAnimationFrame(()=>drawRoll(svg,d.lines||[],{total:Math.max(d.seconds||0,4)}));
+  const axis=el('div','axis'); axis.append(el('span','','0:00'),el('span','',clock(d.seconds))); body.append(axis);
+  if(d.lines&&d.lines.length){
+    body.append(el('p','sh-sec','Lines'));
+    const ul=el('ul','lines');
+    for(const l of d.lines.slice(-6)){
+      const li=el('li','line'), row=el('div','lrow');
+      row.append(el('span','num',l.n),el('span','txt',l.text)); li.append(row); ul.append(li);
+    }
+    body.append(ul);
+  }else body.append(el('p','empty','Waiting for the first line. Sing, then pause - Teto sings it back and it lands here.'));
+  const stop=el('button','stopbtn','Stop and save'); stop.onclick=()=>$('rec').click(); body.append(stop);
+}
+
+/* ---- your takes ---- */
+async function showList(){
+  setTitle('Your takes','',false);
+  const body=$('shBody'); body.textContent='';
+  let d; try{ d=await (await fetch('api/takes')).json(); }catch(e){ return; }
+  const takes=d.takes||[];
+  if(!takes.length){ body.append(el('p','empty','No takes yet. Press Start, then the round record button.')); return; }
+  const ul=el('ul','tlist');
+  for(const t of takes){
+    const b=el('button'), when=new Date(t.created);
+    b.append(el('b','',isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'})));
+    b.append(el('span','',clock(t.length||t.seconds)+' \u00b7 '+plural((t.phrases||[]).length,'line')));
+    b.onclick=()=>openTake(t.id);
+    const li=el('li'); li.append(b); ul.append(li);
   }
+  body.append(ul);
+}
+
+/* ---- a saved take ---- */
+async function openTake(id,keep){
+  let d; try{ d=await (await fetch('api/take?take='+encodeURIComponent(id))).json(); }catch(e){ toast('Could not reach the relay.'); return; }
+  if(d.error){ toast('That take is gone.'); showSheet('list'); return; }
+  sheet.view='take'; sheet.take=d; $('sheet').hidden=false;
+  if(!keep){ sheet.open=0; sheet.edited={}; }
+  renderTakeView();
+}
+function renderTakeView(){
+  const t=sheet.take, body=$('shBody'); body.textContent='';
+  const lines=t.phrases||[], length=t.length||t.seconds||0;
+  setTitle('Take',clock(length),false);
+  const chips=el('div','chips');
+  chips.append(el('span','',plural(lines.length,'line')));
+  const when=new Date(t.created);
+  const date=el('span','',isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'}));
+  date.style.setProperty('--dot','var(--faint)'); chips.append(date);
+  const fixed=lines.filter(l=>l.edited).length;
+  if(fixed){ const f=el('span','',plural(fixed,'line')+' fixed'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
+  body.append(chips);
+
+  const svg=sv('svg',{class:'roll'}); body.append(svg);
+  const axis=el('div','axis'), play=el('button','mini');
+  play.title='Play the take'; play.setAttribute('aria-label','Play the take');
+  axis.append(el('span','','0:00'),play,el('span','',clock(length))); body.append(axis);
+  const draw=()=>drawRoll(svg,lines,{total:length,selected:sheet.open,onPick:n=>toggleLine(n),
+    head:(!player.paused&&player.dataset.what==='take')?player.currentTime:null});
+  requestAnimationFrame(draw);
+  setPlayIcon(play,player.dataset.what==='take'&&!player.paused);
+  play.onclick=()=>{
+    if(player.dataset.what==='take'&&!player.paused){ player.pause(); return; }
+    playFile(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0),'take');
+  };
+  sheet.redraw=()=>{ draw(); setPlayIcon(play,player.dataset.what==='take'&&!player.paused); };
+
+  body.append(el('p','sh-sec','Lines - click one to fix a word'));
+  const ul=el('ul','lines');
+  for(const l of lines) ul.append(lineItem(t,l));
+  body.append(ul);
+
+  body.append(dragTile(t,length));
+  const formats=el('div','formats');
+  const fmt=(file,label)=>{ const a=el('a','',label); a.href=fileUrl(t.id,file); a.setAttribute('download',''); formats.append(a); };
+  if((t.files||[]).includes('teto.ustx')) fmt('teto.ustx','OpenUtau project (.ustx)');
+  if((t.files||[]).includes('your-voice.wav')) fmt('your-voice.wav','Your voice (.wav)');
+  fmt('zip','Everything (.zip)');
+  body.append(formats);
+
+  const foot=el('div','sh-foot');
+  const open=el('button','ghost','Open folder');
+  open.onclick=async()=>{ try{ const r=await api('api/take/open?take='+encodeURIComponent(t.id)); if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); } };
+  const discard=el('button','danger','Discard');
+  discard.onclick=async()=>{
+    if(!confirm('Discard this take? Its files are deleted.')) return;
+    player.pause();
+    try{ const r=await api('api/take/delete?take='+encodeURIComponent(t.id)); if(r&&r.ok===false){ toast(r.error); return; } }
+    catch(e){ toast('Could not reach the relay.'); return; }
+    toast('Take discarded.'); showSheet('list'); refreshCount();
+  };
+  foot.append(open,discard); body.append(foot);
+}
+function setPlayIcon(btn,playing){
+  btn.textContent='';
+  const s=sv('svg',{width:14,height:14,viewBox:'0 0 24 24',fill:'currentColor'});
+  s.append(sv('path',{d:playing?'M7 5h4v14H7zM13 5h4v14h-4z':'M8 5v14l11-7z'}));
+  btn.append(s);
+}
+function playFile(url,what){
+  player.src=url; player.dataset.what=what; player.play().catch(()=>{});
+  const tick=()=>{ if(sheet.redraw) sheet.redraw(); if(!player.paused) requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+player.addEventListener('pause',()=>{ if(sheet.redraw) sheet.redraw(); });
+player.addEventListener('ended',()=>{ if(sheet.redraw) sheet.redraw(); });
+
+function toggleLine(n){
+  sheet.open=sheet.open===n?0:n;
+  renderTakeView();
+  const open=$('shBody').querySelector('.line.open input');
+  if(open) open.focus();
+}
+function lineItem(t,l){
+  const li=el('li','line'+(sheet.open===l.n?' open':''));
+  const row=el('div','lrow');
+  row.append(el('span','num',l.n),el('span','txt',l.text));
+  if(l.edited) row.append(el('span','fixed','fixed'));
+  const play=el('button','mini'); play.title='Play this line'; play.setAttribute('aria-label','Play line '+l.n);
+  setPlayIcon(play,false);
+  play.onclick=e=>{ e.stopPropagation(); playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'); };
+  row.append(play);
+  row.onclick=()=>toggleLine(l.n);
+  li.append(row);
+  if(sheet.open===l.n) li.append(lineEditor(t,l));
+  return li;
+}
+
+/* ---- the line editor: her notes with their lyrics (as OpenUtau shows
+   them), and the words, each one fixable ---- */
+function lineEditor(t,l){
+  const box=el('div','editor');
+  const svg=sv('svg',{class:'lineroll'}); box.append(svg);
+  requestAnimationFrame(()=>drawLine(svg,l.notes||[]));
+  if(!l.editable){
+    box.append(el('p','hint','This line was recorded before words could be fixed. Open teto.ustx in OpenUtau to change it.'));
+    return box;
+  }
+  const words=el('div','words'), inputs=[];
+  (l.words||[]).forEach((w,i)=>{
+    const input=el('input'); input.value=w.text; input.spellcheck=false;
+    input.setAttribute('aria-label','Word '+(i+1));
+    input.oninput=()=>{ input.classList.toggle('changed',input.value.trim()!==w.text); sync(); };
+    input.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); sing.click(); } };
+    inputs.push(input); words.append(input);
+  });
+  box.append(words);
+  box.append(el('p','hint','Type the right word. Two words in one box split its time; an empty box drops it.'));
+  const btns=el('div','ed-btns');
+  const sing=el('button','','Sing it again'), reset=el('button','ghost','Undo changes'), busy=el('span','busy','');
+  const sync=()=>{ const changed=inputs.some((x,i)=>x.value.trim()!==l.words[i].text); sing.disabled=!changed||sheet.busy; reset.hidden=!changed; };
+  reset.onclick=()=>{ inputs.forEach((x,i)=>{ x.value=l.words[i].text; x.classList.remove('changed'); }); sync(); };
+  sing.onclick=async()=>{
+    if(sing.disabled) return;
+    sheet.busy=true; sing.disabled=true; busy.textContent='Teto is singing it again…';
+    try{
+      const r=await api('api/take/line?take='+encodeURIComponent(t.id),{line:l.n,words:inputs.map(x=>x.value)});
+      if(!r.ok){ toast(r.error||'Could not sing it again.'); return; }
+      r.take.version=(t.version||0)+1;
+      sheet.take=r.take; renderTakeView();
+      playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+r.take.version,'line');
+    }catch(e){ toast('Could not reach the relay.'); }
+    finally{ sheet.busy=false; busy.textContent=''; sync(); }
+  };
+  btns.append(sing,reset,busy); box.append(btns); sync();
+  return box;
+}
+function drawLine(svg,notes){
+  svg.textContent='';
+  const W=svg.clientWidth||400;
+  if(!notes.length){ svg.setAttribute('viewBox','0 0 '+W+' 40'); svg.style.height='40px'; return; }
+  let t0=Infinity,t1=0,lo=127,hi=0;
+  for(const n of notes){ t0=Math.min(t0,n.start); t1=Math.max(t1,n.start+n.dur); lo=Math.min(lo,n.tone); hi=Math.max(hi,n.tone); }
+  lo-=1; hi+=1;
+  const rows=hi-lo+1, rowH=Math.max(8,Math.min(16,140/rows)), H=rows*rowH+8;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.style.height=H+'px';
+  const x=t=>8+(t-t0)/Math.max(.001,t1-t0)*(W-16), y=tone=>4+(hi-tone)*rowH;
+  for(let tone=lo;tone<=hi;tone++)   // black keys shaded, like a piano roll
+    if([1,3,6,8,10].includes(((tone%12)+12)%12)) svg.append(sv('rect',{class:'row',x:0,y:y(tone),width:W,height:rowH}));
+  for(const n of notes){
+    const nx=x(n.start), w=Math.max(3,x(n.start+n.dur)-nx-1);
+    svg.append(sv('rect',{class:'n',x:nx,y:y(n.tone)+1,width:w,height:rowH-2,rx:Math.min(4,rowH/3)}));
+    const fit=Math.floor((w-6)/6.5);
+    if(fit>=1&&rowH>=11){
+      const label=sv('text',{x:nx+4,y:y(n.tone)+rowH/2+4});
+      label.textContent=n.lyric.length>fit?n.lyric.slice(0,Math.max(1,fit-1))+'\u2026':n.lyric;
+      svg.append(label);
+    }
+  }
+}
+function drawRoll(svg,lines,opts){
+  svg.textContent='';
+  const W=svg.clientWidth||400, H=84;
+  svg.setAttribute('viewBox','0 0 '+W+' '+H);
+  let t1=opts.total||0,lo=127,hi=0;
+  for(const l of lines) for(const n of l.notes||[]){ t1=Math.max(t1,l.at+n.start+n.dur); lo=Math.min(lo,n.tone); hi=Math.max(hi,n.tone); }
+  if(!t1) return;
+  if(lo>hi){ lo=60; hi=72; }
+  lo-=2; hi+=2;
+  const x=t=>6+t/t1*(W-12), rowH=(H-10)/(hi-lo+1), y=tone=>5+(hi-tone)*rowH;
+  for(const l of lines){
+    const notes=l.notes||[];
+    const g=sv('g',{class:(opts.selected===l.n?'sel':'')+(opts.selected&&opts.selected!==l.n?' dim':'')});
+    if(opts.onPick&&notes.length){
+      const a=Math.min(...notes.map(n=>n.start)), b=Math.max(...notes.map(n=>n.start+n.dur));
+      const hit=sv('rect',{class:'hit',x:x(l.at+a)-2,y:0,width:Math.max(6,x(l.at+b)-x(l.at+a)+4),height:H,rx:6});
+      hit.addEventListener('click',()=>opts.onPick(l.n));
+      const tip=sv('title',{}); tip.textContent=l.n+'. '+l.text; hit.append(tip);
+      g.append(hit);
+    }
+    for(const n of notes)
+      g.append(sv('rect',{class:'n',x:x(l.at+n.start),y:y(n.tone),width:Math.max(2,x(l.at+n.start+n.dur)-x(l.at+n.start)-1),
+        height:Math.max(2,rowH-1),rx:Math.min(2,rowH/2),'pointer-events':'none'}));
+    svg.append(g);
+  }
+  if(opts.head!=null) svg.append(sv('line',{class:'head',x1:x(opts.head),x2:x(opts.head),y1:2,y2:H-2}));
+}
+
+/* ---- the drag tile: teto.wav out as a file. In the app window that is a
+   real file drag (window.PanelApi.drag_take), which FL Studio and every
+   DAW take; in a browser tab, a download-link drag; a click downloads. ---- */
+function dragTile(t,length){
+  const tile=el('div','tile'); tile.title='Drag into FL Studio (or any DAW, or a folder). Click to download.';
+  const doc=sv('svg',{class:'doc',viewBox:'0 0 34 40',fill:'none',stroke:'currentColor','stroke-width':'2','stroke-linejoin':'round'});
+  doc.append(sv('path',{d:'M5 3h16l8 8v26H5z'}),sv('path',{d:'M21 3v8h8'}),
+    sv('path',{d:'M10 26v-4M14 29v-10M18 27v-6M22 25v-2','stroke-linecap':'round'}));
+  const text=el('div'); text.append(el('b','','Drag into your DAW'),el('span','','teto.wav \u00b7 '+clock(length)+' \u00b7 starts where you pressed Record'));
+  const grip=sv('svg',{class:'grip',width:12,height:18,viewBox:'0 0 12 18',fill:'currentColor'});
+  for(const [cx,cy] of [[3,3],[9,3],[3,9],[9,9],[3,15],[9,15]]) grip.append(sv('circle',{cx,cy,r:1.6}));
+  tile.append(doc,text,grip);
+  const native=()=>window.pywebview&&window.pywebview.api&&window.pywebview.api.drag_take;
+  let down=null, dragged=false;
+  tile.addEventListener('pointerdown',e=>{ if(e.button!==0) return; down={x:e.clientX,y:e.clientY}; dragged=false; tile.draggable=!native(); });
+  tile.addEventListener('pointermove',e=>{
+    if(!down||!native()||Math.hypot(e.clientX-down.x,e.clientY-down.y)<6) return;
+    down=null; dragged=true; tile.classList.add('dragging');
+    Promise.resolve(window.pywebview.api.drag_take(t.id,'teto.wav')).catch(()=>{}).finally(()=>tile.classList.remove('dragging'));
+  });
+  tile.addEventListener('pointerup',()=>{ down=null; });
+  tile.addEventListener('dragstart',e=>{
+    if(native()){ e.preventDefault(); return; }
+    dragged=true;
+    e.dataTransfer.setData('DownloadURL','audio/wav:'+t.id+'-teto.wav:'+new URL(fileUrl(t.id,'teto.wav'),location.href).href);
+  });
+  tile.addEventListener('click',()=>{
+    if(dragged){ dragged=false; return; }
+    const a=el('a'); a.href=fileUrl(t.id,'teto.wav'); a.setAttribute('download',''); document.body.append(a); a.click(); a.remove();
+  });
+  return tile;
 }
 /* Uploads: the body is the file and the name rides in the query, so there is
    no multipart parser on either end. */

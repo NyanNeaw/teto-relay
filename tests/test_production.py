@@ -3942,6 +3942,25 @@ class TestTakes(unittest.TestCase):
             self.assertEqual(doc["voice_parts"][0]["position"],
                              source["voice_parts"][0]["position"] + round(at * ticks_per_second))
 
+            # Whisper heard "hello there"; fix it to "goodbye there". The
+            # line is built again with the same timing and sung again.
+            line = info["phrases"][0]
+            self.assertTrue(line["editable"])
+            self.assertEqual([w["text"] for w in line["words"]], ["hello", "there"])
+            before = [n["position"] for n in doc["voice_parts"][0]["notes"]]
+            fixed = relay.resing(folder, 1, ["goodbye", "there"])
+            self.assertEqual(fixed["phrases"][0]["text"], "goodbye there")
+            self.assertTrue(fixed["phrases"][0]["edited"])
+            self.assertEqual([n["lyric"] for n in fixed["phrases"][0]["notes"]][:1], ["goodbye"])
+            doc = yaml.safe_load((folder / "teto.ustx").read_text(encoding="utf-8"))
+            self.assertEqual(doc["voice_parts"][0]["notes"][0]["lyric"], "goodbye")
+            self.assertEqual([n["position"] for n in doc["voice_parts"][0]["notes"]], before)
+            self.assertEqual(doc["voice_parts"][0]["position"],
+                             source["voice_parts"][0]["position"] + round(at * ticks_per_second))
+            self.assertTrue((folder / "teto.wav").is_file())
+            with self.assertRaises(Exception):
+                relay.resing(folder, 2, ["nope"])
+
     def test_the_panel_lists_and_serves_takes(self):
         import http.client
         import json
@@ -4015,9 +4034,62 @@ class TestTakes(unittest.TestCase):
 
     def test_the_panel_has_a_record_button_and_a_takes_list(self):
         page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
-        for needle in ('id="rec"', 'id="takelist"', "api/take/start", "api/take/stop", "api/takes",
-                       "api/take/file?take=", "api/take/open?take=", "take_notice"):
+        for needle in ('id="rec"', 'id="sheet"', 'id="takesBtn"', "api/take/start", "api/take/stop",
+                       "api/takes", "api/take/current", "api/take?take=", "api/take/file?take=",
+                       "api/take/open?take=", "api/take/line?take=", "api/take/delete?take=",
+                       "take_notice", "drag_take", "DownloadURL"):
             self.assertIn(needle, page)
+
+    def test_respace_keeps_timing_and_splits_or_drops_words(self):
+        from teto_relay.takes import respace
+
+        words = [{"text": "hello", "start": 0.1, "end": 0.5}, {"text": "tetos", "start": 0.6, "end": 1.2}]
+        self.assertEqual(respace(words, ["hello", "Teto"]),
+                         [{"text": "hello", "start": 0.1, "end": 0.5}, {"text": "Teto", "start": 0.6, "end": 1.2}])
+        split = respace(words, ["hello", "Teto's  friend"])
+        self.assertEqual([w["text"] for w in split], ["hello", "Teto's", "friend"])
+        self.assertAlmostEqual(split[1]["end"], 0.9)
+        self.assertAlmostEqual(split[2]["start"], 0.9)
+        self.assertEqual(split[2]["end"], 1.2)
+        self.assertEqual([w["text"] for w in respace(words, ["", "Teto"])], ["Teto"])
+        with self.assertRaises(ValueError):
+            respace(words, ["", " "])
+        with self.assertRaises(ValueError):
+            respace(words, ["one"])
+
+    def test_a_line_file_is_reachable_and_nothing_else(self):
+        import tempfile
+
+        from teto_relay.takes import take_file
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            (folder / "lines").mkdir()
+            (folder / "lines" / "03.wav").write_bytes(b"x")
+            (folder / "lines" / "03-pitch.npz").write_bytes(b"x")
+            (folder / "take.json").write_text("{}")
+            self.assertEqual(take_file(folder, "lines/03.wav"), folder / "lines" / "03.wav")
+            for bad in ("lines/03-pitch.npz", "lines/../take.json", "take.json", "lines/3.wav", "lines/04.wav"):
+                self.assertIsNone(take_file(folder, bad), bad)
+
+    def test_the_window_drags_only_take_files(self):
+        import unittest.mock
+
+        from teto_relay import window
+
+        import types
+
+        api = window.PanelApi()
+        api.window = types.SimpleNamespace(native="form")
+        with _TempHome() as home, unittest.mock.patch.object(window, "_drag_file") as drag:
+            (home / "takes" / "take_1").mkdir(parents=True)
+            (home / "takes" / "take_1" / "teto.wav").write_bytes(b"x")
+            for take_id, name in (("take_1", "take.json"), ("../x", "teto.wav"), ("take_2", "teto.wav")):
+                self.assertFalse(api.drag_take(take_id, name))
+            drag.assert_not_called()
+            drag.return_value = True
+            self.assertTrue(api.drag_take("take_1", "teto.wav"))
+            self.assertEqual(drag.call_args[0][1], (home / "takes" / "take_1" / "teto.wav").resolve())
 
 
 class TestHandsFreeTakes(unittest.TestCase):

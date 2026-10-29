@@ -8,6 +8,12 @@
   project (.ustx) to fix notes or swap the voicebank, your own voice (.wav)
   as a guide, or all three in a .zip. A take where nothing was sung isn't
   kept, and the panel says so.
+- **The take sheet.** The round record button opens a sheet: the lines
+  appear as you sing, then the take shows on a piano roll you can play.
+  **Fix a word she got wrong**: click the line, see her notes with their
+  lyrics, type the right word and she sings that line again, with the same
+  timing and melody. **Drag the take into FL Studio** (or any DAW) straight
+  from the sheet.
 - **Works with the newest OpenUtau (0.1.576), and .NET no longer has to be
   installed.** OpenUtau carries its own .NET, and Teto Relay now uses it, so
   0.1.576 (a .NET 10 build) sings instead of failing every phrase with
