@@ -81,7 +81,10 @@ body{margin:0;color:var(--text);font-size:15px;line-height:1.5;
 }
 .pane{background:var(--card);border:1px solid var(--line);border-radius:14px}
 .bar.pane{border-radius:0;border-width:0 0 1px}
-.tag{font-size:13px;font-weight:600;color:var(--muted);margin:0}
+.tag{font-size:13px;font-weight:600;color:var(--muted);margin:0;display:flex;align-items:center;gap:7px}
+/* The small line icons beside labels and on buttons (see icon()). */
+.ic{flex:none;display:block}
+.tag .ic,.ctl label .ic{color:var(--accent-text)}
 
 /* ---------- buttons ---------- */
 button{font-family:inherit;font-size:14px;font-weight:600;border:0;border-radius:980px;
@@ -93,7 +96,8 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .icon{background-color:transparent;color:var(--muted);padding:0;width:34px;height:34px;
   border-radius:50%;display:grid;place-items:center}
 .icon:hover{background-color:var(--sink);color:var(--text);filter:none}
-.ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px}
+.ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px;
+  display:inline-flex;align-items:center;gap:7px}
 .ghost:hover{background-color:var(--sink);filter:none}
 
 /* ---------- adding a voicebank: the popup, and dropping a .zip anywhere ---------- */
@@ -187,6 +191,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .words input.changed{border-color:var(--accent);color:var(--accent)}
 .hint{font-size:12px;color:var(--muted);margin:2px 0 10px}
 .ed-btns{display:flex;gap:8px;align-items:center}
+.ed-btns button,.sh-foot button{display:inline-flex;align-items:center;gap:7px}
 .ed-btns .busy{font-size:13px;color:var(--muted)}
 .tile{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px 14px;border-radius:14px;
   background:var(--sink);cursor:grab;user-select:none;border:1px solid transparent;transition:border-color .15s}
@@ -198,7 +203,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .tile .grip{margin-left:auto;color:var(--faint);flex:none}
 .formats{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
 .formats a{font-size:12px;font-weight:600;padding:5px 11px;border-radius:980px;text-decoration:none;
-  color:var(--text);border:1px solid var(--line)}
+  color:var(--text);border:1px solid var(--line);display:inline-flex;align-items:center;gap:6px}
 .formats a:hover{border-color:var(--accent);color:var(--accent)}
 .sh-foot{display:flex;align-items:center;gap:8px;margin-top:14px}
 .sh-foot .danger{margin-left:auto;background-color:transparent;color:var(--muted);font-weight:500}
@@ -234,7 +239,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
    button and the real input sits behind it. */
 .addvoice{position:relative;display:block}
 .addvoice input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
-.addvoice span{display:block;text-align:center;font-size:14px;color:var(--muted);
+.addvoice span{display:flex;justify-content:center;align-items:center;gap:7px;font-size:14px;color:var(--muted);
   padding:9px;border:1px dashed var(--line);border-radius:10px}
 .addvoice:hover span{color:var(--accent-text);border-color:var(--accent)}
 
@@ -251,8 +256,8 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 :lang(th),:lang(ja){letter-spacing:0}
 .kana{font-family:var(--font-ja);font-size:18px;line-height:1.6;
   color:var(--muted);margin:8px 0 0;overflow-wrap:break-word}
-.sungtag{font-size:12px;font-weight:600;color:var(--accent-text);background:var(--accent-weak);
-  border-radius:980px;padding:2px 8px;margin-left:8px;vertical-align:middle;white-space:nowrap}
+.sungtag{display:inline-grid;place-items:center;color:var(--accent-text);background:var(--accent-weak);
+  border-radius:980px;padding:4px 7px;margin-left:8px;vertical-align:middle}
 .idle{font-size:16px;color:var(--muted);margin:0;line-height:1.5}
 .idle kbd{font:inherit;font-size:13px;font-weight:600;background:var(--sink);border-radius:6px;
   padding:2px 8px;color:var(--text);border:1px solid var(--line)}
@@ -279,7 +284,8 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .meters{margin:18px 0 0;padding-top:14px;border-top:1px solid var(--line)}
 .pipehead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .pipetotal{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
-.pipelabel{font-size:13px;color:var(--muted)}
+.pipelabel{font-size:13px;color:var(--muted);font-weight:500}
+.pipelegend .you{display:inline-flex;align-items:center;gap:5px}
 .pipe{display:flex;gap:2px;height:10px;margin-top:10px;border-radius:99px;overflow:hidden;
   background:var(--sink)}
 .pipe i{display:block;min-width:3px;background:var(--accent);
@@ -457,7 +463,7 @@ input[type=checkbox]:checked:hover:active::after{transform:translateX(12px)}
 /* The padding and the equal negative margin cancel: the text stays on the card's
    grid, while the hover tint (see "things answer the pointer") reaches 10px past it. */
 .ctl{padding:12px 10px;margin:0 -10px}
-.ctl label{display:block;font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
+.ctl label{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px}
 .ctl .help{display:block;font-size:13px;color:var(--muted);margin-top:6px;line-height:1.4}
 .slide{display:flex;align-items:center;gap:10px}
 .readout{font-size:15px;font-weight:600;min-width:58px;text-align:center;
@@ -491,17 +497,21 @@ input[type=checkbox]:checked::after{transform:translateX(18px)}
 .advbar{display:flex;align-items:center;gap:6px}
 .adv{display:none;padding:4px 20px 18px}
 .open .adv{display:block}
-.advtoggle span{display:inline-block;transition:transform .2s;margin-right:8px;font-size:10px}
-.open .advtoggle span{transform:rotate(90deg)}
+.advtoggle .chev{display:inline-grid;transition:transform .2s;color:var(--muted)}
+.open .advtoggle .chev{transform:rotate(90deg)}
 .group{padding:16px 0;border-top:1px solid var(--line)}
 .group:first-child{border-top:0}
-details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:baseline;gap:10px;
+details.group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;
   flex-wrap:wrap}
 details.group>summary::-webkit-details-marker{display:none}
-details.group>summary::before{content:"\25B6";font-size:10px;color:var(--muted);
-  transition:transform .2s;display:inline-block}
+/* The same line chevron as the icons, cut from a mask so it takes the colour. */
+details.group>summary::before{content:"";width:13px;height:13px;background:var(--muted);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat;
+  transition:transform .2s;display:inline-block;flex:none}
 details.group[open]>summary::before{transform:rotate(90deg)}
-.gtitle{font-size:17px;font-weight:700;color:var(--text)}
+.gtitle{font-size:17px;font-weight:700;color:var(--text);display:inline-flex;align-items:center;gap:9px}
+.gtitle .ic{color:var(--accent-text)}
 .gnote{font-size:13px;color:var(--muted)}
 details.group[open]>.grouprows{margin-top:6px}
 .grouprows{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 24px}
@@ -612,7 +622,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
     <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
   </span>
   <button class="icon" id="takesBtn" title="Your takes" aria-label="Your takes" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-  <button class="recbtn" id="rec" disabled aria-label="Record a take" title="Record a take for a song cover: sing, no key needed - each pause ends a line. Use headphones for the music."><i></i></button>
+  <button class="recbtn" id="rec" disabled aria-label="Record a take" title="Record a take"><i></i></button>
   <button id="toggle" title="Start or stop (Ctrl+Enter)" aria-keyshortcuts="Control+Enter Meta+Enter">Start</button>
   <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
@@ -620,7 +630,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 <div class="wrap">
   <div class="col-voice">
     <section class="voice pane">
-      <div class="portrait"><img id="avatar" alt=""><p class="noportrait" id="noportrait" hidden>No voicebank yet.<br>Add a UTAU voicebank (.zip) below.</p></div>
+      <div class="portrait"><img id="avatar" alt=""><p class="noportrait" id="noportrait" hidden>No voicebank yet</p></div>
       <div>
         <p class="vname"><span id="vname">&nbsp;</span><button class="icon rename" id="rename"
           title="Rename this voicebank" aria-label="Rename this voicebank"></button></p>
@@ -632,16 +642,16 @@ details.group>summary::before{transition:transform .45s var(--spring)}
         <p class="vmeta" id="vmeta"></p>
       </div>
       <select id="bank" aria-label="Choose voicebank"></select>
-      <label class="addvoice" id="addvoice">
+      <label class="addvoice" id="addvoice" title="A UTAU voicebank .zip - or drop one anywhere">
         <input type="file" id="up-bank" accept=".zip,.uar">
-        <span id="addvoicetext">Add a voicebank</span>
+        <span id="addvoicetext"><i data-icon="upload"></i>Add voicebank</span>
       </label>
     </section>
 
     <div class="alert" id="alert" hidden></div>
     <section class="stage pane">
       <div class="stagehead">
-        <p class="tag" id="stagetag">what she sang</p>
+        <p class="tag" id="stagetag"><i data-icon="note"></i>last phrase</p>
       </div>
       <div id="hero"></div>
       <div class="roll" id="roll" hidden>
@@ -658,24 +668,24 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 
   <div class="col-set">
     <section class="pane">
-      <p class="tag deckhead">most used - changes apply straight away</p>
+      <p class="tag deckhead"><i data-icon="bolt"></i>quick settings</p>
       <div class="deck" id="deck"></div>
     </section>
     <div class="advbar">
-      <button class="ghost advtoggle" id="advtoggle"><span>&#9654;</span>All settings</button>
+      <button class="ghost advtoggle" id="advtoggle"><i data-icon="sliders"></i><span id="advlabel">All settings</span><span class="chev"><i data-icon="chevron" data-size="13"></i></span></button>
       <span class="spacer"></span>
-      <button class="ghost" id="doctor" title="Check OpenUtau, .NET, devices, voicebanks and GPU">Check setup</button>
-      <button class="ghost" id="quit" title="Stop Teto Relay and close the control panel">Quit</button>
+      <button class="ghost" id="doctor" title="Check OpenUtau, devices, voicebanks and GPU"><i data-icon="check"></i>Check setup</button>
+      <button class="ghost" id="quit" title="Close Teto Relay"><i data-icon="power"></i>Quit</button>
     </div>
     <div class="adv pane" id="adv">
       <div class="group" id="checkgroup" hidden>
-        <p class="tag">setup check</p>
+        <p class="tag"><i data-icon="check"></i>setup check</p>
         <pre class="checks" id="checks"></pre>
       </div>
       <div id="groups"></div>
       <div class="group">
-        <p class="tag">activity</p>
-        <pre id="log">Waiting for the relay to start.</pre>
+        <p class="tag"><i data-icon="list"></i>log</p>
+        <pre id="log">Nothing yet.</pre>
       </div>
     </div>
   </div>
@@ -702,8 +712,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 <div id="dropzone" hidden aria-hidden="true">
   <div>
     <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-    <b>Drop to add this voicebank</b>
-    <span>A UTAU voicebank as a .zip</span>
+    <b>Drop to add voicebank</b>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -717,6 +726,54 @@ window.fetch=(url,opts={})=>_fetch(url,{...opts,headers:{...(opts.headers||{}),'
 let cfg={}, meta={}, lastKey='';
 const $=id=>document.getElementById(id);
 const app=()=>$('app');
+
+/* ---------- icons ----------
+   Line drawings on a 24-unit grid, stroked in the text colour, so a label can
+   be read at a glance. Emoji would draw differently on every PC. In the HTML,
+   <i data-icon="name"> becomes one when the page loads (fillIcons). */
+const ICON_PATHS={
+  note:'<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/>',
+  volume:'<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/>',
+  headphones:'<path d="M4 16v-4a8 8 0 0 1 16 0v4"/><rect x="3" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16.5" y="14" width="4.5" height="6.5" rx="1.6"/>',
+  key:'<rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6.5 10h.01M10 10h.01M13.5 10h.01M17 10h.01M7.5 14h9"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9s-1.2 6.4-3.8 9c-2.6-2.6-3.8-5.6-3.8-9S9.4 5.6 12 3z"/>',
+  lyrics:'<path d="M4 6h11M4 10.5h11M4 15h6"/><path d="M17 19V9.5l4-1"/><circle cx="15.2" cy="19" r="1.9"/>',
+  updown:'<path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4"/>',
+  double:'<circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/>',
+  ear:'<path d="M6.5 9a5.5 5.5 0 0 1 11 0c0 3.2-3 4.2-3 7.5a3 3 0 0 1-5.6 1.5"/><path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-1.5 2-1.5 3"/>',
+  wave:'<path d="M3 12h1.5M7 8.5v7M10.5 5v14M14 8v8M17.5 10v4M21 12h0"/>',
+  folder:'<path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  pitch:'<path d="M3 15c2.5 0 3-6 6-6s3.5 6 6 6 3.5-6 6-6"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  timer:'<circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 1.5M9.5 2.5h5"/>',
+  dots:'<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
+  sliders:'<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  bolt:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+  check:'<circle cx="12" cy="12" r="9"/><path d="M8.5 12.2l2.4 2.4 4.6-4.8"/>',
+  power:'<path d="M12 3v8M6.6 6.6a7.5 7.5 0 1 0 10.8 0"/>',
+  list:'<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  upload:'<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  download:'<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
+  chevron:'<path d="M9 5l7 7-7 7"/>',
+  pencil:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+  again:'<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  open:'<path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5L12 11l2.5 2.5"/>'};
+function icon(name,size){
+  size=size||16;
+  return '<svg class="ic" width="'+size+'" height="'+size+'" viewBox="0 0 24 24" fill="none" stroke="currentColor"'+
+    ' stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(ICON_PATHS[name]||'')+'</svg>';
+}
+function iconEl(name,size){const t=document.createElement('template'); t.innerHTML=icon(name,size); return t.content.firstChild;}
+function fillIcons(root){
+  for(const i of (root||document).querySelectorAll('i[data-icon]')) i.replaceWith(iconEl(i.dataset.icon,+i.dataset.size||16));
+}
+fillIcons();
+/* Which icon each setting on the main screen carries. */
+const SETTING_ICONS={singing_style:'note',double_when:'double',transpose:'updown',playback_gain:'volume',
+  language:'globe',lyrics_hint:'lyrics',input_device:'mic',output_device:'headphones',ptt_key:'key'};
 
 /* ---------- theme: follow the system until told otherwise ---------- */
 /* Drawn rather than typed: the sun and moon code points render as a weak
@@ -810,8 +867,15 @@ function showBank(key){
   /* The name and what it is were a tooltip nobody would find. */
   $('vname').textContent=b?b.name:'No voicebank';
   $('rename').hidden=!b;
-  $('vmeta').textContent=b?(b.flavour+' · '+b.entries+' samples · sings '+b.lyrics):'';
+  $('vmeta').textContent=b?bankKind(b.flavour):'';
+  $('vmeta').title=b?(b.flavour+' · '+b.entries+' samples'):'';
   applyAccent(b&&b.accent);
+}
+/* "ja-vcv" as people say it: "Japanese · VCV". */
+function bankKind(flavour){
+  const [lang,kind]=String(flavour||'').split('-');
+  const name={ja:'Japanese',en:'English'}[lang];
+  return name?(name+(kind?' · '+kind.toUpperCase():'')):String(flavour||'');
 }
 /* Each voice colours the panel with the main colour of its own artwork, so a
    bank you add brings its own look instead of borrowing Teto's red. One solid
@@ -851,9 +915,12 @@ function deviceOptions(k){
   if(current&&!list.some(n=>n===current)) list.unshift(current);
   return {list:list,blank:(kind==='input')?'System default':''};
 }
-function control(k){
+/* `brief` is the main screen: an icon on the label and the help line kept to a
+   tooltip, so the most used settings read at a glance. */
+function control(k,brief){
   const wrap=document.createElement('div'); wrap.className='ctl';
   const lab=document.createElement('label'); lab.textContent=labelOf(k); lab.htmlFor='f-'+k;
+  if(brief&&SETTING_ICONS[k]) lab.prepend(iconEl(SETTING_ICONS[k]));
   wrap.appendChild(lab);
   const range=meta.ranges?meta.ranges[k]:null;
   const isDevice=(k==='input_device'||k==='output_device');
@@ -896,8 +963,9 @@ function control(k){
     // instead, and Save quietly wrote that over the real setting.
     const choices=[...meta.choices[k]];
     if(cfg[k]!=null&&cfg[k]!==''&&!choices.map(String).includes(String(cfg[k]))) choices.unshift(cfg[k]);
+    const names=(meta.option_labels||{})[k]||{};
     for(const opt of choices){
-      const o=document.createElement('option'); o.value=opt; o.textContent=opt;
+      const o=document.createElement('option'); o.value=opt; o.textContent=names[opt]||opt;
       if(String(cfg[k])===String(opt)) o.selected=true; inp.appendChild(o);
     }
     wrap.appendChild(inp);
@@ -931,11 +999,13 @@ function control(k){
     inp.type=(typeof cfg[k]==='number')?'number':'text';
     if(typeof cfg[k]==='number') inp.step='any';
     inp.value=cfg[k]===null?'':cfg[k];
+    if(k==='lyrics_hint') inp.placeholder='Optional: paste the song’s words';
     wrap.appendChild(inp);
   }
   inp.id='f-'+k; inp.dataset.key=k; inp.className=(inp.className||'')+' field';
   const help=helpOf(k);
-  if(help){const s=document.createElement('span'); s.className='help'; s.textContent=help;
+  if(help&&brief) wrap.title=help;
+  else if(help){const s=document.createElement('span'); s.className='help'; s.textContent=help;
     wrap.appendChild(s);}
   if(inp.type==='range') paint(inp);
   /* Every setting applies as you change it. There used to be a Save button
@@ -946,7 +1016,7 @@ function control(k){
 }
 function renderDeck(){
   const host=$('deck'); host.innerHTML='';
-  for(const k of (meta.essentials||[])) host.appendChild(control(k));
+  for(const k of (meta.essentials||[])) host.appendChild(control(k,true));
 }
 async function saveOne(k){
   const value=collect()[k];
@@ -957,8 +1027,8 @@ async function saveOne(k){
   if(!d.ok){ toast('Could not save: '+d.error); return; }
   // A new voicebank or OpenUtau folder means a different list of voices.
   if(k==='voicebank_root'||k==='openutau_dir') refreshBanks();
-  toast(labelOf(k)+(d.restarting ? ': applying \u2014 Teto is restarting'
-    : d.restart&&d.restart.length ? ': saved \u2014 quit and reopen Teto Relay to use it' : ': applied'));
+  toast(labelOf(k)+(d.restarting ? ': restarting to apply'
+    : d.restart&&d.restart.length ? ': saved, reopen the app to use it' : ': applied'));
 }
 /* The voicebank list and pictures, fetched again without rebuilding the rest
    of the page: after the voicebank folder changed they stayed empty until the
@@ -988,6 +1058,7 @@ function renderGroups(){
       try{localStorage.setItem('teto.group.'+name,sec.open?'1':'0');}catch(e){}});
     const sum=document.createElement('summary');
     const t=document.createElement('span'); t.className='gtitle'; t.textContent=name;
+    if(info.icon) t.prepend(iconEl(info.icon,18));
     sum.appendChild(t);
     if(info.note){const n=document.createElement('span'); n.className='gnote'; n.textContent=info.note;
       sum.appendChild(n);}
@@ -1021,7 +1092,9 @@ function popWords(el,text){
     w.style.animationDelay=Math.min(i*45,700)+'ms'; el.append(w);
   });
 }
-function tag(t){const s=document.createElement('span'); s.className='sungtag'; s.textContent=t; return s;}
+/* Marks the line she actually sings: the words, or the kana a Japanese bank sings. */
+function tag(){const s=document.createElement('span'); s.className='sungtag'; s.title='What she sings';
+  s.append(iconEl('note',12)); return s;}
 /* The Clipboard API first; a hidden textarea and execCommand where it is refused. */
 async function copyText(text){
   try{ await navigator.clipboard.writeText(text); return true; }
@@ -1045,7 +1118,8 @@ function renderEarlier(d){
   lastEarlier=key;
   host.innerHTML=''; host.hidden=!rows.length;
   if(!rows.length) return;
-  const head=document.createElement('p'); head.className='earlierhead'; head.textContent='earlier';
+  const head=document.createElement('p'); head.className='tag earlierhead'; head.textContent='earlier';
+  head.prepend(iconEl('clock',14));
   host.appendChild(head);
   rows.forEach(h=>{
     const b=document.createElement('button'); b.type='button'; b.className='ghost earlierrow';
@@ -1072,17 +1146,15 @@ function renderHero(d){
   hero.innerHTML='';
   if(busy){
     const p=document.createElement('p'); p.className='idle getting-ready';
-    p.textContent='Getting Teto ready \u2014 '+(d.stage||'starting').toLowerCase();
+    p.textContent=d.stage||'Starting';
     hero.appendChild(p); roll.hidden=true; return;
   }
   if(!d.notes.length){
     const p=document.createElement('p'); p.className='idle';
-    if(d.running){
-      // Built from nodes: the key name comes from the config file.
-      const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
-      p.append('Hold ',kbd,' and speak.');
-    }
-    else p.textContent='Start the relay, then hold your push-to-talk key and speak.';
+    // Built from nodes: the key name comes from the config file.
+    const kbd=document.createElement('kbd'); kbd.textContent=String(cfg.ptt_key||'F8').toUpperCase();
+    if(d.running) p.append('Hold ',kbd,' and talk.');
+    else p.append('Press Start, then hold ',kbd,' and talk.');
     hero.appendChild(p); roll.hidden=true; return;
   }
   const sung=d.lyrics==='morae';
@@ -1090,7 +1162,7 @@ function renderHero(d){
   const lang=guessLang(d.heard||''); if(lang) en.lang=lang;
   if(d.heard){
     en.classList.add('copy'); en.tabIndex=0; en.setAttribute('role','button');
-    en.title='Click to copy what she heard';
+    en.title='Click to copy';
     // The Clipboard API first; a hidden textarea and execCommand where it is refused.
     const copy=async()=>{
       const ok=await copyText(d.heard);
@@ -1100,11 +1172,11 @@ function renderHero(d){
     en.addEventListener('click',copy);
     en.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); copy(); } });
   }
-  if(!sung) en.appendChild(tag('sung'));
+  if(!sung&&d.kana) en.appendChild(tag());
   hero.appendChild(en);
   if(d.kana){
     const jp=document.createElement('p'); jp.className='kana'; jp.lang='ja'; jp.textContent=d.kana;
-    if(sung) jp.appendChild(tag('sung'));
+    if(sung) jp.appendChild(tag());
     hero.appendChild(jp);
   }
   roll.hidden=false;
@@ -1129,7 +1201,7 @@ const noteHz=m=>440*Math.pow(2,(m-69)/12);
 function replay(el,cls){ el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 function readNote(n){
   const box=$('noteread'); box.textContent=''; replay(box,'in');
-  if(!n){ box.textContent='Point at a note, or click one, to see its pitch.'; return; }
+  if(!n) return;
   const b=document.createElement('b'); b.textContent=n.lyric;
   box.append(b,'  '+noteName(n.tone)+' · '+noteHz(n.tone).toFixed(1)+' Hz · MIDI '+n.tone);
 }
@@ -1226,23 +1298,27 @@ function renderMeters(s){
   const m=$('meters'), sec=v=>v.toFixed(2).replace(/0$/,'').replace(/\.$/,'')+' s';
   const total=s.behind!=null?s.behind:null;
   const parts=[];
-  if(s.analyse!=null) parts.push(['analysed',s.analyse]);
-  if(s.render!=null) parts.push(['rendered',s.render]);
+  if(s.analyse!=null) parts.push(['hearing',s.analyse]);
+  if(s.render!=null) parts.push(['singing',s.render]);
   if(total!=null&&parts.length){
     const other=total-parts.reduce((a,p)=>a+p[1],0);
     if(other>0.005) parts.push(['other',other]);
   }
   // Same colour, three strengths: the bar stays calm and the legend says which is which.
   const strength=['100%','68%','42%'];
-  const key=JSON.stringify([total,parts,s.speech,s.method]);
+  const key=JSON.stringify([total,parts,s.speech]);
   if(m.dataset.key===key) return;
   m.dataset.key=key; m.innerHTML='';
+  // Nothing to show until she has sung once.
+  m.hidden=total==null;
+  if(total==null) return;
 
   const head=document.createElement('div'); head.className='pipehead';
+  head.title='From letting go of the key to her first sound';
   const big=document.createElement('span'); big.className='pipetotal';
-  if(total!=null) countUp(big,total,sec); else big.textContent='\u2014';
-  const lab=document.createElement('span'); lab.className='pipelabel';
-  lab.textContent=total!=null?'from letting go to sound':'her time will show here';
+  countUp(big,total,sec);
+  const lab=document.createElement('span'); lab.className='pipelabel tag'; lab.textContent='delay';
+  lab.prepend(iconEl('timer',14));
   head.append(big,lab); m.appendChild(head);
 
   const bar=document.createElement('div'); bar.className='pipe';
@@ -1271,10 +1347,10 @@ function renderMeters(s){
   [segs,items].forEach(list=>list.forEach((e,i)=>{
     e.addEventListener('mouseenter',()=>spot(i)); e.addEventListener('mouseleave',()=>spot(-1));
   }));
-  if(s.speech!=null) legend.appendChild(Object.assign(document.createElement('span'),
-    {textContent:'you spoke '+sec(s.speech)}));
-  if(s.method) legend.appendChild(Object.assign(document.createElement('span'),
-    {textContent:'pitch: '+s.method}));
+  if(s.speech!=null){
+    const you=Object.assign(document.createElement('span'),{className:'you',title:'How long you talked'});
+    you.append(iconEl('mic',13),sec(s.speech)); legend.appendChild(you);
+  }
   m.appendChild(legend);
 }
 
@@ -1315,7 +1391,7 @@ $('bank').onchange=async e=>{
   const d=await (await fetch('api/voicebank',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({bank:key})})).json();
   if(d.ok){cfg.voicebank=key; showBank(key);
-    toast(d.applied?('Now singing as '+key):(key+' loads when you start the relay.'));
+    toast(d.applied?('Now singing as '+key):(key+' sings when you press Start'));
   } else toast('Could not switch: '+d.error);
 };
 /* The Start button while the relay loads: a spinner and what it is doing.
@@ -1396,8 +1472,7 @@ function renderTake(d){
   const btn=$('rec'), t=d.take||{};
   btn.disabled=!d.running||!!d.take_finishing;
   btn.classList.toggle('on',!!t.recording);
-  btn.title=t.recording?'Stop and save the take':
-    'Record a take for a song cover: sing, no key needed - each pause ends a line. Use headphones for the music.';
+  btn.title=t.recording?'Stop and save':'Record a take';
   if(t.recording){
     if(!sheet.dismissed&&(sheet.view!=='live'||$('sheet').hidden)) showSheet('live');
     if(sheet.view==='live'){ setTitle('Take',clock(t.seconds),true); if(t.phrases!==sheet.liveCount) loadLive(); }
@@ -1439,7 +1514,7 @@ async function loadLive(){
   const body=$('shBody'); body.textContent='';
   const chips=el('div','chips');
   chips.append(el('span','',plural(sheet.liveCount,'line')));
-  const hint=el('span','','sing \u00b7 each pause ends a line'); hint.style.setProperty('--dot','#30d158');
+  const hint=el('span','','pause to end a line'); hint.style.setProperty('--dot','#30d158');
   chips.append(hint); body.append(chips);
   const svg=sv('svg',{class:'takeroll'}); body.append(svg);
   requestAnimationFrame(()=>drawRoll(svg,d.lines||[],{total:Math.max(d.seconds||0,4)}));
@@ -1452,7 +1527,7 @@ async function loadLive(){
       row.append(el('span','num',l.n),el('span','txt',l.text)); li.append(row); ul.append(li);
     }
     body.append(ul);
-  }else body.append(el('p','empty','Waiting for the first line. Sing, then pause - Teto sings it back and it lands here.'));
+  }else body.append(el('p','empty','Waiting for the first line…'));
   const stop=el('button','stopbtn','Stop and save'); stop.onclick=()=>$('rec').click(); body.append(stop);
 }
 
@@ -1462,7 +1537,7 @@ async function showList(){
   const body=$('shBody'); body.textContent='';
   let d; try{ d=await (await fetch('api/takes')).json(); }catch(e){ return; }
   const takes=d.takes||[];
-  if(!takes.length){ body.append(el('p','empty','No takes yet. Press Start, then the round record button.')); return; }
+  if(!takes.length){ body.append(el('p','empty','No takes yet.')); return; }
   const ul=el('ul','tlist');
   for(const t of takes){
     const b=el('button'), when=new Date(t.created);
@@ -1509,25 +1584,26 @@ function renderTakeView(){
   };
   sheet.redraw=()=>{ draw(); setPlayIcon(play,player.dataset.what==='take'&&!player.paused); };
 
-  body.append(el('p','sh-sec','Lines - click one to fix a word'));
+  body.append(el('p','sh-sec','Lines'));
   const ul=el('ul','lines');
   for(const l of lines) ul.append(lineItem(t,l));
   body.append(ul);
 
   body.append(dragTile(t,length));
   const formats=el('div','formats');
-  const fmt=(file,label)=>{ const a=el('a','',label); a.href=fileUrl(t.id,file); a.setAttribute('download',''); formats.append(a); };
-  if((t.files||[]).includes('teto.ustx')) fmt('teto.ustx','OpenUtau project (.ustx)');
-  if((t.files||[]).includes('your-voice.wav')) fmt('your-voice.wav','Your voice (.wav)');
-  fmt('zip','Everything (.zip)');
+  const fmt=(file,label,title)=>{ const a=el('a','',label); a.prepend(iconEl('download',13)); a.title=title;
+    a.href=fileUrl(t.id,file); a.setAttribute('download',''); formats.append(a); };
+  if((t.files||[]).includes('teto.ustx')) fmt('teto.ustx','OpenUtau','teto.ustx, to open in OpenUtau');
+  if((t.files||[]).includes('your-voice.wav')) fmt('your-voice.wav','Your voice','your-voice.wav');
+  fmt('zip','All','Everything in a .zip');
   body.append(formats);
 
   const foot=el('div','sh-foot');
-  const open=el('button','ghost','Open folder');
+  const open=el('button','ghost','Open folder'); open.prepend(iconEl('open'));
   open.onclick=async()=>{ try{ const r=await api('api/take/open?take='+encodeURIComponent(t.id)); if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); } };
-  const discard=el('button','danger','Discard');
+  const discard=el('button','danger','Discard'); discard.prepend(iconEl('trash'));
   discard.onclick=async()=>{
-    if(!confirm('Discard this take? Its files are deleted.')) return;
+    if(!confirm('Delete this take?')) return;
     player.pause();
     try{ const r=await api('api/take/delete?take='+encodeURIComponent(t.id)); if(r&&r.ok===false){ toast(r.error); return; } }
     catch(e){ toast('Could not reach the relay.'); return; }
@@ -1560,10 +1636,13 @@ function lineItem(t,l){
   const row=el('div','lrow');
   row.append(el('span','num',l.n),el('span','txt',l.text));
   if(l.edited) row.append(el('span','fixed','fixed'));
+  // The pencil only says what a click on the row does; the row handles it.
+  const edit=el('button','mini'); edit.title='Fix a word'; edit.setAttribute('aria-label','Fix a word in line '+l.n);
+  edit.append(iconEl('pencil',14));
   const play=el('button','mini'); play.title='Play this line'; play.setAttribute('aria-label','Play line '+l.n);
   setPlayIcon(play,false);
   play.onclick=e=>{ e.stopPropagation(); playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'); };
-  row.append(play);
+  row.append(edit,play);
   row.onclick=()=>toggleLine(l.n);
   li.append(row);
   if(sheet.open===l.n) li.append(lineEditor(t,l));
@@ -1577,7 +1656,7 @@ function lineEditor(t,l){
   const svg=sv('svg',{class:'lineroll'}); box.append(svg);
   requestAnimationFrame(()=>drawLine(svg,l.notes||[]));
   if(!l.editable){
-    box.append(el('p','hint','This line was recorded before words could be fixed. Open teto.ustx in OpenUtau to change it.'));
+    box.append(el('p','hint','Too old to fix here. Open teto.ustx in OpenUtau.'));
     return box;
   }
   const words=el('div','words'), inputs=[];
@@ -1589,14 +1668,17 @@ function lineEditor(t,l){
     inputs.push(input); words.append(input);
   });
   box.append(words);
-  box.append(el('p','hint','Type the right word. Two words in one box split its time; an empty box drops it.'));
+  const hint=el('p','hint','Type the right word, then sing again.');
+  hint.title='Two words in one box share its time. An empty box drops the word.';
+  box.append(hint);
   const btns=el('div','ed-btns');
-  const sing=el('button','','Sing it again'), reset=el('button','ghost','Undo changes'), busy=el('span','busy','');
+  const sing=el('button','','Sing again'), reset=el('button','ghost','Undo'), busy=el('span','busy','');
+  sing.prepend(iconEl('again',15)); reset.prepend(iconEl('undo',15));
   const sync=()=>{ const changed=inputs.some((x,i)=>x.value.trim()!==l.words[i].text); sing.disabled=!changed||sheet.busy; reset.hidden=!changed; };
   reset.onclick=()=>{ inputs.forEach((x,i)=>{ x.value=l.words[i].text; x.classList.remove('changed'); }); sync(); };
   sing.onclick=async()=>{
     if(sing.disabled) return;
-    sheet.busy=true; sing.disabled=true; busy.textContent='Teto is singing it again…';
+    sheet.busy=true; sing.disabled=true; busy.textContent='Singing…';
     try{
       const r=await api('api/take/line?take='+encodeURIComponent(t.id),{line:l.n,words:inputs.map(x=>x.value)});
       if(!r.ok){ toast(r.error||'Could not sing it again.'); return; }
@@ -1668,7 +1750,7 @@ function dragTile(t,length){
   const doc=sv('svg',{class:'doc',viewBox:'0 0 34 40',fill:'none',stroke:'currentColor','stroke-width':'2','stroke-linejoin':'round'});
   doc.append(sv('path',{d:'M5 3h16l8 8v26H5z'}),sv('path',{d:'M21 3v8h8'}),
     sv('path',{d:'M10 26v-4M14 29v-10M18 27v-6M22 25v-2','stroke-linecap':'round'}));
-  const text=el('div'); text.append(el('b','','Drag into your DAW'),el('span','','teto.wav \u00b7 '+clock(length)+' \u00b7 starts where you pressed Record'));
+  const text=el('div'); text.append(el('b','','Drag into your DAW'),el('span','','teto.wav \u00b7 '+clock(length)));
   const grip=sv('svg',{class:'grip',width:12,height:18,viewBox:'0 0 12 18',fill:'currentColor'});
   for(const [cx,cy] of [[3,3],[9,3],[3,9],[9,9],[3,15],[9,15]]) grip.append(sv('circle',{cx,cy,r:1.6}));
   tile.append(doc,text,grip);
@@ -1736,8 +1818,8 @@ function addVoicebank(file){
   if(!file) return;
   if(adding){ toast('One voicebank at a time'); return; }
   if(!/\.(zip|uar)$/i.test(file.name)){
-    addDialog({kind:'bad',title:'That is not a voicebank file',
-      text:'A UTAU voicebank comes as a .zip. "'+file.name+'" is something else.',buttons:[['OK',closeAdd]]});
+    addDialog({kind:'bad',title:'Not a voicebank',
+      text:'Voicebanks come as a .zip.',buttons:[['OK',closeAdd]]});
     return;
   }
   const name=file.name.replace(/\.(zip|uar)$/i,''), mb=v=>(v/1e6).toFixed(0)+' MB';
@@ -1745,16 +1827,16 @@ function addVoicebank(file){
   const xhr=new XMLHttpRequest(); adding=xhr;
   xhr.open('POST','api/install/voicebank?name='+encodeURIComponent(file.name));
   xhr.setRequestHeader('X-Teto-Relay','1');   // what the fetch wrapper adds; the panel refuses posts without it
-  const sending=(sent)=>addDialog({title:'Adding '+name,text:'Copying the voicebank into Teto Relay.',
+  const sending=(sent)=>addDialog({title:'Adding '+name,
     progress:sent/file.size,left:mb(sent)+' of '+mb(file.size),right:Math.round(sent/file.size*100)+'%',
     buttons:[['Cancel',()=>{xhr.abort();},true]]});
   sending(0);
   xhr.upload.onprogress=e=>{ if(e.lengthComputable) sending(e.loaded); };
   xhr.upload.onload=()=>addDialog({title:'Adding '+name,
-    text:'Unpacking it and checking her samples. A big voicebank takes a few seconds.',progress:-1});
+    text:'Unpacking…',progress:-1});
   xhr.onabort=()=>{ closeAdd(); toast('Cancelled'); };
   xhr.onerror=()=>{ adding=null; addDialog({kind:'bad',title:'Could not add '+name,
-    text:'The upload did not reach Teto Relay. Is it still running?',buttons:[['OK',closeAdd]]}); };
+    text:'Is Teto Relay still running?',buttons:[['OK',closeAdd]]}); };
   xhr.onload=async()=>{
     let d={}; try{ d=JSON.parse(xhr.responseText); }catch(e){}
     if(!d.ok){
@@ -1768,9 +1850,8 @@ function addVoicebank(file){
     const fresh=(meta.banks||[]).find(b=>!before.has(b.key));
     adding=null;
     addDialog({kind:'ok',title:i.name+' is ready',
-      text:i.samples+' samples'+(i.missing?(' ('+i.missing+' named in its oto.ini are missing)'):'')+
-        '. The first time you pick her, Teto Relay spends a few seconds learning her pitch.',
-      buttons:[['Later',closeAdd,true],...(fresh?[['Sing with her now',async()=>{
+      text:i.samples+' samples'+(i.missing?(' ('+i.missing+' missing)'):''),
+      buttons:[['Later',closeAdd,true],...(fresh?[['Use her now',async()=>{
         closeAdd(); $('bank').value=fresh.key; $('bank').dispatchEvent(new Event('change'));
       }]]:[])]});
   };
@@ -1795,12 +1876,12 @@ document.addEventListener('drop',e=>{
 
 $('advtoggle').onclick=()=>{
   const open=app().classList.toggle('open');
-  $('advtoggle').innerHTML='<span>&#9654;</span>'+(open?'Hide settings':'All settings');
+  $('advlabel').textContent=open?'Hide settings':'All settings';
   try{localStorage.setItem('teto.adv',open?'1':'0');}catch(e){}
 };
 if((()=>{try{return localStorage.getItem('teto.adv')==='1';}catch(e){return false;}})()){
   app().classList.add('open');
-  $('advtoggle').innerHTML='<span>&#9654;</span>Hide settings';
+  $('advlabel').textContent='Hide settings';
 }
 
 function renderAlert(h){
@@ -1821,7 +1902,7 @@ $('doctor').onclick=async()=>{
   try{
     const d=await (await fetch('api/doctor')).json();
     out.textContent=d.text;
-    toast(d.ok?'Setup looks ready.':'Some things need fixing - see "setup check".');
+    toast(d.ok?'Setup looks ready':'Some things need fixing');
   }catch(e){out.textContent='Could not run the check: '+e;}
 };
 
@@ -1855,7 +1936,7 @@ async function poll(){
     renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{}); renderTake(d);
     const box=$('log');
     const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-24;
-    box.textContent=d.log.join('\n')||'Waiting for the relay to start.';
+    box.textContent=d.log.join('\n')||'Nothing yet.';
     if(stick) box.scrollTop=box.scrollHeight;
   }catch(e){}
 }

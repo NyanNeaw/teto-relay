@@ -2,6 +2,11 @@
 
 ## 0.3.1 (in progress)
 
+- **A calmer panel.** Far less text: the main settings carry a small icon
+  instead of a line of help (point at one for its tip), the style switch
+  says *Speak* / *Sing* instead of *Speech* / *Sung*, and buttons, groups
+  and the take sheet have icons too. Drop-downs show names, not codes
+  ("Hold the talk key", not "ptt").
 - **Record a take, for song covers.** Press Record next to Start, sing your
   lines over the song (no key needed: each pause ends a line), press it again. Every phrase lands where you sang it,
   so it lines up with the music. Download Teto's singing (.wav), an OpenUtau
