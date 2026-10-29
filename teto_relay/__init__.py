@@ -19,7 +19,7 @@ for _name in ("stdout", "stderr"):
 # Progress bars go to a console nobody can see, and they are what broke.
 _os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 # Model caches default to the user profile on C:, which on this machine has
 # under 2 GB free - whisper, torch and the 1.2 GB aligner would fill it. These
