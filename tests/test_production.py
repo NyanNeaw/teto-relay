@@ -1598,6 +1598,88 @@ class TestErrorsReachThePerson(unittest.TestCase):
         self.assertEqual(shown, ["config.json is not valid JSON"])
 
 
+class TestFasterReplies(unittest.TestCase):
+    """The delay: OpenUtau's commands spun 100,000 times on the render thread
+    (0.65 s a phrase), pitch waited for whisper, and the aligner loaded on
+    the first phrase after a language switch (6-10 s)."""
+
+    def test_rendering_claims_openutau_for_the_render_thread(self):
+        import threading
+        import unittest.mock
+
+        from teto_relay import dotnet
+        from teto_relay.render import openutau
+
+        renderer = object.__new__(openutau.OpenUtauRenderer)
+        renderer._lock = threading.RLock()
+        order = []
+        with unittest.mock.patch.object(dotnet, "claim_main_thread", lambda: order.append("claim")), \
+                unittest.mock.patch.object(openutau.OpenUtauRenderer, "_render",
+                                           lambda self, a, b: order.append("render") or b):
+            renderer.render(Path("x.ustx"), Path("x.wav"))
+        self.assertEqual(order, ["claim", "render"])
+
+    def test_claiming_without_openutau_is_harmless(self):
+        from teto_relay import dotnet
+
+        dotnet.claim_main_thread()  # OpenUtau not loaded in tests: a no-op
+
+    def test_pitch_is_measured_while_whisper_listens(self):
+        import threading
+        import time
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import app as app_mod
+        from teto_relay import pitch as pitch_mod
+        from teto_relay.capture import Chunk
+        from teto_relay.config import Config
+        from teto_relay.stt import Word
+
+        relay = object.__new__(app_mod.TetoRelay)
+        relay.cfg = Config(language="en", align_boundaries=False, align_morae=False, keep_input_audio=False)
+        relay._side_pool = None
+        seen = {}
+
+        def track(audio, rate, cfg):
+            seen["pitch_thread"] = threading.current_thread().name
+            seen["pitch_at"] = time.monotonic()
+            return types.SimpleNamespace(any_voiced=False)
+
+        def transcribe(audio, rate):
+            time.sleep(0.2)
+            seen["asr_done"] = time.monotonic()
+            return [Word("hello", 0.1, 0.5)]
+
+        relay.transcriber = types.SimpleNamespace(transcribe=transcribe, on_gpu=False)
+        relay._japanese_lyrics = lambda: False
+        with unittest.mock.patch.object(pitch_mod, "track_f0", track):
+            relay.analyse(Chunk(np.zeros(16000, dtype=np.float32), 16000, "release"))
+        relay._side_pool.shutdown()
+        self.assertTrue(seen["pitch_thread"].startswith("side"))
+        self.assertLess(seen["pitch_at"], seen["asr_done"])  # not after whisper
+
+    def test_the_aligner_loads_in_the_background_after_start(self):
+        import threading
+        import unittest.mock
+
+        from teto_relay import align
+        from teto_relay import app as app_mod
+        from teto_relay.config import Config
+
+        relay = object.__new__(app_mod.TetoRelay)
+        loaded = threading.Event()
+        for cfg, expected in ((Config(align_morae=True), True),
+                              (Config(align_morae=False, align_boundaries=False, use_alignment=False), False)):
+            loaded.clear()
+            relay.cfg = cfg
+            with unittest.mock.patch.object(align, "_load", lambda c: loaded.set()):
+                relay._preload_in_background()
+                self.assertEqual(loaded.wait(2.0), expected)
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 

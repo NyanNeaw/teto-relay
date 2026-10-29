@@ -351,6 +351,37 @@ def _install_ui_queue() -> None:
         _ui_queue = None
 
 
+_main_thread_field = None
+
+
+def claim_main_thread() -> None:
+    """Make the calling thread OpenUtau's "main thread" (DocManager.mainThread).
+
+    DocManager.ExecuteCmd runs a command at once on its main thread and
+    otherwise posts it to PostOnUIThread, our queue. The main thread was
+    whichever thread started OpenUtau, but the relay renders on its own
+    thread - so every command drained there posted itself again, round and
+    round, until drain_ui's limit of 100,000 stopped it: 0.65 s on every
+    phrase, and the commands themselves never ran. Callers hold the
+    renderer's lock, so only one thread uses OpenUtau at a time.
+    """
+    global _main_thread_field
+    try:
+        import clr
+        from System.Reflection import BindingFlags
+        from System.Threading import Thread
+
+        from OpenUtau.Core import DocManager
+
+        if _main_thread_field is None:
+            _main_thread_field = clr.GetClrType(DocManager).GetField(
+                "mainThread", BindingFlags.Instance | BindingFlags.NonPublic)
+        if _main_thread_field is not None:
+            _main_thread_field.SetValue(DocManager.Inst, Thread.CurrentThread)
+    except Exception:  # noqa: BLE001 - a newer OpenUtau: slower, not broken
+        log.debug("could not claim OpenUtau's main thread", exc_info=True)
+
+
 def drain_ui(limit: int = 256) -> int:
     """Run any queued UI callbacks on the calling thread. Returns how many ran."""
     if _ui_queue is None:

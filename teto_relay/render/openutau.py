@@ -302,6 +302,7 @@ class OpenUtauRenderer:
             try:
                 # _make_phonemizer binds whatever self.singer is.
                 with self._lock:
+                    dotnet.claim_main_thread()
                     phonemizer = self._make_phonemizer(key[1])
             finally:
                 self.singer = previous
@@ -958,6 +959,8 @@ class OpenUtauRenderer:
     # -------------------------------------------------------------- render
     def render(self, ustx_path: Path, out_wav: Path) -> Path:
         with self._lock:
+            # The relay renders on its own thread (dotnet.claim_main_thread).
+            dotnet.claim_main_thread()
             return self._render(ustx_path, out_wav)
 
     def _render(self, ustx_path: Path, out_wav: Path) -> Path:

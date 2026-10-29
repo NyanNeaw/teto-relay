@@ -182,6 +182,7 @@ class TetoRelay:
         # Warm everything before opening the mic, so the first phrase is not
         # lost to model loading. Order matters - see _warmup.
         self._warmup()
+        self._preload_in_background()
         self.progress("Opening the microphone", 0.95)
 
         push_to_talk = (cfg.capture_mode or "ptt").lower() == "ptt"
@@ -224,6 +225,35 @@ class TetoRelay:
             log.info("Teto Relay running. Hold [%s] and speak into %s.", cfg.ptt_key.upper(), mic_name)
         else:
             log.info("Teto Relay running. Speak into %s.", mic_name)
+
+    def _side_work(self):
+        """One worker thread for analysis that can run beside whisper."""
+        if getattr(self, "_side_pool", None) is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            self._side_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="side")
+        return self._side_pool
+
+    def _preload_in_background(self) -> None:
+        """Load the forced aligner now, quietly, whatever the language.
+
+        The warm-up only loads what the current language and voicebank need.
+        Switching to Japanese or English while running then loaded the aligner
+        on the first phrase after: a 6-10 s wait the user heard as the app
+        hanging. Loaded here instead, behind the scenes, it is ready by then.
+        """
+        cfg = self.cfg
+        if not (cfg.use_alignment or getattr(cfg, "align_boundaries", False) or cfg.align_morae):
+            return
+
+        def load() -> None:
+            try:
+                align._load(cfg)
+                log.debug("aligner preloaded")
+            except Exception:  # noqa: BLE001 - loaded on first use instead
+                log.debug("could not preload the aligner", exc_info=True)
+
+        threading.Thread(target=load, name="preload", daemon=True).start()
 
     def _warmup(self) -> None:
         """Pay the one-time initialisation costs before the microphone opens.
@@ -366,6 +396,10 @@ class TetoRelay:
         renderer = getattr(self, "renderer", None)
         if renderer is not None:
             attempt(type(renderer).__name__, renderer.close)
+        pool = getattr(self, "_side_pool", None)
+        if pool is not None:
+            self._side_pool = None
+            attempt("side work", lambda: pool.shutdown(wait=False, cancel_futures=True))
         log.info("Stopped")
 
     # ------------------------------------------------------------- controls
@@ -521,6 +555,9 @@ class TetoRelay:
             or (self.cfg.align_morae and self._japanese_lyrics())
             else None
         )
+        # Pitch needs only the audio, so it is measured while whisper listens:
+        # 0.2-0.6 s of every phrase that used to come after it.
+        pitch = self._side_work().submit(pitch_mod.track_f0, chunk.audio, chunk.sample_rate, self.cfg)
         words = self.transcriber.transcribe(chunk.audio, chunk.sample_rate)
         timeline.lap("asr")
         if not words:
@@ -539,8 +576,8 @@ class TetoRelay:
             words = align.boundaries(words, chunk.audio, chunk.sample_rate, self.cfg, pending)
             timeline.lap("align")
 
-        track = pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
-        timeline.lap("pitch")
+        track = pitch.result()
+        timeline.lap("pitch")  # only what is left of it after whisper
         if not track.any_voiced:
             log.info("No voiced frames; skipping this utterance")
             return None

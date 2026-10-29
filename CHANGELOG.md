@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1 (in progress)
+
+- **Teto answers sooner.** About 0.6 s was lost on every phrase inside
+  OpenUtau, and pitch is now measured while the words are being heard: on
+  the same recordings, 3.4 s → 2.4 s from letting go of the key to her voice.
+- **No more 6–10 s wait** on the first phrase after switching language or
+  voicebank: the timing model loads in the background after Start.
+
 ## 0.3.0 beta (first public release)
 
 - Talk or sing into your mic, and Kasane Teto sings it back through any UTAU
