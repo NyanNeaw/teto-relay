@@ -169,10 +169,16 @@ def _tell_panel_closed(url: str) -> None:
 
 class PanelApi:
     """What the panel page may ask of its own window (pywebview's js_api):
-    `window.pywebview.api.drag_take(id, name)` from the take sheet's tile."""
+    `window.pywebview.api.drag_take(id, name)` from the take sheet's tile.
+
+    Everything here not starting with "_" is crawled by pywebview when the page
+    loads, recursively, to offer it to the page. The window was once kept as a
+    public attribute: pywebview walked into its WinForms form and the .NET
+    object graph behind it, and the window hung ("Not Responding") on every
+    start. Keep the API to its methods."""
 
     def __init__(self):
-        self.window = None
+        self._window = None
 
     def drag_take(self, take_id: str, name: str = "teto.wav") -> bool:
         """Drag one of a take's files out of the window as a real file.
@@ -188,9 +194,9 @@ class PanelApi:
 
         folder = take_folder(paths.data_dir() / "takes", str(take_id))
         path = take_file(folder, str(name)) if folder is not None else None
-        if path is None or self.window is None:
+        if path is None or self._window is None:
             return False
-        return _drag_file(self.window.native, path)
+        return _drag_file(self._window.native, path)
 
 
 def _drag_file(form, path: Path) -> bool:
@@ -228,7 +234,7 @@ def run_window(url: str) -> int:
     api = PanelApi()
     window = webview.create_window(TITLE, url, width=SIZE[0], height=SIZE[1],
                                    min_size=(420, 520), background_color="#ffffff", js_api=api)
-    api.window = window
+    api._window = window
 
     def shown() -> None:
         hwnd = _find_hwnd()

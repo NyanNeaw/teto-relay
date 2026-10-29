@@ -4192,7 +4192,11 @@ class TestTakes(unittest.TestCase):
         import types
 
         api = window.PanelApi()
-        api.window = types.SimpleNamespace(native="form")
+        # pywebview offers the page everything public on the API, recursively:
+        # only the drag, nothing to crawl (the window once hung crawling it).
+        self.assertEqual([n for n in dir(api) if not n.startswith("_")], ["drag_take"])
+        api._window = types.SimpleNamespace(native="form")
+        self.assertEqual([n for n in dir(api) if not n.startswith("_")], ["drag_take"])
         with _TempHome() as home, unittest.mock.patch.object(window, "_drag_file") as drag:
             (home / "takes" / "take_1").mkdir(parents=True)
             (home / "takes" / "take_1" / "teto.wav").write_bytes(b"x")
