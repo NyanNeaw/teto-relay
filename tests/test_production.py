@@ -2931,6 +2931,66 @@ def _bank(folder: Path, aliases: list[str], wavs: list[str] | None = None,
     return folder
 
 
+class TestVcvBanks(unittest.TestCase):
+    """Teto's 連続音 (VCV) sang 1.8 s of speech for 7 s, and went silent on
+    the first mora of each phrase and on every mora after ん."""
+
+    def test_a_vcv_bank_is_not_slowed_by_its_long_lead_ins(self):
+        import tempfile
+
+        from teto_relay.config import Config
+        from teto_relay.voicebank import discover, mora_floor
+
+        cfg = Config()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            vcv = root / "vcv"
+            vcv.mkdir()
+            aliases = ["- あ", "a か", "i か", "u て", "a て", "e す", "o と", "a ん"]
+            # Lead-ins of 330-470 ms, as Teto's 連続音 measures.
+            lines = [f"s{i}.wav={a},0,500,-800,{330 + 20 * i},150" for i, a in enumerate(aliases)]
+            (vcv / "oto.ini").write_bytes("\r\n".join(lines).encode("cp932"))
+            for i in range(len(aliases)):
+                (vcv / f"s{i}.wav").write_bytes(b"RIFF")
+            (vcv / "character.txt").write_bytes("name=VCV\r\n".encode("cp932"))
+            cv = root / "cv"
+            cv.mkdir()
+            lines = [f"c{i}.wav={a},0,100,-200,400,10" for i, a in enumerate(["か", "て", "す", "と", "あ", "ん"])]
+            (cv / "oto.ini").write_bytes("\r\n".join(lines).encode("cp932"))
+            for i in range(6):
+                (cv / f"c{i}.wav").write_bytes(b"RIFF")
+            (cv / "character.txt").write_bytes("name=CV\r\n".encode("cp932"))
+            banks = {b.root.name: b for b in discover(root)}
+            self.assertEqual(banks["vcv"].flavour, "ja-vcv")
+            self.assertEqual(mora_floor(banks["vcv"], cfg), cfg.min_mora_seconds)
+            # A CV bank's floor comes from its samples, but never above the
+            # longest a mora may be.
+            self.assertEqual(mora_floor(banks["cv"], cfg), cfg.max_mora_seconds)
+
+    def test_a_mora_with_no_sample_in_its_place_borrows_another_lead_in(self):
+        from teto_relay.ustx import _vcv_fallbacks
+        from teto_relay.voicebank import Voicebank
+
+        bank = Voicebank("v", "v", Path("."), flavour="ja-vcv",
+                         aliases=frozenset({"a て", "e て", "u て", "e す", "u ん", "u は", "a は", "- あ", "e あ"}))
+        blocks = [{"lyric": lyric, "position": pos, "duration": 100} for lyric, pos in
+                  (("て", 0), ("す", 100), ("ん", 200), ("は", 300), ("+", 400), ("あ", 600), ("て", 700))]
+        _vcv_fallbacks(blocks, bank)
+        self.assertEqual([b["lyric"] for b in blocks],
+                         ["u て",   # phrase start, no "- て"
+                          "す",     # "e す" exists: left to the phonemizer
+                          "ん",     # "u ん"
+                          "u は",   # after ん, no "n は"
+                          "+",
+                          "あ",     # a new phrase: "- あ" exists
+                          "て"])    # after あ: "a て"
+        # A bank that has the phrase-start sample is left alone.
+        full = Voicebank("w", "w", Path("."), flavour="ja-vcv", aliases=frozenset({"- て", "u て"}))
+        blocks = [{"lyric": "て", "position": 0, "duration": 100}]
+        _vcv_fallbacks(blocks, full)
+        self.assertEqual(blocks[0]["lyric"], "て")
+
+
 class TestOtherPeoplesVoicebanks(unittest.TestCase):
     """Banks made by other people are laid out and spelled in many ways.
 

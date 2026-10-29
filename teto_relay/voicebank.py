@@ -586,7 +586,15 @@ def mora_floor(bank: Voicebank, cfg) -> float:
     This bank measures 40 ms at the median and 128 ms at the worst, so the 75th
     percentile is used: low enough to let most measured mora lengths through
     untouched, high enough that the majority of samples still reach their vowel.
+
+    Not for a VCV bank: its run-up starts inside the previous vowel ("a か"
+    begins on "a", 260-470 ms in Teto's 連続音), and OpenUtau shortens that
+    lead-in to fit the note before. Measured anyway it made every mora at
+    least 0.33 s, so 1.8 s of speech was sung for 7 s. And never above the
+    longest a mora may be (`max_mora_seconds`).
     """
+    if bank.flavour.endswith("-vcv"):
+        return float(cfg.min_mora_seconds)
     values = sorted(
         entry.preutterance
         for sub in bank.subbanks
@@ -596,7 +604,8 @@ def mora_floor(bank: Voicebank, cfg) -> float:
     if not values:
         return float(cfg.min_mora_seconds)
     p75 = values[min(len(values) - 1, int(len(values) * 0.75))] / 1000.0
-    return max(float(cfg.min_mora_seconds), p75)
+    ceiling = max(float(cfg.max_mora_seconds), float(cfg.min_mora_seconds))
+    return min(max(float(cfg.min_mora_seconds), p75), ceiling)
 
 
 def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:

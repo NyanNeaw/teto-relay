@@ -165,6 +165,51 @@ def _match_aliases(notes: list[Note], blocks: list[dict], bank: Voicebank) -> No
         previous_end = block["position"] + block["duration"]
 
 
+#: Lead-ins tried, in order, for a mora a VCV bank has no sample for in its
+#: place: "u" first, the quietest vowel to hear sliding into the consonant.
+_VCV_LEAD_INS = ("u", "a", "e", "i", "o")
+
+
+def _vcv_fallbacks(blocks: list[dict], bank: Voicebank) -> None:
+    """Name the sample outright where a VCV bank lacks the one its phonemizer
+    would look for.
+
+    OpenUtau's VCV phonemizer sings "a か" after a note ending on a, "- か" at
+    the start of a phrase, "n か" after ん - and a mora with none of those
+    (nor "* か" or plain "か") was silent. Teto's 連続音 beta has no "- か" and
+    no "n か", so the first mora of every phrase and every mora after ん went
+    missing. Such a lyric becomes another "vowel か" the bank does have, which
+    the phonemizer takes as it is (and OpenUtau's editor shows as written).
+    """
+    from .translit import vowel_of
+
+    aliases = bank.aliases
+    if not aliases:
+        return
+    previous_end = None
+    head = None  # lyric of the note before, extensions skipped
+    for block in blocks:
+        lyric = block["lyric"]
+        touching = previous_end is not None and block["position"] == previous_end
+        previous_end = block["position"] + block["duration"]
+        if lyric.startswith(("+", "-")) or " " in lyric:
+            if not lyric.startswith("+"):
+                head = lyric
+            continue
+        if touching and head is not None:
+            before = head.split()[-1]
+            vowel = vowel_of(before) or ("n" if before in ("ん", "ン") else None)
+            wanted = ([f"{vowel} {lyric}"] if vowel else []) + [f"* {lyric}", lyric, f"- {lyric}"]
+        else:
+            wanted = [f"- {lyric}", lyric]
+        if not any(alias in aliases for alias in wanted):
+            for lead in _VCV_LEAD_INS:
+                if f"{lead} {lyric}" in aliases:
+                    block["lyric"] = f"{lead} {lyric}"
+                    break
+        head = lyric
+
+
 def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None = None) -> dict:
     """Assemble the .ustx document as a plain dict."""
     # A rest note has done its job - holding its slot through the layout.
@@ -196,6 +241,8 @@ def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None =
             block["lyric"] = bank.singable(block["lyric"])
     if phonemizer.endswith("DefaultPhonemizer"):
         _match_aliases(notes, note_blocks, bank)
+    elif phonemizer.endswith("JapaneseVCVPhonemizer"):
+        _vcv_fallbacks(note_blocks, bank)
 
     return {
         "name": "Teto Relay",
