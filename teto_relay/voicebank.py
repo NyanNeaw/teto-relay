@@ -639,10 +639,20 @@ def estimate_pitch(bank: Voicebank, cfg, samples: int = 12) -> float:
     if cache_key in cache:
         return float(cache[cache_key])
 
+    import copy
+
     import numpy as np
     import soundfile as sf
 
     from . import pitch as pitch_mod
+
+    # The smallest crepe: one number for a whole bank, from held vowels, needs
+    # none of the full model's detail. Measured against it on seven banks the
+    # two agree within 0.12 semitone (the full model's own run-to-run spread)
+    # and this takes a third of the time - 15 s to 5 s for a new 10,000-sample
+    # bank, spent the first time it is picked.
+    cfg = copy.copy(cfg)
+    cfg.crepe_model = "tiny"
 
     # Spread the samples across the whole bank. The first few by name can
     # all be one kind: an ARPAsing bank lists its consonants first, and a
