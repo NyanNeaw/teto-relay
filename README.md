@@ -28,7 +28,7 @@ and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-
 (Windows 10 or 11, 64-bit)
 
 - **`TetoRelay-…-setup.exe`** is the installer. Click Next until it's done.
-  It gets the .NET 8 runtime and OpenUtau for you if they're missing, and
+  It gets OpenUtau for you if it's missing, and
   can download the speech models up front so the first start is quick.
 - **`TetoRelay-…-portable.zip`** needs no install: unzip anywhere and run
   `TetoRelay.exe`. Everything stays in its `data` folder.
@@ -46,7 +46,7 @@ before you download.** It shows the whole setup in pictures.
 |---|---|
 | **A UTAU voicebank** | Her voice. Kasane Teto's 単独音 (tandoku) bank sounds best; any UTAU bank works. Drop its `.zip` into the app. |
 | **[VB-Cable](https://vb-audio.com/Cable/)** | Only for Discord, OBS and other apps: the virtual cable she sings into. Restart after installing. |
-| **.NET 8 Desktop Runtime** and **OpenUtau** | The installer gets these. With the portable zip, get [.NET 8](https://dotnet.microsoft.com/download/dotnet/8.0) ("Desktop Runtime 8", x64) and [OpenUtau](https://github.com/stakira/OpenUtau/releases) yourself. |
+| **OpenUtau** | The installer gets it. With the portable zip, get [OpenUtau](https://github.com/stakira/OpenUtau/releases) yourself and unzip it anywhere. |
 | **An NVIDIA graphics card** | Optional. Listening is faster with one. |
 
 Then: open Teto Relay, press **Check setup** (it tells you anything that's
@@ -74,8 +74,7 @@ the microphone.
   song, paste the lyrics into **Song lyrics** first.
 - Japanese voicebanks sing English and Thai as Japanese syllables, which is
   charming but not always clear.
-- Windows only. Microsoft's support for .NET 8 ends in November 2026; moving
-  to a newer OpenUtau and .NET is planned.
+- Windows only.
 
 ## Running from the source code
 

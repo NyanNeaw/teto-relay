@@ -120,6 +120,30 @@ def _compile_int64_field_setter(declaring_type, field_name: str):
     return Expression.Lambda[Action[Object, Int64]](body, target, value).Compile()
 
 
+def _set_request_phonemizer(request_type, request, phonemizer, groups: int, flags) -> None:
+    """Give a PhonemizerRequest the track's phonemizer, in either shape.
+
+    Up to OpenUtau 0.1.565 a request carries one `phonemizer`; from 0.1.576 it
+    carries `phonemizers` and, per note group, the index of the one to use
+    (for per-note phonemizer overrides). Left unset there, every phrase came
+    back with no phonemes.
+    """
+    from System import Array, Int32
+
+    from OpenUtau.Api import Phonemizer
+
+    single = request_type.GetField("phonemizer", flags)
+    if single is not None:
+        single.SetValue(request, phonemizer)
+        return
+    several = request_type.GetField("phonemizers", flags)
+    indices = request_type.GetField("notePhonemizerIndices", flags)
+    if several is None or indices is None:
+        raise RenderError("PhonemizerRequest has no phonemizer field this version of Teto Relay knows")
+    several.SetValue(request, Array[Phonemizer]([phonemizer]))
+    indices.SetValue(request, Array[Int32]([0] * groups))
+
+
 def phonemizer_groups(notes: list) -> list[list]:
     """Split a part's notes into the groups a PhonemizerRequest carries.
 
@@ -422,9 +446,28 @@ class OpenUtauRenderer:
         # of the .ustx `expressions:` block we chose not to hand-write.
         Ustx.AddDefaultExpressions(project)
         project.bpm = float(doc["bpm"])
-        project.resolution = int(doc["resolution"])
+        # Since OpenUtau 0.1.576 the resolution is fixed at 480 and read-only
+        # ("TypeError: property is read-only" on every phrase).
+        resolution = int(doc["resolution"])
+        try:
+            project.resolution = resolution
+        except TypeError:
+            if int(project.resolution) != resolution:
+                raise RenderError(
+                    f"This OpenUtau always uses {int(project.resolution)} ticks per beat; "
+                    f"set resolution to {int(project.resolution)} in the settings (it is {resolution})."
+                ) from None
         project.beatPerBar = int(doc.get("beat_per_bar", 4))
         project.beatUnit = int(doc.get("beat_unit", 4))
+        # ustx 0.6 and later time notes by the tempo list, not `bpm`: keep
+        # them the same so a tempo other than 120 is not sung at 120.
+        try:
+            from OpenUtau.Core.Ustx import UTempo
+
+            project.tempos.Clear()
+            project.tempos.Add(UTempo(0, float(doc["bpm"])))
+        except Exception:  # noqa: BLE001 - an OpenUtau without a tempo list
+            log.debug("could not set the project's tempo list", exc_info=True)
 
         track = UTrack(project)
         track.TrackNo = 0
@@ -607,7 +650,6 @@ class OpenUtauRenderer:
             ("timestamp", timestamp),
             ("noteIndexes", indexes),
             ("notes", grouped),
-            ("phonemizer", track.Phonemizer),
             ("timeAxis", project.timeAxis),
         ):
             field = request_type.GetField(name, flags)
@@ -619,6 +661,7 @@ class OpenUtauRenderer:
                 _int64_field_setter(request_type, "timestamp")(request, value)
                 continue
             field.SetValue(request, value)
+        _set_request_phonemizer(request_type, request, track.Phonemizer, len(groups), flags)
 
         if self.cfg.explicit_phonemizer_setup:
             try:
@@ -671,7 +714,7 @@ class OpenUtauRenderer:
         look up takes the following groups down with it. Retrying the failures
         individually recovers the words that were only collateral damage.
         """
-        from System import Activator, Array
+        from System import Activator, Array, Int32
 
         response_type = response.GetType()
         phonemes_field = response_type.GetField("phonemes", flags)
@@ -695,9 +738,13 @@ class OpenUtauRenderer:
         for i in failed:
             try:
                 single = Activator.CreateInstance(request_type)
-                for name in ("singer", "part", "phonemizer", "timeAxis"):
+                for name in ("singer", "part", "phonemizer", "phonemizers", "timeAxis"):
                     field = request_type.GetField(name, flags)
-                    field.SetValue(single, request_type.GetField(name, flags).GetValue(request))
+                    if field is not None:
+                        field.SetValue(single, field.GetValue(request))
+                indices = request_type.GetField("notePhonemizerIndices", flags)
+                if indices is not None:
+                    indices.SetValue(single, Array[Int32]([0]))
                 _int64_field_setter(request_type, "timestamp")(
                     single, request_type.GetField("timestamp", flags).GetValue(request)
                 )

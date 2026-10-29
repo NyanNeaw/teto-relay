@@ -7,8 +7,8 @@
 ; Settings, logs and models live in %LOCALAPPDATA%\TetoRelay and are kept on
 ; uninstall, so reinstalling or upgrading does not lose them.
 ;
-; The wizard: Welcome - folder - extras - Ready - (downloads) - install -
-; Finish. Every extra is ticked: a desktop shortcut, and the models Teto
+; The wizard: Welcome - folder - extras - Ready - (OpenUtau, then the
+; models) - install - Finish. Every extra is ticked: a desktop shortcut, and the models Teto
 ; Relay would otherwise fetch the first time it needs them, downloaded here
 ; with a progress bar and checked against their SHA-256. A model already in
 ; place is not fetched again; one that fails to download is left for the app.
@@ -46,14 +46,17 @@ SolidCompression=yes
 WizardStyle=modern
 ; OpenUtau comes as a .zip: the full extractor reads it (is7z.dll).
 ArchiveExtraction=full
+; Every box starts ticked on every run, so running Setup again after a
+; download failed (offline) offers OpenUtau and the models again.
+UsePreviousTasks=no
 
 [Messages]
 WelcomeLabel2=This will install [name/ver] on your computer.%n%nSpeak or sing into your microphone and Teto sings it back.%n%nClose other applications before continuing.
 FinishedLabel=Teto Relay is installed. Hold F8, speak, let go - she sings it back.%n%nStill to get yourself: a voicebank, and VB-Cable for Discord and OBS. The guide shows where.
 
 [Tasks]
-; Shown only when missing: what Teto Relay cannot sing without.
-Name: "dotnet"; Description: ".NET 8 Desktop &Runtime (60 MB, from Microsoft) - Windows asks to allow it"; GroupDescription: "Needed to sing, and not on this PC yet:"; Check: NeedsDotNet
+; Shown only when missing: what Teto Relay cannot sing without. (OpenUtau
+; carries its own .NET runtime, which Teto Relay starts: nothing else needed.)
 Name: "openutau"; Description: "&OpenUtau 0.1.565, the singing engine (135 MB)"; GroupDescription: "Needed to sing, and not on this PC yet:"; Check: NeedsOpenUtau
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 Name: "speechmodel"; Description: "&Speech model for English and Japanese (150 MB)"; GroupDescription: "Download now, so the first start is quick (needs internet; anything left out downloads the first time it is needed):"
@@ -100,9 +103,6 @@ const
   ThaiUrl = 'https://huggingface.co/wannaphong/typhoon-asr-realtime-onnx/resolve/04af3e7b6d822cb2807bc539301669d4f84691e7/';
   { torchaudio's MMS_FA checkpoint, where teto_relay.align._checkpoint looks. }
   TimingUrl = 'https://dl.fbaipublicfiles.com/mms/torchaudio/ctc_alignment_mling_uroman/model.pt';
-  { Microsoft's link to the newest .NET 8 Desktop Runtime (it is signed by
-    Microsoft; the patch level moves, so there is no fixed hash). }
-  DotNetUrl = 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe';
   { The OpenUtau Teto Relay drives, pinned: it reaches into OpenUtau's
     internals, so a newer one may not work. Hash as GitHub publishes it. }
   OpenUtauUrl = 'https://github.com/openutau/OpenUtau/releases/download/0.1.565/OpenUtau-win-x64.zip';
@@ -118,28 +118,6 @@ var
     moved into place once the program is installed. }
   PendingTemp: array of String;
   PendingTarget: array of String;
-
-{ Teto Relay drives OpenUtau's engine through the .NET 8 Desktop Runtime. It
-  is not bundled (it is Microsoft's to distribute), so the installer checks
-  for it and says where to get it. }
-function HasDotNet8Desktop(): Boolean;
-var
-  FindRec: TFindRec;
-  Base: String;
-begin
-  Result := False;
-  Base := ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.WindowsDesktop.App\');
-  if FindFirst(Base + '8.*', FindRec) then
-  begin
-    Result := True;
-    FindClose(FindRec);
-  end;
-end;
-
-function NeedsDotNet(): Boolean;
-begin
-  Result := not HasDotNet8Desktop();
-end;
 
 function HasCoreDll(const Folder: String): Boolean;
 begin
@@ -291,13 +269,9 @@ begin
          '20ef12963ab4924bef49ac4fc7f58ad5da2ee43b2c11bc8c853c9b90ecdbc680');
 end;
 
-{ Unpack OpenUtau and run the .NET installer, whichever were downloaded.
-  Either failing leaves Setup going: the Finish message and Check setup in
-  the app say what is still missing. }
+{ Unpack OpenUtau, if it was downloaded. Failing leaves Setup going: the
+  Finish message and Check setup in the app say what is still missing. }
 procedure InstallPrerequisites;
-var
-  ResultCode: Integer;
-  Installer: String;
 begin
   if FileExists(ExpandConstant('{tmp}\openutau.zip')) then
   begin
@@ -318,16 +292,6 @@ begin
       ExtractionPage.Hide;
     end;
   end;
-  Installer := ExpandConstant('{tmp}\dotnet-desktop-8.exe');
-  if FileExists(Installer) then
-  begin
-    WizardForm.NextButton.Enabled := False;
-    { ShellExec, not Exec: Windows asks to allow it (it installs for all users). }
-    if not ShellExec('', Installer, '/install /quiet /norestart', '', SW_SHOW, ewWaitUntilTerminated, ResultCode)
-       or not ((ResultCode = 0) or (ResultCode = 3010) or (ResultCode = 1638)) then
-      Log('The .NET 8 Desktop Runtime installer did not finish: ' + IntToStr(ResultCode));
-    WizardForm.NextButton.Enabled := True;
-  end;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -335,16 +299,36 @@ begin
   Result := True;
   if CurPageID <> wpReady then
     Exit;
-  DownloadPage.Clear;
   SetArrayLength(PendingTemp, 0);
   SetArrayLength(PendingTarget, 0);
-  QueueModels;
-  if WizardIsTaskSelected('dotnet') then
-    DownloadPage.Add(DotNetUrl, 'dotnet-desktop-8.exe', '');
+  { OpenUtau first, and on its own: Teto Relay cannot sing without it, and a
+    download stops at its first failure - queued behind the 1.2 GB timing
+    model, a dropped connection there used to cost OpenUtau too. }
   if WizardIsTaskSelected('openutau') then
+  begin
+    DownloadPage.Clear;
     DownloadPage.Add(OpenUtauUrl, 'openutau.zip', OpenUtauSha);
-  if (GetArrayLength(PendingTemp) = 0) and not WizardIsTaskSelected('dotnet') and not WizardIsTaskSelected('openutau') then
+    DownloadPage.Show;
+    try
+      try
+        DownloadPage.Download;
+      except
+        if not DownloadPage.AbortedByUser then
+          SuppressibleMsgBox('OpenUtau could not be downloaded:' + #13#10 + GetExceptionMessage + #13#10#13#10 +
+            'Setup will continue. Run Setup again once you are online: it offers OpenUtau again.',
+            mbInformation, MB_OK, IDOK);
+      end;
+    finally
+      DownloadPage.Hide;
+    end;
+  end;
+  DownloadPage.Clear;
+  QueueModels;
+  if GetArrayLength(PendingTemp) = 0 then
+  begin
+    InstallPrerequisites;
     Exit;
+  end;
   DownloadPage.Show;
   try
     try
@@ -394,8 +378,7 @@ end;
 procedure WriteInstalledState;
 begin
   SaveStringToFile(ExpandConstant('{app}\installed.js'),
-    'window.tetoInstalled = {dotnet: ' + JsBool(HasDotNet8Desktop()) +
-    ', openutau: ' + JsBool(not NeedsOpenUtau()) +
+    'window.tetoInstalled = {openutau: ' + JsBool(not NeedsOpenUtau()) +
     ', vbcable: ' + JsBool(not NeedsVBCable()) + '};' + #13#10, False);
 end;
 
@@ -405,12 +388,9 @@ begin
     Exit;
   PlaceDownloads;
   WriteInstalledState;
-  if (not HasDotNet8Desktop()) and (not WizardSilent()) then
-    MsgBox('Teto Relay needs the .NET 8 Desktop Runtime (x64) to sing through OpenUtau, ' +
-           'and it was not found.' + #13#10#13#10 +
-           'Download it from https://dotnet.microsoft.com/download/dotnet/8.0 ' +
-           '(".NET Desktop Runtime 8", Windows x64), then start Teto Relay.' + #13#10#13#10 +
-           'The how-to-use guide (it opens at the end) lists the rest: OpenUtau, ' +
-           'VB-Cable and a voicebank.',
+  if (OpenUtauKnown = 2) and (not WizardSilent()) then
+    MsgBox('OpenUtau, the singing engine, is not on this PC yet, so Teto cannot sing.' + #13#10#13#10 +
+           'Run this Setup again once you are online: it downloads OpenUtau for you. ' +
+           'Or get it from https://github.com/stakira/OpenUtau/releases and unzip it anywhere.',
            mbInformation, MB_OK);
 end;

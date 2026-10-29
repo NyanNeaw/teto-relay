@@ -375,6 +375,8 @@ class Controller:
         # panel watches to refresh its list.
         self.take_finishing = False
         self.takes_changed = 0
+        # Said once when a take ends without being kept (nothing was sung).
+        self.take_notice = ""
         # While the relay starts (10-30 s of model loading), what it is doing
         # and roughly how far along: the page showed "Start" again meanwhile,
         # because all it knew was "not running yet".
@@ -423,7 +425,7 @@ class Controller:
                 # stops (Stop, or a restart for a setting).
                 if getattr(self.relay, "_take", None) is not None:
                     try:
-                        self.relay.stop_take(wait=10.0)
+                        self._took(self.relay.stop_take(wait=10.0))
                         self.takes_changed += 1
                     except Exception:  # noqa: BLE001
                         log.exception("could not save the take")
@@ -437,6 +439,11 @@ class Controller:
         from . import paths
 
         return paths.data_dir() / "takes"
+
+    def _took(self, info: dict | None) -> None:
+        self.take_notice = ("Nothing was sung while recording, so that take wasn't kept. "
+                            "Press Record, then hold your talk key and sing."
+                            if info and info.get("discarded") else "")
 
     def start_take(self) -> None:
         relay = self.relay
@@ -453,7 +460,7 @@ class Controller:
 
         def finish() -> None:
             try:
-                relay.stop_take()
+                self._took(relay.stop_take())
             except Exception:  # noqa: BLE001
                 log.exception("could not save the take")
             finally:
@@ -541,6 +548,7 @@ class Controller:
             "take": relay.take_status() if relay else {"recording": False},
             "take_finishing": self.take_finishing,
             "takes_changed": self.takes_changed,
+            "take_notice": self.take_notice,
             "log": list(self.buffer.lines)[-60:],
         }
 

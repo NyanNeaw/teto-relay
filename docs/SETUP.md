@@ -11,8 +11,7 @@ you may already have them. Install each one once.
 | What | Why | Where |
 |---|---|---|
 | **Windows 10 or 11, 64-bit** | The engine and audio routing are Windows-only. | |
-| **.NET 8 Desktop Runtime (x64)** | Teto Relay runs OpenUtau's singing engine through it. | <https://dotnet.microsoft.com/download/dotnet/8.0>, under ".NET Desktop Runtime 8" |
-| **OpenUtau** | Its engine does the actual singing. You never need to open it. | <https://github.com/stakira/OpenUtau/releases> |
+| **OpenUtau** | Its engine does the actual singing. You never need to open it. It brings its own .NET, so there is nothing else to install. | <https://github.com/stakira/OpenUtau/releases> |
 | **VB-Cable** | The virtual cable Teto sings into, which Discord or OBS then uses as a microphone. | <https://vb-audio.com/Cable/> (restart after installing) |
 | **A Kasane Teto UTAU voicebank** | Her voice. A folder with an `oto.ini` and `.wav` files. | The official Teto site. The "tandoku" (単独音) bank works best. |
 | **An NVIDIA GPU** | Optional. Speeds up pitch tracking and word timing. | Keep the driver up to date. |
@@ -21,10 +20,11 @@ you may already have them. Install each one once.
 
 **Installer:** run `TetoRelay-<version>-setup.exe` and click through. It
 installs for your user only (no admin prompt) and adds Start menu entries.
-If the .NET 8 Desktop Runtime or OpenUtau isn't on the PC, it offers to get
-them too (ticked): .NET from Microsoft (Windows asks to allow it), and
-OpenUtau 0.1.565, the version Teto Relay is tested with, unzipped into
-`%LOCALAPPDATA%\Programs\OpenUtau`. VB-Cable is a driver whose terms leave
+If OpenUtau isn't on the PC, it offers to get it too (ticked): OpenUtau
+0.1.565, the version Teto Relay is tested with, unzipped into
+`%LOCALAPPDATA%\Programs\OpenUtau`. It is downloaded before the models, so
+a connection that drops during a model doesn't cost it; if it fails anyway,
+run Setup again once you're online. VB-Cable is a driver whose terms leave
 installing it to VB-Audio, so the last page offers its download page instead.
 
 These extras are ticked; untick any you don't want:
@@ -36,7 +36,7 @@ These extras are ticked; untick any you don't want:
   it is needed; a model already there is not downloaded again.
 
 The last page opens the how-to-use guide and starts Teto Relay (both ticked).
-If the .NET 8 Desktop Runtime is missing, it tells you at the end.
+If OpenUtau is still missing, it tells you at the end.
 
 **Portable zip:** unzip it anywhere you can write to (not `Program Files`).
 The `portable.txt` inside means settings, logs and downloaded models are kept
@@ -93,7 +93,7 @@ missing, with the fix.
 
 | What you see | What to do |
 |---|---|
-| Plain beeps instead of Teto | OpenUtau could not start. Check setup names the reason, usually a missing .NET 8 Desktop Runtime or a wrong OpenUtau folder. |
+| Plain beeps instead of Teto | OpenUtau could not start. Check setup names the reason, usually a wrong OpenUtau folder. |
 | "No output device matching 'CABLE Input'" | Install VB-Cable and restart Windows, or choose another Output. |
 | "The microphone is not available" banner | Plug the mic in, or close any app using it in exclusive mode. Teto Relay keeps retrying; if a re-plugged USB mic doesn't come back, press Stop and Start. |
 | Teto hears herself and loops | Your Microphone is set to *CABLE Output*. Set it to your real mic. |

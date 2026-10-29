@@ -94,10 +94,12 @@ class Take:
 
     # ------------------------------------------------------------------ write
     def finish(self) -> dict:
-        """Write the take's files; returns its summary (see `summary`)."""
+        """Write the take's files; returns its summary (as take.json holds it).
+
+        A take nothing was sung in is not kept: there would be nothing to
+        download. Its summary says so ("discarded")."""
         with self._lock:
             phrases = sorted(self.phrases, key=lambda p: p.offset)
-        self.folder.mkdir(parents=True, exist_ok=True)
         info = {
             "id": self.folder.name,
             "created": self.created.isoformat(timespec="seconds"),
@@ -105,18 +107,21 @@ class Take:
             "phrases": [{"at": round(p.offset, 3), "text": p.text} for p in phrases],
             "files": [],
         }
-        if phrases:
-            import soundfile as sf
+        if not phrases:
+            log.info("Take not kept: nothing was sung during it (%.1fs)", info["seconds"])
+            return {**info, "discarded": True}
+        import soundfile as sf
 
-            sung, rate = mix([(p.offset + p.sung_origin, p.sung) for p in phrases], phrases[0].sung_rate)
-            sf.write(str(self.folder / "teto.wav"), sung, rate, subtype="PCM_16")
-            heard, heard_rate = mix([(p.offset, p.heard) for p in phrases if p.heard.size],
-                                    phrases[0].heard_rate)
-            if heard.size:
-                sf.write(str(self.folder / "your-voice.wav"), heard, heard_rate, subtype="PCM_16")
-            write_project(phrases, self.folder / "teto.ustx")
-            info["files"] = [name for name in FILES if (self.folder / name).is_file()]
-            info["length"] = round(len(sung) / rate, 2)
+        self.folder.mkdir(parents=True, exist_ok=True)
+        sung, rate = mix([(p.offset + p.sung_origin, p.sung) for p in phrases], phrases[0].sung_rate)
+        sf.write(str(self.folder / "teto.wav"), sung, rate, subtype="PCM_16")
+        heard, heard_rate = mix([(p.offset, p.heard) for p in phrases if p.heard.size],
+                                phrases[0].heard_rate)
+        if heard.size:
+            sf.write(str(self.folder / "your-voice.wav"), heard, heard_rate, subtype="PCM_16")
+        write_project(phrases, self.folder / "teto.ustx")
+        info["files"] = [name for name in FILES if (self.folder / name).is_file()]
+        info["length"] = round(len(sung) / rate, 2)
         (self.folder / "take.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
         log.info("Take saved: %s (%d phrase(s))", self.folder, len(phrases))
         return info

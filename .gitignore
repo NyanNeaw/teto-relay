@@ -10,6 +10,9 @@
 # Generated per utterance (.ustx + .wav), trimmed to the most recent 50
 out/
 
+# Recorded takes (teto_relay.takes)
+takes/
+
 # Written by the hosted OpenUtau runtime
 .openutau-host/
 

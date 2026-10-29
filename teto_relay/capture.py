@@ -252,20 +252,79 @@ def make_chunker(cfg, threshold: float | None = None):
     raise ValueError(f"unknown capture_mode {cfg.capture_mode!r} (expected 'ptt' or 'vad')")
 
 
+def input_rate(cfg, device: int | None = None) -> int:
+    """The rate to open the microphone at: ours (16 kHz) when the device takes
+    it, else the device's own - WASAPI and WDM-KS microphones refuse any rate
+    but theirs ("Invalid sample rate", PaErrorCode -9997) - and the audio is
+    converted to ours as it arrives (RateConverter)."""
+    audio = sd()
+    try:
+        audio.check_input_settings(device=device, samplerate=cfg.sample_rate, channels=1, dtype="float32")
+        return cfg.sample_rate
+    except AttributeError:
+        return cfg.sample_rate
+    except Exception:  # noqa: BLE001 - this rate is refused; try the device's own
+        pass
+    try:
+        own = int(round(float(audio.query_devices(device, "input")["default_samplerate"])))
+    except Exception:  # noqa: BLE001 - no device at all: opening it says why
+        return cfg.sample_rate
+    if own != cfg.sample_rate:
+        log.info("The microphone does not take %d Hz; recording at its own %d Hz and converting",
+                 cfg.sample_rate, own)
+    return own or cfg.sample_rate
+
+
+class RateConverter:
+    """Microphone audio at the device's rate in, `frame_samples` frames at
+    ours out. Stateful, so block edges do not click."""
+
+    def __init__(self, from_rate: int, to_rate: int, frame_samples: int):
+        self.from_rate, self.to_rate, self.frame_samples = int(from_rate), int(to_rate), int(frame_samples)
+        self._pending = np.zeros(0, dtype=np.float32)
+        try:
+            import soxr
+
+            self._stream = soxr.ResampleStream(self.from_rate, self.to_rate, 1, dtype="float32")
+        except Exception:  # noqa: BLE001 - scipy, block by block
+            self._stream = None
+
+    def push(self, block: np.ndarray) -> list[np.ndarray]:
+        block = np.asarray(block, dtype=np.float32)
+        if self._stream is not None:
+            converted = self._stream.resample_chunk(block)
+        else:
+            from math import gcd
+
+            from scipy.signal import resample_poly
+
+            divisor = gcd(self.from_rate, self.to_rate)
+            converted = resample_poly(block, self.to_rate // divisor, self.from_rate // divisor)
+        self._pending = np.concatenate([self._pending, np.asarray(converted, dtype=np.float32).reshape(-1)])
+        frames = []
+        while len(self._pending) >= self.frame_samples:
+            frames.append(self._pending[:self.frame_samples].copy())
+            self._pending = self._pending[self.frame_samples:]
+        return frames
+
+
 def calibrate_threshold(cfg, device: int | None = None) -> float:
     """Measure the room's noise floor and derive an RMS gate from it."""
     frames = max(1, cfg.calibrate_ms // cfg.frame_ms)
     log.info("Calibrating noise floor for %d ms - stay quiet...", cfg.calibrate_ms)
+    # RMS does not depend on the rate: read the device's own frames as they are.
+    rate = input_rate(cfg, device)
+    block = max(1, int(round(cfg.frame_samples * rate / cfg.sample_rate)))
     with sd().InputStream(
-        samplerate=cfg.sample_rate,
+        samplerate=rate,
         channels=1,
         dtype="float32",
-        blocksize=cfg.frame_samples,
+        blocksize=block,
         device=device,
     ) as stream:
         levels = []
         for _ in range(frames):
-            data, overflowed = stream.read(cfg.frame_samples)
+            data, overflowed = stream.read(block)
             if not overflowed:
                 levels.append(rms(data[:, 0]))
     if not levels:
@@ -376,17 +435,24 @@ class MicCapture(threading.Thread):
                 self._dropped += 1
 
         flowed = False
+        rate = input_rate(self.cfg, self.device)
+        convert = (RateConverter(rate, self.cfg.sample_rate, self.cfg.frame_samples)
+                   if rate != self.cfg.sample_rate else None)
         with sd().InputStream(
-            samplerate=self.cfg.sample_rate,
+            samplerate=rate,
             channels=1,
             dtype="float32",
-            blocksize=self.cfg.frame_samples,
+            blocksize=int(round(self.cfg.frame_samples * rate / self.cfg.sample_rate)),
             device=self.device,
             callback=callback,
         ):
             if self.last_error:
                 log.info("Microphone is back")
-            log.info("Microphone open (%d Hz, %d ms frames)", self.cfg.sample_rate, self.cfg.frame_ms)
+            if convert is None:
+                log.info("Microphone open (%d Hz, %d ms frames)", rate, self.cfg.frame_ms)
+            else:
+                log.info("Microphone open (%d Hz, converted to %d Hz, %d ms frames)",
+                         rate, self.cfg.sample_rate, self.cfg.frame_ms)
             self.state, self.last_error = "listening", ""
             last_frame = time.monotonic()
             while not self._stopping.is_set():
@@ -401,14 +467,15 @@ class MicCapture(threading.Thread):
                     continue
                 last_frame = time.monotonic()
                 flowed = True
-                if self._paused.is_set():
-                    continue
-                if self.tap is not None:
-                    self.tap(frame)
-                    continue
-                chunk = self.chunker.push(frame)
-                if chunk is not None:
-                    self._offer(chunk)
+                for frame in (convert.push(frame) if convert is not None else (frame,)):
+                    if self._paused.is_set():
+                        continue
+                    if self.tap is not None:
+                        self.tap(frame)
+                        continue
+                    chunk = self.chunker.push(frame)
+                    if chunk is not None:
+                        self._offer(chunk)
         return flowed
 
     def _report_drops(self) -> None:

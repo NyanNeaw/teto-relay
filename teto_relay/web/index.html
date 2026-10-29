@@ -879,7 +879,10 @@ function renderTake(d){
     t.recording?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):'Record';
   btn.title=t.recording?'Stop and save the take':
     'Record a take: everything she sings until you press again, as one audio file and one OpenUtau project';
-  if(d.takes_changed!==takesSeen){ takesSeen=d.takes_changed; refreshTakes(); }
+  if(d.takes_changed!==takesSeen){
+    if(takesSeen!==-1&&d.take_notice) toast(d.take_notice);
+    takesSeen=d.takes_changed; refreshTakes();
+  }
 }
 const TAKE_FILES={'teto.wav':'Teto (.wav)','teto.ustx':'OpenUtau (.ustx)','your-voice.wav':'Your voice (.wav)'};
 async function refreshTakes(){

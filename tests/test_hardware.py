@@ -1,10 +1,12 @@
 """Tests that render through the real OpenUtau engine.
 
-They need OpenUtau, the .NET 8 runtime and a Japanese CV voicebank, so they
-only run when asked:
+They need OpenUtau and a Japanese CV voicebank, so they only run when asked:
 
     set TETO_RELAY_HARDWARE_TESTS=1
     .venv\\Scripts\\python.exe -m unittest tests.test_hardware
+
+TETO_RELAY_OPENUTAU_DIR runs them against another OpenUtau folder than the
+saved one (a newer release, say).
 
 Each one pins down something that unit tests with mocks cannot see, because
 it is about what the engine does with what we hand it.
@@ -32,7 +34,8 @@ class TestOpenUtauRendering(unittest.TestCase):
         from teto_relay.voicebank import discover
 
         saved = Config.load()
-        cls.cfg = Config(voicebank_root=saved.voicebank_root, openutau_dir=saved.openutau_dir)
+        cls.cfg = Config(voicebank_root=saved.voicebank_root,
+                         openutau_dir=os.environ.get("TETO_RELAY_OPENUTAU_DIR") or saved.openutau_dir)
         banks = [b for b in discover(cls.cfg.voicebank_path()) if b.flavour == "ja-cv"]
         if not banks:
             raise unittest.SkipTest("no Japanese CV voicebank found")

@@ -2,10 +2,12 @@
 
 Two things here are not obvious and cost real debugging time:
 
-1. OpenUtau ships a *self-contained* runtimeconfig.json (`includedFrameworks`).
-   clr_loader rejects it with "Initialization for self-contained components is
-   not supported", so we generate a framework-dependent config pointing at the
-   system .NET 8 runtime instead.
+1. OpenUtau is published *self-contained*: its folder holds the .NET runtime
+   it was built for. Loaded as a component through its runtimeconfig.json,
+   clr_loader rejects that ("Initialization for self-contained components is
+   not supported"); started as an app (`entry_dll`) it works, so OpenUtau runs
+   on its own runtime and no .NET has to be installed (see _runtime). Only a
+   folder without one falls back to a generated config for the system .NET 8.
 2. OpenUtau.Core resolves its dependencies (and native worldline.dll /
    onnxruntime.dll) relative to the process working directory, so we chdir into
    the install directory and put it on PATH before touching any type.
@@ -60,6 +62,52 @@ def _runtimeconfig() -> Path:
     return path
 
 
+def own_runtime(openutau_dir: Path | str | None) -> str | None:
+    """The .NET version an OpenUtau folder carries ("10.0.13"), or None if it
+    has no runtime of its own (then the system .NET 8 is needed)."""
+    if openutau_dir is None:
+        return None
+    folder = Path(openutau_dir)
+    if not all((folder / name).exists() for name in ("hostfxr.dll", "coreclr.dll", "OpenUtau.dll")):
+        return None
+    try:
+        config = json.loads((folder / "OpenUtau.runtimeconfig.json").read_text(encoding="utf-8"))
+        for framework in config["runtimeOptions"].get("includedFrameworks", []):
+            if framework.get("name") == "Microsoft.NETCore.App":
+                return str(framework.get("version") or "") or "bundled"
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return "bundled"
+
+
+def _runtime(openutau_dir: Path):
+    """The .NET runtime to host OpenUtau in.
+
+    OpenUtau is published self-contained: its folder carries the very runtime
+    it was built for (hostfxr.dll, coreclr.dll and the framework libraries).
+    Started as an app (`entry_dll`) rather than a component, hostfxr accepts
+    that, so OpenUtau runs on its own runtime - .NET 8 for 0.1.565, .NET 10
+    for 0.1.576 - whatever is or is not installed. Hosting every version on
+    the system .NET 8 instead broke on 0.1.576, a .NET 10 build: half its
+    libraries would not load ("System.Runtime, Version=10.0.0.0").
+
+    An OpenUtau folder without its own runtime (a framework-dependent build)
+    falls back to the system .NET 8.
+    """
+    from clr_loader import get_coreclr
+
+    version = own_runtime(openutau_dir)
+    if version is not None:
+        try:
+            runtime = get_coreclr(entry_dll=str(openutau_dir / "OpenUtau.dll"), dotnet_root=str(openutau_dir))
+            log.info("Hosting OpenUtau on its own .NET %s", version)
+            return runtime
+        except Exception:  # noqa: BLE001 - fall back to the system .NET 8
+            log.warning("could not start OpenUtau's own .NET runtime; trying the installed .NET 8",
+                        exc_info=True)
+    return get_coreclr(runtime_config=str(_runtimeconfig()))
+
+
 def start(openutau_dir: Path | str) -> Path:
     """Start CoreCLR and reference the OpenUtau assemblies. Idempotent."""
     global _started
@@ -83,10 +131,9 @@ def start(openutau_dir: Path | str) -> Path:
         except (AttributeError, OSError):
             pass
 
-        from clr_loader import get_coreclr
         from pythonnet import set_runtime
 
-        set_runtime(get_coreclr(runtime_config=str(_runtimeconfig())))
+        set_runtime(_runtime(openutau_dir))
 
         import clr
 

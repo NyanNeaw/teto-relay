@@ -234,6 +234,12 @@ def check_openutau(cfg) -> list[Check]:
     else:
         out.append(Check(OK, "OpenUtau", str(folder)))
 
+    from .dotnet import own_runtime
+
+    if folder is not None and (version := own_runtime(folder)) is not None:
+        # The official OpenUtau downloads carry their own .NET: nothing to install.
+        out.append(Check(OK, ".NET", f"OpenUtau brings its own (.NET {version})"))
+        return out
     if sys.platform != "win32":
         out.append(Check(WARN, ".NET 8", "OpenUtau hosting is only supported on Windows",
                          "Use renderer_backend: null here."))

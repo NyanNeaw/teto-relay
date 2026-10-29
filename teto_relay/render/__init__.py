@@ -34,7 +34,7 @@ def make_renderer(cfg, bank=None) -> Renderer:
             log.error(
                 "OpenUtau could not start, so you will hear plain tones instead of "
                 "Teto. Reason: %s Run `python -m teto_relay --doctor` to check "
-                "OpenUtau, .NET 8 and the voicebank.",
+                "OpenUtau and the voicebank.",
                 # Reasons are written as sentences; don't end on "..".
                 f"{str(exc).rstrip('.')}.",
             )

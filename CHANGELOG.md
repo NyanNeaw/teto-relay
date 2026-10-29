@@ -6,7 +6,18 @@
   lines over the song, press it again. Every phrase lands where you sang it,
   so it lines up with the music. Download Teto's singing (.wav), an OpenUtau
   project (.ustx) to fix notes or swap the voicebank, your own voice (.wav)
-  as a guide, or all three in a .zip.
+  as a guide, or all three in a .zip. A take where nothing was sung isn't
+  kept, and the panel says so.
+- **Works with the newest OpenUtau (0.1.576), and .NET no longer has to be
+  installed.** OpenUtau carries its own .NET, and Teto Relay now uses it, so
+  0.1.576 (a .NET 10 build) sings instead of failing every phrase with
+  "property is read-only", and the installer no longer downloads .NET 8.
+- **Microphones that only work at their own sample rate** (the "Invalid
+  sample rate [PaErrorCode -9997]" banner) are now recorded at that rate and
+  converted.
+- **Running the installer again after the internet dropped** offers OpenUtau
+  again, ticked. OpenUtau is now downloaded first and on its own, so a model
+  that fails to download can't take it down too.
 - **Teto answers sooner.** About 0.6 s was lost on every phrase inside
   OpenUtau, and pitch is now measured while the words are being heard: on
   the same recordings, 3.4 s → 2.4 s from letting go of the key to her voice.

@@ -1538,10 +1538,18 @@ class TestInstallerModels(unittest.TestCase):
         # Every extra is ticked: none is marked unchecked.
         self.assertNotIn("unchecked", iss)
         # What Teto Relay can't sing without is offered only when missing.
-        self.assertIn('Name: "dotnet"', iss)
-        self.assertIn("Check: NeedsDotNet", iss)
+        # OpenUtau brings its own .NET, so .NET itself is not.
+        self.assertNotIn('Name: "dotnet"', iss)
+        self.assertNotIn("aka.ms/dotnet", iss)
         self.assertIn("Check: NeedsOpenUtau", iss)
         self.assertIn("ArchiveExtraction=full", iss)  # OpenUtau is a .zip
+        # Run again after a failed (offline) install, every box is ticked again.
+        self.assertIn("UsePreviousTasks=no", iss)
+        # OpenUtau is downloaded on its own, before the models: a model that
+        # fails to download cannot take it down too.
+        code = iss[iss.index("function NextButtonClick"):]
+        self.assertLess(code.index("OpenUtauUrl"), code.index("QueueModels"))
+        self.assertGreaterEqual(code.count("DownloadPage.Download"), 2)
 
 
 class TestWhisperFitsItsContext(unittest.TestCase):
@@ -3975,11 +3983,194 @@ class TestTakes(unittest.TestCase):
             self.assertEqual(data["take"], {"recording": False})
             self.assertFalse(data["take_finishing"])
 
+    def test_a_take_with_nothing_sung_is_not_kept_and_the_panel_says_so(self):
+        import logging
+        import tempfile
+        import time
+        import types
+
+        from teto_relay import webui
+        from teto_relay.config import Config
+        from teto_relay.takes import Take, listing
+
+        with tempfile.TemporaryDirectory() as tmp:
+            take = Take(Path(tmp))
+            info = take.finish()
+            self.assertTrue(info["discarded"])
+            self.assertFalse(take.folder.exists())
+            self.assertEqual(listing(Path(tmp)), [])
+
+            controller = webui.Controller(Config())
+            controller.relay = types.SimpleNamespace(_take=object(), stop_take=lambda: info)
+            controller.stop_take()
+            deadline = time.monotonic() + 5
+            while controller.take_finishing and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertIn("Nothing was sung", controller.take_notice)
+            self.assertEqual(controller.takes_changed, 1)
+            # A kept take clears the notice.
+            controller._took({"files": ["teto.wav"]})
+            self.assertEqual(controller.take_notice, "")
+            logging.getLogger().removeHandler(controller.buffer)
+
     def test_the_panel_has_a_record_button_and_a_takes_list(self):
         page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
         for needle in ('id="rec"', 'id="takelist"', "api/take/start", "api/take/stop", "api/takes",
-                       "api/take/file?take=", "api/take/open?take="):
+                       "api/take/file?take=", "api/take/open?take=", "take_notice"):
             self.assertIn(needle, page)
+
+
+class TestMicrophoneAtItsOwnRate(unittest.TestCase):
+    """A microphone that refuses 16 kHz (WASAPI, WDM-KS: "Invalid sample rate
+    [PaErrorCode -9997]") is opened at its own rate and converted."""
+
+    def test_a_mic_that_refuses_16k_still_delivers_16k_frames(self):
+        import queue
+        import time
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import capture
+        from teto_relay.config import Config
+
+        cfg = Config(capture_mode="vad")
+        opened = []
+
+        def check_input_settings(device=None, samplerate=None, **_):
+            if samplerate != 48000:
+                raise OSError("Invalid sample rate [PaErrorCode -9997]")
+
+        class Stream:
+            def __init__(self, samplerate, blocksize, callback, **_):
+                if samplerate != 48000:
+                    raise OSError("Invalid sample rate [PaErrorCode -9997]")
+                opened.append((samplerate, blocksize))
+                self.blocksize, self.callback = blocksize, callback
+
+            def __enter__(self):
+                import threading
+
+                def feed():
+                    t = 0
+                    for _ in range(60):
+                        n = np.arange(t, t + self.blocksize)
+                        block = (0.5 * np.sin(2 * np.pi * 200 * n / 48000)).astype(np.float32)
+                        self.callback(block[:, None], self.blocksize, None, None)
+                        t += self.blocksize
+                        time.sleep(0.002)
+
+                threading.Thread(target=feed, daemon=True).start()
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        fake_sd = types.SimpleNamespace(
+            InputStream=Stream, check_input_settings=check_input_settings,
+            query_devices=lambda device=None, kind=None: {"default_samplerate": 48000.0},
+        )
+        frames = []
+
+        class Recorder:
+            def push(self, frame):
+                frames.append(frame)
+
+            def flush(self):
+                return None
+
+        mic = capture.MicCapture(cfg, queue.Queue(), chunker=Recorder())
+        with unittest.mock.patch.object(capture, "sd", lambda: fake_sd):
+            mic.start()
+            deadline = time.monotonic() + 10
+            while len(frames) < 50 and time.monotonic() < deadline:
+                time.sleep(0.02)
+            mic.stop()
+            mic.join(timeout=5)
+        self.assertEqual(opened[0], (48000, cfg.frame_samples * 3))
+        self.assertGreaterEqual(len(frames), 50)
+        self.assertTrue(all(len(f) == cfg.frame_samples for f in frames))
+        # Still a 200 Hz tone at 16 kHz: 80 samples a cycle.
+        audio = np.concatenate(frames[5:45])
+        crossings = np.count_nonzero(np.diff(np.signbit(audio)))
+        self.assertAlmostEqual(crossings / len(audio) * cfg.sample_rate / 2, 200, delta=5)
+
+    def test_a_mic_that_takes_16k_is_left_alone(self):
+        import types
+        import unittest.mock
+
+        from teto_relay import capture
+        from teto_relay.config import Config
+
+        cfg = Config()
+        fake_sd = types.SimpleNamespace(check_input_settings=lambda **_: None,
+                                        query_devices=lambda *a: {"default_samplerate": 48000.0})
+        with unittest.mock.patch.object(capture, "sd", lambda: fake_sd):
+            self.assertEqual(capture.input_rate(cfg), cfg.sample_rate)
+
+
+class TestOpenUtauBringsItsOwnDotNet(unittest.TestCase):
+    """OpenUtau releases are self-contained: Teto Relay starts the .NET in
+    OpenUtau's folder (any version: .NET 8 for 0.1.565, .NET 10 for 0.1.576)
+    instead of needing .NET 8 installed."""
+
+    def make(self, folder: Path, version="10.0.13"):
+        import json
+
+        for name in ("hostfxr.dll", "coreclr.dll", "OpenUtau.dll", "OpenUtau.Core.dll"):
+            (folder / name).write_bytes(b"x")
+        (folder / "OpenUtau.runtimeconfig.json").write_text(json.dumps({"runtimeOptions": {
+            "tfm": "net10.0",
+            "includedFrameworks": [{"name": "Microsoft.NETCore.App", "version": version},
+                                   {"name": "Microsoft.WindowsDesktop.App", "version": version}],
+        }}), encoding="utf-8")
+
+    def test_the_bundled_runtime_is_found_and_used(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import dotnet
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.assertIsNone(dotnet.own_runtime(folder))
+            self.make(folder)
+            self.assertEqual(dotnet.own_runtime(folder), "10.0.13")
+            calls = []
+            with unittest.mock.patch("clr_loader.get_coreclr", lambda **kw: calls.append(kw) or "rt"):
+                self.assertEqual(dotnet._runtime(folder), "rt")
+            self.assertEqual(calls, [{"entry_dll": str(folder / "OpenUtau.dll"), "dotnet_root": str(folder)}])
+
+    def test_a_folder_without_one_falls_back_to_the_system_dotnet(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import dotnet
+
+        with tempfile.TemporaryDirectory() as tmp, _TempHome():
+            calls = []
+            with unittest.mock.patch("clr_loader.get_coreclr", lambda **kw: calls.append(kw) or "rt"):
+                dotnet._runtime(Path(tmp))
+            self.assertEqual(list(calls[0]), ["runtime_config"])
+
+    def test_check_setup_does_not_ask_for_dotnet_8_then(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import doctor
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            self.make(folder)
+            cfg = Config(openutau_dir=str(folder))
+            with unittest.mock.patch.object(doctor, "_dotnet_roots", lambda: []):
+                checks = doctor.check_openutau(cfg)
+        dotnet_check = [c for c in checks if ".NET" in c.name]
+        self.assertEqual(len(dotnet_check), 1)
+        self.assertEqual(dotnet_check[0].status, doctor.OK)
+        self.assertIn("10.0.13", dotnet_check[0].detail)
 
 
 if __name__ == "__main__":
