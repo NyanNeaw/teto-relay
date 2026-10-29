@@ -87,6 +87,24 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ghost{background-color:transparent;color:var(--text);font-weight:500;padding:8px 14px}
 .ghost:hover{background-color:var(--sink);filter:none}
 
+/* ---------- takes: record, then download ---------- */
+#rec{background-color:var(--sink);color:var(--text);display:inline-flex;align-items:center;gap:8px;
+  font-variant-numeric:tabular-nums}
+#rec i{width:10px;height:10px;border-radius:50%;background:var(--accent);flex:none}
+#rec.on{background-color:var(--accent);color:#fff}
+#rec.on i{background:#fff;border-radius:2px;animation:pulse 1.4s ease-in-out infinite}
+.takes{padding:16px 18px 18px}
+.takelist{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:10px}
+.take{background:var(--sink);border-radius:14px;padding:12px 14px}
+.take b{display:block;font-size:14px}
+.take span{font-size:12px;color:var(--muted)}
+.takebtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.takebtns a,.takebtns button{font-size:12px;font-weight:600;padding:5px 11px;border-radius:980px;
+  background:var(--card);color:var(--text);text-decoration:none;border:1px solid var(--line);line-height:1.4}
+.takebtns a:hover,.takebtns button:hover{border-color:var(--accent);color:var(--accent);filter:none}
+.takebtns a.all{background:var(--accent);color:#fff;border-color:transparent}
+.takebtns a.all:hover{color:#fff;filter:brightness(1.06)}
+
 /* ---------- the voice card ---------- */
 .voice{padding:16px;display:flex;flex-direction:column;gap:12px}
 .portrait{aspect-ratio:1;border-radius:10px;overflow:hidden;background-color:var(--sink);
@@ -296,6 +314,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
   <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
+  <button id="rec" disabled title="Record a take: everything she sings until you press again, as one audio file and one OpenUtau project"><i></i><span id="rectext">Record</span></button>
   <button id="toggle">Start</button>
   <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
@@ -335,6 +354,10 @@ details.group>summary::before{transition:transform .45s var(--spring)}
         </div>
       </div>
       <dl class="meters" id="meters"></dl>
+    </section>
+    <section class="takes pane" id="takes" hidden>
+      <p class="tag">your takes</p>
+      <ul class="takelist" id="takelist"></ul>
     </section>
   </div>
 
@@ -833,6 +856,62 @@ $('toggle').onclick=async e=>{
   }catch(err){toast('Could not reach the relay.');}
   startAsked=false; btn.disabled=false; poll();
 };
+/* ---------- takes: Record collects what she sings; each take downloads as
+   her singing (.wav), an OpenUtau project (.ustx) and your voice, or a .zip. */
+let takesSeen=-1;
+$('rec').onclick=async()=>{
+  const on=$('rec').classList.contains('on');
+  try{
+    const d=await (await fetch(on?'api/take/stop':'api/take/start',{method:'POST'})).json();
+    if(d&&d.ok===false) toast(d.error);
+  }catch(err){toast('Could not reach the relay.');}
+  poll();
+};
+function clock(sec){
+  sec=Math.max(0,Math.round(sec||0));
+  return Math.floor(sec/60)+':'+String(sec%60).padStart(2,'0');
+}
+function renderTake(d){
+  const btn=$('rec'), t=d.take||{};
+  btn.disabled=!d.running||!!d.take_finishing;
+  btn.classList.toggle('on',!!t.recording);
+  $('rectext').textContent=d.take_finishing?'Saving take':
+    t.recording?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):'Record';
+  btn.title=t.recording?'Stop and save the take':
+    'Record a take: everything she sings until you press again, as one audio file and one OpenUtau project';
+  if(d.takes_changed!==takesSeen){ takesSeen=d.takes_changed; refreshTakes(); }
+}
+const TAKE_FILES={'teto.wav':'Teto (.wav)','teto.ustx':'OpenUtau (.ustx)','your-voice.wav':'Your voice (.wav)'};
+async function refreshTakes(){
+  let d;
+  try{ d=await (await fetch('api/takes')).json(); }catch(e){ return; }
+  const list=$('takelist'); list.textContent='';
+  $('takes').hidden=!(d.takes&&d.takes.length);
+  for(const t of (d.takes||[]).slice(0,5)){
+    const li=document.createElement('li'); li.className='take';
+    const when=new Date(t.created);
+    const title=document.createElement('b');
+    title.textContent=isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'});
+    const meta=document.createElement('span');
+    const n=(t.phrases||[]).length;
+    meta.textContent=clock(t.length||t.seconds)+' \u00b7 '+n+(n===1?' phrase':' phrases');
+    const btns=document.createElement('div'); btns.className='takebtns';
+    const link=(file,label,cls)=>{
+      const a=document.createElement('a');
+      a.href='api/take/file?take='+encodeURIComponent(t.id)+'&file='+file;
+      a.setAttribute('download',''); a.textContent=label; if(cls) a.className=cls; btns.append(a);
+    };
+    if(t.files&&t.files.length) link('zip','Download all (.zip)','all');
+    for(const f of t.files||[]) link(f,TAKE_FILES[f]||f);
+    const open=document.createElement('button'); open.type='button'; open.textContent='Open folder';
+    open.onclick=async()=>{
+      try{ const r=await (await fetch('api/take/open?take='+encodeURIComponent(t.id),{method:'POST'})).json();
+           if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); }
+    };
+    btns.append(open);
+    li.append(title,meta,btns); list.append(li);
+  }
+}
 /* Uploads: the body is the file and the name rides in the query, so there is
    no multipart parser on either end. */
 async function upload(kind, file, note){
@@ -911,7 +990,7 @@ async function poll(){
     if(d.bank&&d.bank!==pick.value&&[...pick.options].some(o=>o.value===d.bank)){
       pick.value=d.bank; showBank(d.bank);
     }
-    renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{});
+    renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{}); renderTake(d);
     const box=$('log');
     const stick=box.scrollTop+box.clientHeight>=box.scrollHeight-24;
     box.textContent=d.log.join('\n')||'Waiting for the relay to start.';

@@ -1044,6 +1044,9 @@ class OpenUtauRenderer:
             base = earliest
         else:
             base = min(0.0, earliest)
+        # Where the file starts in the phrase's recording, in seconds: takes
+        # (teto_relay.takes) place the phrase on their timeline from it.
+        self.last_origin = base / 1000.0
         placed = [
             (int(round((offset - base) / 1000.0 * WORLDLINE_SAMPLE_RATE)), samples)
             for offset, samples in segments

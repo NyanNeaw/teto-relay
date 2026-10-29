@@ -187,6 +187,9 @@ def run_window(url: str) -> int:
 
     window.events.shown += shown
     try:
+        # Takes are downloaded from the panel (.wav, .ustx, .zip); pywebview
+        # blocks downloads unless told otherwise.
+        webview.settings["ALLOW_DOWNLOADS"] = True
         webview.start(gui="edgechromium", icon=_icon_path(), private_mode=False,
                       storage_path=str(_storage_folder()))
     except Exception:  # noqa: BLE001 - no WebView2 runtime, most likely

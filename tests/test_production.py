@@ -3712,5 +3712,275 @@ class TestRestartsAndClosing(unittest.TestCase):
             self.assertTrue(controller.should_quit())
 
 
+def _phrase_doc(singer="Teto", position=480, notes=((0, 240, 60, "a"),)):
+    """A minimal .ustx document with one voice part, as write_ustx makes."""
+    return {
+        "name": "phrase", "ustx_version": "0.6", "resolution": 480, "bpm": 120.0,
+        "beat_per_bar": 4, "beat_unit": 4,
+        "tracks": [{"singer": singer, "phonemizer": "OpenUtau.Plugin.Builtin.DefaultPhonemizer",
+                    "renderer_settings": {"renderer": "WORLDLINE-R"}}],
+        "voice_parts": [{"name": "p", "track_no": 0, "position": position,
+                         "notes": [{"position": p, "duration": d, "tone": t, "lyric": l}
+                                   for p, d, t, l in notes]}],
+        "wave_parts": [],
+    }
+
+
+class TestTakes(unittest.TestCase):
+    """Record a take: one audio file and one OpenUtau project for a cover."""
+
+    def phrase(self, offset, text="hi", singer="Teto", rate=1000, origin=0.0, length=100):
+        from teto_relay.takes import Phrase
+
+        import numpy as np
+
+        return Phrase(offset=offset, text=text, doc=_phrase_doc(singer), sung=np.full(length, 0.5, np.float32),
+                      sung_rate=rate, sung_origin=origin, heard=np.full(length, 0.25, np.float32),
+                      heard_rate=rate)
+
+    def test_mix_lays_each_piece_at_its_time(self):
+        import numpy as np
+
+        from teto_relay.takes import mix
+
+        out, rate = mix([(0.5, np.ones(10, np.float32) * 0.2), (0.0, np.ones(5, np.float32) * 0.3)], 100)
+        self.assertEqual(rate, 100)
+        self.assertEqual(len(out), 60)
+        self.assertAlmostEqual(float(out[0]), 0.3)
+        self.assertEqual(float(out[10]), 0.0)
+        self.assertAlmostEqual(float(out[50]), 0.2)
+        # Overlaps that clip are scaled down, not wrapped.
+        loud, _ = mix([(0.0, np.ones(4, np.float32)), (0.0, np.ones(4, np.float32))], 100)
+        self.assertAlmostEqual(float(np.max(np.abs(loud))), 1.0)
+
+    def test_the_project_puts_each_phrase_where_it_was_sung(self):
+        import tempfile
+
+        import yaml
+
+        from teto_relay.takes import write_project
+
+        phrases = [self.phrase(0.0, "one"), self.phrase(2.5, "two"), self.phrase(4.0, "three", singer="Defoko")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_project(phrases, Path(tmp) / "take.ustx")
+            doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        # 480 ticks a beat at 120 bpm: 960 ticks a second.
+        self.assertEqual([p["position"] for p in doc["voice_parts"]], [480, 480 + 2400, 480 + 3840])
+        self.assertEqual([p["name"] for p in doc["voice_parts"]], ["1. one", "2. two", "3. three"])
+        # Another voicebank gets a track of its own.
+        self.assertEqual([t["singer"] for t in doc["tracks"]], ["Teto", "Defoko"])
+        self.assertEqual([p["track_no"] for p in doc["voice_parts"]], [0, 0, 1])
+        self.assertEqual(doc["voice_parts"][1]["notes"][0]["lyric"], "a")
+        self.assertEqual(doc["bpm"], 120.0)
+        self.assertEqual(doc["wave_parts"], [])
+
+    def test_a_take_writes_its_files_and_lists_and_zips_them(self):
+        import io
+        import json
+        import tempfile
+        import zipfile
+
+        import soundfile as sf
+
+        from teto_relay.takes import Take, listing, take_folder, zip_take
+
+        with tempfile.TemporaryDirectory() as tmp:
+            take = Take(Path(tmp))
+            take.phrases = [self.phrase(1.0, "later", origin=-0.1), self.phrase(0.0, "first")]
+            info = take.finish()
+            self.assertEqual(info["files"], ["teto.wav", "teto.ustx", "your-voice.wav"])
+            self.assertEqual([p["text"] for p in info["phrases"]], ["first", "later"])
+            sung, rate = sf.read(str(take.folder / "teto.wav"))
+            # The later phrase starts 0.1 s before its recording did.
+            self.assertEqual(rate, 1000)
+            self.assertEqual(len(sung), 1000)
+            self.assertGreater(abs(sung[950]), 0.4)
+            self.assertEqual(sung[150], 0.0)
+            self.assertEqual(listing(Path(tmp))[0]["id"], take.folder.name)
+            self.assertEqual(json.loads((take.folder / "take.json").read_text(encoding="utf-8"))["id"],
+                             take.folder.name)
+            self.assertEqual(take_folder(Path(tmp), take.folder.name), take.folder.resolve())
+            with zipfile.ZipFile(io.BytesIO(zip_take(take.folder))) as z:
+                self.assertEqual(sorted(Path(n).name for n in z.namelist()),
+                                 ["take.json", "teto.ustx", "teto.wav", "your-voice.wav"])
+
+    def test_only_take_folders_can_be_reached(self):
+        import tempfile
+
+        from teto_relay.takes import take_folder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "takes"
+            (root / "take_20260101_000000").mkdir(parents=True)
+            (Path(tmp) / "take_outside").mkdir()
+            self.assertIsNotNone(take_folder(root, "take_20260101_000000"))
+            for bad in ("", "..", "take_../take_outside", "take_..\\take_outside", "other",
+                        "take_missing", "take_20260101_000000/../../take_outside"):
+                self.assertIsNone(take_folder(root, bad), bad)
+
+    def test_phrases_from_before_or_after_the_take_are_left_out(self):
+        import tempfile
+        import time
+        import types
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.takes import Take
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wav, ustx = Path(tmp) / "p.wav", Path(tmp) / "p.ustx"
+            sf.write(str(wav), np.zeros(100, np.float32), 1000)
+            import yaml
+
+            ustx.write_text(yaml.safe_dump(_phrase_doc()), encoding="utf-8")
+            take = Take(Path(tmp) / "takes")
+
+            def job(start):
+                return types.SimpleNamespace(audio_start=start, wav_path=wav, ustx_path=ustx, text="x",
+                                             wav_origin=0.0, input_audio=np.zeros(10, np.float32),
+                                             input_rate=16000)
+
+            take.add(job(take.started - 5.0))     # said before Record
+            take.add(job(None))                   # nothing to place it by
+            take.add(job(take.started + 0.5))
+            take.stopped = time.monotonic()
+            take.add(job(take.stopped + 1.0))     # said after Stop
+            self.assertEqual(len(take.phrases), 1)
+            self.assertAlmostEqual(take.phrases[0].offset, 0.5)
+
+    def test_what_she_sings_during_a_take_is_saved(self):
+        """The real analyse/render loops with a take on: the phrase lands in
+        teto.wav, teto.ustx and your-voice.wav."""
+        import queue
+        import threading
+        import time
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import yaml
+
+        from teto_relay import playback
+        from teto_relay.capture import Chunk
+        from teto_relay.config import Config
+        from teto_relay.render.null import NullRenderer
+        from teto_relay.stt import Word
+        from teto_relay.voicebank import Voicebank
+
+        with _TempHome() as home:
+            cfg = Config(pitch_method="pyin", use_alignment=False, align_boundaries=False, renderer_backend="null")
+            cfg.validate()
+            relay = _bare_relay(cfg)
+            relay.bank = Voicebank(key="english", name="Teto", root=home / "bank", flavour="en-cvvc")
+            relay.transcriber = types.SimpleNamespace(
+                transcribe=lambda audio, rate: [Word("hello", 0.1, 0.5), Word("there", 0.6, 1.0)]
+            )
+            relay.renderer = NullRenderer(cfg)
+            relay.converter = None
+            relay.engine = "utau"
+            relay.chunk_q, relay.ustx_q, relay.wav_q = queue.Queue(), queue.Queue(), queue.Queue()
+            relay._stop = threading.Event()
+            relay._octave_shift = relay._voice_baseline = None
+            relay._singing_state = {}
+            relay._target_tone, relay._mora_floor = 61.0, 0.11
+            relay.last_text = relay.last_source = relay.last_kana = ""
+            relay.last_notes, relay.last_stats = [], {}
+            relay._busy_phrases = 0
+
+            played = threading.Event()
+            fake_sd = types.SimpleNamespace(
+                play=lambda *a, **k: None, stop=lambda: None, get_stream=lambda: None,
+                query_devices=lambda *a: {"default_samplerate": 48000, "max_output_channels": 2},
+            )
+
+            def on_playback(job):
+                relay._on_playback(job)
+                played.set()
+
+            with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+                player = playback.Player(cfg, relay.wav_q, None, on_playback=on_playback)
+                workers = [threading.Thread(target=relay._analyse_loop, daemon=True),
+                           threading.Thread(target=relay._render_loop, daemon=True), player]
+                for w in workers:
+                    w.start()
+                relay.start_take()
+                self.assertTrue(relay.take_status()["recording"])
+                rate = cfg.sample_rate
+                t = np.arange(int(1.2 * rate)) / rate
+                audio = (0.3 * np.sin(2 * np.pi * 150 * t)).astype(np.float32)
+                time.sleep(1.3)  # the phrase was spoken after Record was pressed
+                relay.chunk_q.put(Chunk(audio, rate, "release", captured_at=time.monotonic()))
+                # Stop straight away: the phrase still being worked on is kept.
+                info = relay.stop_take(wait=60)
+                self.assertTrue(played.wait(60), "the utterance never reached playback")
+                relay._stop.set()
+                player.stop()
+                for w in workers:
+                    w.join(timeout=5)
+
+            self.assertFalse(relay.take_status()["recording"])
+            self.assertEqual(info["files"], ["teto.wav", "teto.ustx", "your-voice.wav"])
+            self.assertEqual(len(info["phrases"]), 1)
+            folder = home / "takes" / info["id"]
+            self.assertTrue(folder.is_dir())
+            doc = yaml.safe_load((folder / "teto.ustx").read_text(encoding="utf-8"))
+            ticks_per_second = doc["resolution"] * doc["bpm"] / 60.0
+            # Spoken ~0.1 s after Record: the part moved by that much.
+            at = info["phrases"][0]["at"]
+            self.assertGreaterEqual(at, 0.0)
+            self.assertLess(at, 1.0)
+            source = yaml.safe_load(sorted((cfg.out_path).glob("relay_*.ustx"))[-1].read_text(encoding="utf-8"))
+            self.assertEqual(doc["voice_parts"][0]["position"],
+                             source["voice_parts"][0]["position"] + round(at * ticks_per_second))
+
+    def test_the_panel_lists_and_serves_takes(self):
+        import http.client
+        import json
+
+        from teto_relay.takes import Take
+
+        with _TempHome() as home, _PanelServer() as s:
+            take = Take(home / "takes")
+            take.phrases = [self.phrase(0.0, "first")]
+            take.finish()
+            status, body = s.request("GET", "/api/takes")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["takes"][0]["id"], take.folder.name)
+
+            conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
+            conn.request("GET", f"/api/take/file?take={take.folder.name}&file=teto.ustx")
+            resp = conn.getresponse()
+            payload = resp.read()
+            conn.close()
+            self.assertEqual(resp.status, 200)
+            self.assertIn("attachment", resp.getheader("Content-Disposition"))
+            self.assertIn(f"{take.folder.name}-teto.ustx", resp.getheader("Content-Disposition"))
+            self.assertEqual(payload, (take.folder / "teto.ustx").read_bytes())
+
+            status, body = s.request("GET", f"/api/take/file?take={take.folder.name}&file=zip")
+            self.assertEqual(status, 200)
+            self.assertEqual(body[:2], b"PK")
+            for bad in (f"take={take.folder.name}&file=take.json", f"take={take.folder.name}&file=..%2Fx",
+                        "take=take_..%2F..&file=zip", "take=nope&file=teto.wav"):
+                status, _ = s.request("GET", f"/api/take/file?{bad}")
+                self.assertEqual(status, 404, bad)
+
+            # Recording needs the relay running, and says so.
+            status, body = s.request("POST", "/api/take/start", None, {"X-Teto-Relay": "1"})
+            self.assertEqual(status, 400)
+            self.assertIn("Start", json.loads(body)["error"])
+            status, body = s.request("GET", "/api/status")
+            data = json.loads(body)
+            self.assertEqual(data["take"], {"recording": False})
+            self.assertFalse(data["take_finishing"])
+
+    def test_the_panel_has_a_record_button_and_a_takes_list(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ('id="rec"', 'id="takelist"', "api/take/start", "api/take/stop", "api/takes",
+                       "api/take/file?take=", "api/take/open?take="):
+            self.assertIn(needle, page)
+
+
 if __name__ == "__main__":
     unittest.main()

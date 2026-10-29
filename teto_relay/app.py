@@ -57,6 +57,13 @@ class Job:
     queued_at: float = 0.0
     # The phrase was sung rather than spoken (pitch.held_share).
     sung: bool = False
+    # For takes (teto_relay.takes): when the phrase's recording started
+    # (monotonic), what the microphone heard while a take is on, and where in
+    # that recording the rendered audio starts.
+    audio_start: float | None = None
+    input_audio: object = None
+    input_rate: int = 16000
+    wav_origin: float = 0.0
 
     @property
     def age(self) -> float:
@@ -91,6 +98,12 @@ STOP_WAIT_SECONDS = 30.0
 
 class TetoRelay:
     """Owns the whole pipeline. `start()` is non-blocking; `stop()` joins."""
+
+    # Takes (teto_relay.takes): the one being recorded, and the phrases still
+    # on their way through the pipeline.
+    _take = None
+    _busy_phrases = 0
+    _take_lock = threading.Lock()
 
     def __init__(self, cfg: Config | None = None):
         self.cfg = cfg or Config.load()
@@ -535,12 +548,17 @@ class TetoRelay:
                 continue
             if self._stop.is_set():
                 break  # stopping: nobody will play it
+            self._in_progress(+1)
+            job = None
             try:
                 job = self.analyse(chunk)
                 if job is not None:
                     _drop_oldest_put(self.ustx_q, job, "ustx")
             except Exception:
                 log.exception("analysis failed for a %.2fs chunk", chunk.duration)
+            finally:
+                if job is None:
+                    self._in_progress(-1)
 
     def analyse(self, chunk) -> "Job | None":
         """One utterance: words + F0 -> notes -> .ustx on disk, ready to render.
@@ -644,6 +662,10 @@ class TetoRelay:
             timeline=timeline,
             queued_at=done,
             sung=pitch_mod.held_share(track) >= pitch_mod.SUNG_HELD_SHARE,
+            audio_start=chunk.captured_at - chunk.duration,
+            # Kept only while a take is recording: it is the guide track.
+            input_audio=chunk.audio if getattr(self, "_take", None) is not None else None,
+            input_rate=chunk.sample_rate,
         )
         log.info(
             "Analysed %.2fs of speech in %.2fs [%s] via %s",
@@ -706,7 +728,11 @@ class TetoRelay:
             try:
                 job.wav_path = job.ustx_path.with_suffix(".wav")
                 self.renderer.render(job.ustx_path, job.wav_path)
+                job.wav_origin = float(getattr(self.renderer, "last_origin", 0.0) or 0.0)
                 self.finish_render(job)
+                take = getattr(self, "_take", None)
+                if take is not None:
+                    take.add(job)
                 done = job.timeline.lap("render")
                 for stage, seconds in (getattr(self.renderer, "last_timings", None) or {}).items():
                     job.timeline.add(stage, seconds)
@@ -724,7 +750,51 @@ class TetoRelay:
             except Exception:
                 log.exception("render failed for %s", job.ustx_path)
             finally:
+                self._in_progress(-1)
                 self._trim_output()
+
+    # ---------------------------------------------------------------- takes
+    def _in_progress(self, change: int) -> None:
+        """Phrases between the microphone and a finished render."""
+        with self._take_lock:
+            self._busy_phrases = max(0, getattr(self, "_busy_phrases", 0) + change)
+
+    def start_take(self):
+        """Start recording a take (teto_relay.takes)."""
+        from .takes import Take
+
+        with self._take_lock:
+            if getattr(self, "_take", None) is None:
+                self._take = Take(paths.data_dir() / "takes")
+                log.info("Recording a take")
+            return self._take
+
+    def stop_take(self, wait: float = 30.0) -> dict | None:
+        """Stop the take, let the phrases already said finish, write it out."""
+        take = getattr(self, "_take", None)
+        if take is None:
+            return None
+        take.stopped = time.monotonic()
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            idle = self.chunk_q.empty() and self.ustx_q.empty() and not getattr(self, "_busy_phrases", 0)
+            if idle and not self._recording_now():
+                break
+            time.sleep(0.1)
+        with self._take_lock:
+            self._take = None
+        return take.finish()
+
+    def take_status(self) -> dict:
+        take = getattr(self, "_take", None)
+        if take is None:
+            return {"recording": False}
+        return {"recording": True, "seconds": round(take.seconds, 1), "phrases": len(take.phrases)}
+
+    def _recording_now(self) -> bool:
+        """The talk key is still held: that phrase belongs to the take too."""
+        chunker = getattr(getattr(self, "_capture", None), "chunker", None)
+        return bool(getattr(chunker, "recording", False))
 
     def _on_playback(self, job: "Job") -> None:
         """Called by the player the moment a job's audio starts playing."""

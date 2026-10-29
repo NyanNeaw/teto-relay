@@ -2,6 +2,11 @@
 
 ## 0.3.1 (in progress)
 
+- **Record a take, for song covers.** Press Record next to Start, sing your
+  lines over the song, press it again. Every phrase lands where you sang it,
+  so it lines up with the music. Download Teto's singing (.wav), an OpenUtau
+  project (.ustx) to fix notes or swap the voicebank, your own voice (.wav)
+  as a guide, or all three in a .zip.
 - **Teto answers sooner.** About 0.6 s was lost on every phrase inside
   OpenUtau, and pitch is now measured while the words are being heard: on
   the same recordings, 3.4 s → 2.4 s from letting go of the key to her voice.

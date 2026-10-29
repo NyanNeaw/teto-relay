@@ -371,6 +371,10 @@ class Controller:
         # the program - relay, microphone and all - running unseen.
         self.last_poll = 0.0
         self.closing_at: float | None = None
+        # Takes (teto_relay.takes): one being written out, and a counter the
+        # panel watches to refresh its list.
+        self.take_finishing = False
+        self.takes_changed = 0
         # While the relay starts (10-30 s of model loading), what it is doing
         # and roughly how far along: the page showed "Start" again meanwhile,
         # because all it knew was "not running yet".
@@ -415,9 +419,48 @@ class Controller:
             if self.relay is None:
                 return
             try:
+                # A take being recorded is saved, not lost, when the relay
+                # stops (Stop, or a restart for a setting).
+                if getattr(self.relay, "_take", None) is not None:
+                    try:
+                        self.relay.stop_take(wait=10.0)
+                        self.takes_changed += 1
+                    except Exception:  # noqa: BLE001
+                        log.exception("could not save the take")
                 self.relay.stop()
             finally:
                 self.relay = None
+
+    # ---------------------------------------------------------------- takes
+    @staticmethod
+    def takes_root() -> Path:
+        from . import paths
+
+        return paths.data_dir() / "takes"
+
+    def start_take(self) -> None:
+        relay = self.relay
+        if relay is None or not self.running:
+            raise TetoRelayError("Press Start first: a take records what Teto sings.")
+        relay.start_take()
+
+    def stop_take(self) -> None:
+        """Finish the take in the background; the panel watches take_finishing."""
+        relay = self.relay
+        if relay is None or getattr(relay, "_take", None) is None or self.take_finishing:
+            return
+        self.take_finishing = True
+
+        def finish() -> None:
+            try:
+                relay.stop_take()
+            except Exception:  # noqa: BLE001
+                log.exception("could not save the take")
+            finally:
+                self.take_finishing = False
+                self.takes_changed += 1
+
+        threading.Thread(target=finish, name="take", daemon=True).start()
 
     @property
     def busy(self) -> bool:
@@ -495,6 +538,9 @@ class Controller:
             "lyrics": ("morae" if relay._japanese_lyrics() else "words") if relay else "",
             "paused": bool(relay and relay.paused),
             "health": relay.health() if relay else {"microphone": "stopped", "problems": []},
+            "take": relay.take_status() if relay else {"recording": False},
+            "take_finishing": self.take_finishing,
+            "takes_changed": self.takes_changed,
             "log": list(self.buffer.lines)[-60:],
         }
 
@@ -672,6 +718,23 @@ def make_handler(controller: Controller):
         def _json(self, obj, status: int = 200) -> None:
             self._send(json.dumps(obj).encode("utf-8"), "application/json", status)
 
+        def _download(self, payload: bytes, filename: str, content_type: str) -> None:
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def _take_query(self):
+            from urllib.parse import parse_qs, urlparse
+
+            from .takes import take_folder
+
+            query = parse_qs(urlparse(self.path).query)
+            take_id = (query.get("take") or [""])[0]
+            return take_folder(controller.takes_root(), take_id), (query.get("file") or [""])[0]
+
         def _refuse_foreign(self, changes_state: bool) -> bool:
             """Answer 403 and return True if the request is not from the panel."""
             port = self.server.server_address[1]
@@ -712,6 +775,23 @@ def make_handler(controller: Controller):
                     "checks": [c.as_dict() for c in checks],
                     "text": format_checks(checks),
                 })
+            elif route == "api/takes":
+                from .takes import listing
+
+                self._json({"takes": listing(controller.takes_root())})
+            elif route == "api/take/file":
+                from .takes import FILES, zip_take
+
+                folder, name = self._take_query()
+                if folder is None:
+                    self._json({"error": "no such take"}, 404)
+                elif name == "zip":
+                    self._download(zip_take(folder), f"{folder.name}.zip", "application/zip")
+                elif name in FILES and (folder / name).is_file():
+                    kind = "audio/wav" if name.endswith(".wav") else "application/octet-stream"
+                    self._download((folder / name).read_bytes(), f"{folder.name}-{name}", kind)
+                else:
+                    self._json({"error": "no such file"}, 404)
             elif route == "api/bank-image":
                 from urllib.parse import parse_qs, urlparse
 
@@ -749,6 +829,27 @@ def make_handler(controller: Controller):
             elif route == "api/stop":
                 controller.stop()
                 self._json({"ok": True})
+            elif route == "api/take/start":
+                try:
+                    controller.start_take()
+                    self._json({"ok": True})
+                except TetoRelayError as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/stop":
+                controller.stop_take()
+                self._json({"ok": True})
+            elif route == "api/take/open":
+                folder, _ = self._take_query()
+                if folder is None:
+                    self._json({"ok": False, "error": "no such take"}, 404)
+                else:
+                    try:
+                        import os
+
+                        os.startfile(str(folder))  # noqa: S606 - our own data folder
+                        self._json({"ok": True})
+                    except (AttributeError, OSError) as exc:
+                        self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/quit":
                 # The packaged app has no console to Ctrl+C, so the page is
                 # where it is closed. serve() stops the relay on the way out.
