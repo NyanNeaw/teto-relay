@@ -52,6 +52,10 @@ def rms(frame: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(frame, dtype=np.float64))))
 
 
+#: Hands-free, a line ends after this much quiet: longer than a breath.
+HANDS_FREE_PAUSE_MS = 700
+
+
 def max_frames(cfg) -> int | None:
     """Frames after which a phrase is cut, or None for no limit (0)."""
     if cfg.max_chunk_ms <= 0:
@@ -123,13 +127,18 @@ class Chunker:
         # Trim most of the trailing silence but keep a short tail so final
         # consonants and the pyin analysis window survive.
         keep_tail = self._silence_limit // 2
+        trimmed = 0
         if silence_run > keep_tail:
-            frames = frames[: len(frames) - (silence_run - keep_tail)]
+            trimmed = silence_run - keep_tail
+            frames = frames[: len(frames) - trimmed]
 
         if voiced < self._min_voiced or not frames:
             log.debug("dropping chunk: %d voiced frames (need %d)", voiced, self._min_voiced)
             return None
-        return Chunk(np.concatenate(frames), self.cfg.sample_rate, reason)
+        # captured_at is when the audio ends: the trimmed quiet came after it.
+        # (Takes place each phrase on their timeline by it.)
+        return Chunk(np.concatenate(frames), self.cfg.sample_rate, reason,
+                     captured_at=time.monotonic() - trimmed * self.cfg.frame_ms / 1000.0)
 
     def _reset(self) -> None:
         self._frames = []
@@ -166,10 +175,47 @@ class PushToTalkChunker:
         # recorded; set by the relay. None: everything waits for the release.
         self.live_factory = None
         self._live = None
+        # Hands-free (set_hands_free): while a take records, a pause detector
+        # cuts lines without the key. The room's level over the last second
+        # sets how loud singing has to be.
+        self._vad: Chunker | None = None
+        self._levels: deque[float] = deque(maxlen=max(1, 1000 // cfg.frame_ms))
 
     @property
     def recording(self) -> bool:
         return self._active
+
+    @property
+    def busy(self) -> bool:
+        """A phrase is being recorded, or finished and not yet handed on."""
+        with self._lock:
+            return self._active or bool(self._pending) or (self._vad is not None and self._vad._speaking)
+
+    @property
+    def hands_free(self) -> bool:
+        return self._vad is not None
+
+    def set_hands_free(self, on: bool) -> None:
+        """Listen without the key (a take is recording), or stop doing so.
+
+        Lines end at a pause longer than a breath (HANDS_FREE_PAUSE_MS);
+        holding the key still works and takes over the line in progress.
+        Turned off, a line still being sung is finished, not lost.
+        """
+        with self._lock:
+            if on and self._vad is None:
+                import copy
+
+                vad_cfg = copy.copy(self.cfg)
+                vad_cfg.silence_ms = max(int(self.cfg.silence_ms), HANDS_FREE_PAUSE_MS)
+                floor = float(np.median(self._levels)) if self._levels else 0.0
+                self._vad = Chunker(vad_cfg, max(float(self.cfg.rms_threshold), floor * 3.0))
+                log.info("Hands-free: listening for lines (level %.4f)", self._vad.threshold)
+            elif not on and self._vad is not None:
+                vad, self._vad = self._vad, None
+                chunk = vad.flush()
+                if chunk is not None:
+                    self._pending.append(chunk)
 
     def start(self) -> None:
         live = None
@@ -184,8 +230,14 @@ class PushToTalkChunker:
                     live.cancel()
                 return
             # Keep a little audio from before the key went down, so a word
-            # started fractionally early is not clipped.
-            self._frames = list(self._preroll)
+            # started fractionally early is not clipped. Hands-free, a line
+            # already under way is carried on rather than cut in two.
+            if self._vad is not None and self._vad._speaking:
+                self._frames = list(self._vad._frames)
+            else:
+                self._frames = list(self._preroll)
+            if self._vad is not None:
+                self._vad._reset()
             self._preroll.clear()
             self._active = True
             self._live = live
@@ -208,6 +260,13 @@ class PushToTalkChunker:
         with self._lock:
             if not self._active:
                 self._preroll.append(frame)
+                if self._vad is None:
+                    self._levels.append(rms(frame))
+                else:
+                    chunk = self._vad.push(frame)
+                    if chunk is not None:
+                        log.info("Heard a line: %.2fs (hands-free)", chunk.duration)
+                        self._pending.append(chunk)
             else:
                 self._frames.append(frame)
                 if self._live is not None:

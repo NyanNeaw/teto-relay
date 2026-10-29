@@ -314,7 +314,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <button class="icon" id="motion" title="Turn animations off" aria-label="Animations" aria-pressed="true"></button>
   <button class="icon" id="theme" title="Switch theme" aria-label="Switch theme"></button>
-  <button id="rec" disabled title="Record a take: everything she sings until you press again, as one audio file and one OpenUtau project"><i></i><span id="rectext">Record</span></button>
+  <button id="rec" disabled title="Record a take: sing, no key needed - each pause ends a line. Press again to stop. Use headphones for the music."><i></i><span id="rectext">Record</span></button>
   <button id="toggle">Start</button>
   <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
@@ -875,15 +875,14 @@ function renderTake(d){
   const btn=$('rec'), t=d.take||{};
   btn.disabled=!d.running||!!d.take_finishing;
   btn.classList.toggle('on',!!t.recording);
-  // Record collects what she sings, and she sings only while the talk key is
-  // held: until the first phrase, the button says so.
-  const key=String(cfg.ptt_key||'F8').toUpperCase();
+  // While recording she listens hands-free (no key): until the first phrase
+  // is in, the button says to just sing.
   $('rectext').textContent=d.take_finishing?'Saving take':
     !t.recording?'Record':
     t.phrases?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):
-    clock(t.seconds)+' \u00b7 hold '+key+' and sing';
+    clock(t.seconds)+' \u00b7 sing, no key needed';
   btn.title=t.recording?'Stop and save the take':
-    'Record a take: everything she sings until you press again, as one audio file and one OpenUtau project';
+    'Record a take: sing, no key needed - each pause ends a line. Press again to stop. Use headphones for the music.';
   if(d.takes_changed!==takesSeen){
     if(takesSeen!==-1&&d.take_notice) toast(d.take_notice);
     takesSeen=d.takes_changed; refreshTakes();

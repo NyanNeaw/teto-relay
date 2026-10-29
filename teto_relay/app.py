@@ -767,6 +767,7 @@ class TetoRelay:
             if getattr(self, "_take", None) is None:
                 self._take = Take(paths.data_dir() / "takes")
                 log.info("Recording a take")
+                self._hands_free(True)
             return self._take
 
     def stop_take(self, wait: float = 30.0) -> dict | None:
@@ -775,6 +776,8 @@ class TetoRelay:
         if take is None:
             return None
         take.stopped = time.monotonic()
+        # A line still being sung hands-free is finished and kept.
+        self._hands_free(False)
         deadline = time.monotonic() + wait
         while time.monotonic() < deadline:
             idle = self.chunk_q.empty() and self.ustx_q.empty() and not getattr(self, "_busy_phrases", 0)
@@ -792,9 +795,16 @@ class TetoRelay:
         return {"recording": True, "seconds": round(take.seconds, 1), "phrases": len(take.phrases)}
 
     def _recording_now(self) -> bool:
-        """The talk key is still held: that phrase belongs to the take too."""
+        """The talk key is still held, or a phrase has not reached analysis
+        yet: it belongs to the take too."""
         chunker = getattr(getattr(self, "_capture", None), "chunker", None)
-        return bool(getattr(chunker, "recording", False))
+        return bool(getattr(chunker, "busy", getattr(chunker, "recording", False)))
+
+    def _hands_free(self, on: bool) -> None:
+        """While a take records, lines are heard without holding the key."""
+        chunker = getattr(getattr(self, "_capture", None), "chunker", None)
+        if hasattr(chunker, "set_hands_free"):
+            chunker.set_hands_free(on)
 
     def _on_playback(self, job: "Job") -> None:
         """Called by the player the moment a job's audio starts playing."""

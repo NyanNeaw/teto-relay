@@ -3,7 +3,7 @@
 ## 0.3.1 (in progress)
 
 - **Record a take, for song covers.** Press Record next to Start, sing your
-  lines over the song, press it again. Every phrase lands where you sang it,
+  lines over the song (no key needed: each pause ends a line), press it again. Every phrase lands where you sang it,
   so it lines up with the music. Download Teto's singing (.wav), an OpenUtau
   project (.ustx) to fix notes or swap the voicebank, your own voice (.wav)
   as a guide, or all three in a .zip. A take where nothing was sung isn't

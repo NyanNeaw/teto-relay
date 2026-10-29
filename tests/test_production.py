@@ -4020,6 +4020,98 @@ class TestTakes(unittest.TestCase):
             self.assertIn(needle, page)
 
 
+class TestHandsFreeTakes(unittest.TestCase):
+    """While a take records, lines are heard without holding the talk key."""
+
+    def setUp(self):
+        import numpy as np
+
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config
+
+        self.cfg = Config()
+        self.chunker = PushToTalkChunker(self.cfg)
+        n = self.cfg.frame_samples
+        self.quiet = np.full(n, 0.002, np.float32)
+        t = np.arange(n) / self.cfg.sample_rate
+        self.loud = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+
+    def feed(self, frame, seconds):
+        out = []
+        for _ in range(int(seconds * 1000 / self.cfg.frame_ms)):
+            chunk = self.chunker.push(frame)
+            if chunk is not None:
+                out.append(chunk)
+        return out
+
+    def test_a_pause_ends_a_line_and_a_breath_does_not(self):
+        import time
+
+        self.feed(self.quiet, 1.0)                 # the room, before Record
+        self.chunker.set_hands_free(True)
+        self.assertTrue(self.chunker.hands_free)
+        got = self.feed(self.loud, 1.0) + self.feed(self.quiet, 0.3) + self.feed(self.loud, 1.0)
+        self.assertEqual(got, [], "a 0.3 s breath must not split the line")
+        self.assertTrue(self.chunker.busy)
+        ended = time.monotonic()
+        got = self.feed(self.quiet, 1.0)
+        self.assertEqual(len(got), 1)
+        self.assertGreater(got[0].duration, 2.2)
+        self.assertLess(got[0].duration, 3.0)
+        # captured_at is when the singing (plus a short tail) ended, not when
+        # the pause was noticed - takes place the line by it.
+        self.assertLess(abs(got[0].captured_at - ended), 0.45)
+        self.assertFalse(self.chunker.busy)
+
+    def test_the_key_still_works_and_takes_over_the_line(self):
+        self.feed(self.quiet, 1.0)
+        self.chunker.set_hands_free(True)
+        self.feed(self.loud, 0.5)
+        self.chunker.start()                       # P pressed mid-line
+        self.feed(self.loud, 0.5)
+        self.chunker.stop()
+        got = self.feed(self.quiet, 1.0)
+        self.assertEqual(len(got), 1, "one line, not two")
+        self.assertGreaterEqual(got[0].duration, 1.0)
+
+    def test_stopping_keeps_the_line_being_sung(self):
+        self.feed(self.quiet, 1.0)
+        self.chunker.set_hands_free(True)
+        self.feed(self.loud, 0.8)
+        self.chunker.set_hands_free(False)
+        self.assertFalse(self.chunker.hands_free)
+        self.assertTrue(self.chunker.busy)
+        got = self.feed(self.quiet, 0.1)
+        self.assertEqual(len(got), 1)
+        self.assertGreaterEqual(got[0].duration, 0.8)
+        # Off again: quiet and loud alike wait for the key.
+        self.assertEqual(self.feed(self.loud, 2.0), [])
+
+    def test_the_room_sets_how_loud_singing_must_be(self):
+        import numpy as np
+
+        noisy = np.full(self.cfg.frame_samples, 0.03, np.float32)  # music leaking in
+        self.feed(noisy, 1.0)
+        self.chunker.set_hands_free(True)
+        self.assertEqual(self.feed(noisy, 2.0), [], "the room's own level is not a line")
+
+    def test_record_turns_it_on_and_off(self):
+        import queue
+        import types
+
+        from teto_relay.config import Config
+
+        with _TempHome():
+            relay = _bare_relay(Config())
+            relay._capture = types.SimpleNamespace(chunker=self.chunker)
+            relay.chunk_q, relay.ustx_q = queue.Queue(), queue.Queue()
+            relay._busy_phrases = 0
+            relay.start_take()
+            self.assertTrue(self.chunker.hands_free)
+            self.assertTrue(relay.stop_take(wait=1.0)["discarded"])
+            self.assertFalse(self.chunker.hands_free)
+
+
 class TestMicrophoneAtItsOwnRate(unittest.TestCase):
     """A microphone that refuses 16 kHz (WASAPI, WDM-KS: "Invalid sample rate
     [PaErrorCode -9997]") is opened at its own rate and converted."""
