@@ -1775,6 +1775,58 @@ class TestPitchWhileRecording(unittest.TestCase):
         self.assertTrue(made[1].cancelled)
 
 
+class TestTalkKeyInAnyKeyboardLanguage(unittest.TestCase):
+    """A letter talk key is the physical key: with the keyboard switched to
+    Thai, P types "ย" and push-to-talk went dead."""
+
+    def test_a_letter_key_is_found_whatever_it_types(self):
+        from pynput.keyboard import Key, KeyCode
+
+        from teto_relay.hotkey import _matches, parse_key
+
+        p = parse_key("p")
+        self.assertEqual(p.vk, 0x50)
+        self.assertTrue(_matches(KeyCode(vk=0x50, char="p"), p))
+        self.assertTrue(_matches(KeyCode(vk=0x50, char="P"), p))        # with Shift
+        self.assertTrue(_matches(KeyCode(vk=0x50, char="ย"), p))   # Thai layout: ย
+        self.assertTrue(_matches(KeyCode(vk=0x50, char="あ"), p))   # Japanese kana input
+        self.assertFalse(_matches(KeyCode(vk=0x4F, char="o"), p))
+        self.assertFalse(_matches(KeyCode(vk=0x4F, char="p"), p))       # another layout's "p" key
+        # No key code on the event (other systems): the character decides.
+        self.assertTrue(_matches(KeyCode.from_char("p"), p))
+        self.assertEqual(parse_key("`").vk, 0xC0)
+        self.assertTrue(_matches(KeyCode(vk=0xC0, char="_"), parse_key("`")))
+        # Named keys are unchanged.
+        self.assertTrue(_matches(Key.f8, parse_key("f8")))
+        self.assertFalse(_matches(KeyCode(vk=0x77, char=None), parse_key("p")))
+
+    def test_the_listener_presses_and_releases_on_a_thai_layout(self):
+        import unittest.mock
+
+        from pynput.keyboard import KeyCode
+
+        from teto_relay import hotkey
+
+        calls = []
+        listener = hotkey.PushToTalkListener("p", lambda: calls.append("press"), lambda: calls.append("release"))
+        captured = {}
+
+        class FakeListener:
+            def __init__(self, on_press, on_release):
+                captured.update(press=on_press, release=on_release)
+
+            def start(self):
+                pass
+
+        with unittest.mock.patch("pynput.keyboard.Listener", FakeListener):
+            listener.start()
+        thai_p = KeyCode(vk=0x50, char="ย")
+        captured["press"](thai_p)
+        captured["press"](thai_p)   # key repeat while held
+        captured["release"](thai_p)
+        self.assertEqual(calls, ["press", "release"])
+
+
 class TestPushToTalkKeepsEveryPhrase(unittest.TestCase):
     """P2-4: two phrases finished between audio frames are both delivered."""
 
