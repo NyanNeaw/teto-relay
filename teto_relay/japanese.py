@@ -192,7 +192,7 @@ def _vowel_string(phones: list[str], index: int, spelling: str = "") -> str:
 _BARE_VOWELS = frozenset(MORA[""].values())
 
 
-def _collapse_redundant(morae: list[tuple[str, bool, int]]) -> list[str]:
+def _collapse_redundant(morae: list[tuple[str, bool, int]]) -> list[tuple[str, bool]]:
     """Drop repeated morae that no Japanese speaker would pronounce twice.
 
     Each entry is (mora, came-from-epenthesis, index of the phone that produced
@@ -208,7 +208,7 @@ def _collapse_redundant(morae: list[tuple[str, bool, int]]) -> list[str]:
       (W IY1) came out ういい because うい already ends in い, and "around"
       (ER0 AW1 N D) came out あああ - three identical morae in a row.
     """
-    out: list[str] = []
+    out: list[tuple[str, bool]] = []
     previous: tuple[str, bool, int] | None = None
     for mora, epenthetic, phone in morae:
         if previous is not None and mora == previous[0]:
@@ -216,13 +216,20 @@ def _collapse_redundant(morae: list[tuple[str, bool, int]]) -> list[str]:
                 continue
             if phone != previous[2] and mora in _BARE_VOWELS:
                 continue
-        out.append(mora)
+        out.append((mora, epenthetic))
         previous = (mora, epenthetic, phone)
     return out
 
 
 def arpabet_to_kana(phones: list[str], spelling: str = "") -> str:
-    """Render ARPAbet as Japanese morae. "L AH1 V" -> らぶ.
+    """Render ARPAbet as Japanese morae. "L AH1 V" -> らぶ."""
+    return "".join(mora for mora, _ in arpabet_morae(phones, spelling))
+
+
+def arpabet_morae(phones: list[str], spelling: str = "") -> list[tuple[str, bool]]:
+    """ARPAbet as Japanese morae, each with whether its vowel was inserted
+    (epenthesis: the す and と of てすと, for "test"'s S and T) rather than
+    spoken. A singer passes over those quickly; see `english_morae`.
 
     `spelling` is the original English word. Pronunciation alone cannot settle
     every vowel - Japanese renders the merged "hot"/"father" vowel by spelling -
@@ -323,7 +330,7 @@ def arpabet_to_kana(phones: list[str], spelling: str = "") -> str:
             emit(_mora(series, EPENTHETIC.get(series, DEFAULT_EPENTHESIS)), i, epenthetic=True)
             i += 1
 
-    return "".join(_collapse_redundant(out))
+    return _collapse_redundant(out)
 
 
 # Words that are already Japanese. cmudict has no entry for them, and running
@@ -362,6 +369,19 @@ def cmu_phones(word: str) -> list[str] | None:
             _DICT = {}
     entries = _DICT.get(word.strip().lower())
     return list(entries[0]) if entries else None
+
+
+def english_morae(word: str) -> list[tuple[str, bool]] | None:
+    """`english_to_kana`'s morae, each with whether its vowel was inserted
+    rather than said - "test" is て, す (inserted), と (inserted). None when
+    the word is unknown."""
+    key = word.strip().lower()
+    if key in NATIVE:
+        return [(mora, False) for mora in split_morae(NATIVE[key])]
+    phones = cmu_phones(key)
+    if not phones:
+        return None
+    return arpabet_morae(phones, key)
 
 
 def english_to_kana(word: str) -> str | None:

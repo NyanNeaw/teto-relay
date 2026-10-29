@@ -114,9 +114,10 @@ def required_seconds(lyric: str, cfg) -> float:
     like the speaker rather than a metronome.
     """
     if _KANA.search(lyric) or lyric == EXTEND:
-        # Kana notes are already sized from the aligner in `build_notes`; all
-        # that is wanted here is the floor, so the measurement survives.
-        return syllables(lyric) * cfg.min_mora_seconds
+        # Kana notes are already sized to their word in `build_notes` (see
+        # `_mora_lengths`); asking for the mora floor again here pushed every
+        # short mora into the next, and the drift built up over a phrase.
+        return syllables(lyric) * MIN_MORA_SECONDS
     return max(cfg.min_note_seconds, syllables(lyric) * cfg.seconds_per_syllable)
 
 
@@ -128,11 +129,94 @@ JOIN_GAP = 0.12
 MIN_BLOCK = 0.04
 
 
+#: The shortest a mora is ever made, when a word was said too fast for its
+#: morae to have the voicebank's floor: a consonant and a touch of vowel.
+#: Shorter than the floor, but the word stays where it was said.
+MIN_MORA_SECONDS = 0.05
+#: How much of a word's time a mora whose vowel Japanese inserted gets,
+#: against one that was said: "test" is て-す-と, and only て was said.
+INSERTED_SHARE = 0.4
+
+
+def _inserted_morae(text: str, morae: list[str], source: str) -> list[bool]:
+    """Which of an English word's morae carry a vowel Japanese inserted (the
+    す and と of てすと). All False where that is not known."""
+    if source != "en":
+        return [False] * len(morae)
+    flags: list[bool] = []
+    for part in text.split():
+        found = jp.english_morae(part)
+        if not found:
+            return [False] * len(morae)
+        flags.extend(inserted for _, inserted in found)
+    return flags if len(flags) == len(morae) else [False] * len(morae)
+
+
+#: How far a Japanese bank's morae may fall behind the speaker when a word
+#: was said faster than they can be sung (see build_notes). Measured on
+#: English sung by Teto's 単独音: letting them run 0.12 s late made her no
+#: easier to understand and put every word that much behind, so none.
+MAX_MORA_LAG = 0.0
+
+
+def _mora_floors(inserted: list[bool], floor: float) -> list[float]:
+    """The shortest each mora should be: the voicebank's floor for one that
+    was said, MIN_MORA_SECONDS for one whose vowel was inserted."""
+    return [MIN_MORA_SECONDS if flag else max(floor, MIN_MORA_SECONDS) for flag in inserted]
+
+
+def _mora_lengths(slot: float, inserted: list[bool], floor: float, longest: float) -> list[float]:
+    """Share a word's time out among its morae, so they fill it and no more.
+
+    A mora that was said gets the voicebank's floor where there is room, an
+    inserted one a short share; when the word was said too fast for even that
+    they all shrink together, to MIN_MORA_SECONDS at the least, rather than
+    pushing the next word back - the onsets are the rhythm. No mora but the
+    last is longer than `longest`; the last holds for the rest of the word.
+    """
+    n = len(inserted)
+    weights = [INSERTED_SHARE if flag else 1.0 for flag in inserted]
+    floors = _mora_floors(inserted, floor)
+    slot = max(slot, n * MIN_MORA_SECONDS)
+    if sum(floors) >= slot:
+        # Too fast for the floors: each mora gets MIN_MORA_SECONDS, and what
+        # is left goes to them by how far each was from its floor.
+        extra = [f - MIN_MORA_SECONDS for f in floors]
+        left = slot - n * MIN_MORA_SECONDS
+        lengths = [MIN_MORA_SECONDS + (left * e / sum(extra) if sum(extra) else left / n) for e in extra]
+    else:
+        # Weighted shares; a mora that falls under its floor takes the floor
+        # and the rest is shared again among the others.
+        fixed: dict[int, float] = {}
+        while True:
+            free = [i for i in range(n) if i not in fixed]
+            room = slot - sum(fixed.values())
+            total = sum(weights[i] for i in free)
+            share = {i: room * weights[i] / total for i in free}
+            short = [i for i in free if share[i] < floors[i]]
+            if not short:
+                break
+            for i in short:
+                fixed[i] = floors[i]
+        lengths = [fixed[i] if i in fixed else share[i] for i in range(n)]
+    # Long words said slowly: the morae keep a singing pace and the last holds.
+    spare = 0.0
+    for i in range(n - 1):
+        if lengths[i] > longest:
+            spare += lengths[i] - longest
+            lengths[i] = longest
+    lengths[-1] += spare
+    return lengths
+
+
 def note_floor(lyric: str, cfg, mora_floor: float | None = None) -> float:
     """The shortest this lyric can be sung: each syllable (or mora) needs its
     consonant and some vowel. Below it a note is all consonant."""
     per = float(mora_floor if mora_floor is not None else cfg.min_mora_seconds)
-    return max(MIN_NOTE_SECONDS, syllables(lyric) * per)
+    # A mora (`mora_floor` given) may be as short as MIN_MORA_SECONDS: its word
+    # was laid out to fit (see `_mora_lengths`).
+    shortest = MIN_MORA_SECONDS if mora_floor is not None else MIN_NOTE_SECONDS
+    return max(shortest, syllables(lyric) * per)
 
 
 def _dedupe_spans(
@@ -169,7 +253,10 @@ def _dedupe_spans(
     out: list[tuple[Word, tuple[float, float], bool]] = []
     for i, (w, joined) in enumerate(ordered):
         start = starts[i]
-        floor = note_floor(w.text, cfg, mora_floor if _KANA.search(w.text) else None)
+        # An extension ("+", a held vowel) is a mora too: with an English
+        # word's floor it pushed every note after it back by 0.05 s.
+        is_mora = bool(_KANA.search(w.text)) or w.text == EXTEND
+        floor = note_floor(w.text, cfg, mora_floor if is_mora else None)
         want = max(floor, required_seconds(w.text, cfg))
         touches = bool(out) and out[-1][2] is not None and (
             joined or (connect and w.start - ordered[i - 1][0].end < phrase_gap))
@@ -438,6 +525,7 @@ def build_notes(
     utterance_end = float(track.times[-1]) if getattr(track.times, "size", 0) else 0.0
 
     vowel = None  # the vowel the last mora ended on, carried across words
+    cursor = 0.0  # where the previous word's morae ended
     for position, w in enumerate(ordered):
         if japanese_lyrics:
             # A Japanese bank sings one mora per note - that is how Japanese
@@ -463,6 +551,7 @@ def build_notes(
                 continue
 
             morae = jp.split_morae(kana)
+            inserted = _inserted_morae(w.text, morae, source)
             # Lay the morae out from this word's onset up to the *next* word's
             # onset, so they may use the pause that follows it. Squeezing them
             # inside the word itself left 30-80 ms each - under the floor, so
@@ -482,13 +571,27 @@ def build_notes(
             # once, by the layout below.
             pause = max(0.0, next_onset - w.end)
             allowance = (w.end - w.start) + (pause if pause < cfg.phrase_gap_ms / 1000.0 else 0.0)
-            step = min(cfg.max_mora_seconds, max(floor, allowance / len(morae)))
+            # A word that needs more room than it was said in may run late,
+            # but never more than MAX_MORA_LAG behind the speaker: the morae
+            # stay singable without the phrase drifting off the beat (it fell
+            # a second behind when each mora pushed the next). After a rest
+            # the next word is back on time.
+            begin = max(w.start, cursor)
+            room = w.start + allowance - begin
+            need = sum(_mora_floors(inserted, floor))
+            latest = w.start + allowance + MAX_MORA_LAG
+            span = max(min(max(room, need), latest - begin), len(morae) * MIN_MORA_SECONDS)
+            lengths = _mora_lengths(span, inserted, floor, cfg.max_mora_seconds)
+            offsets = [begin - w.start + sum(lengths[:k]) for k in range(len(lengths))]
+            cursor = begin + sum(lengths)
+            allowance = cursor - w.start
             # A pause ends the vowel: after a rest a vowel is sung afresh.
             if position and w.start - ordered[position - 1].end >= cfg.phrase_gap_ms / 1000.0:
                 vowel = None
             after_stop = False
             for index, mora in enumerate(morae):
-                start = w.start + index * step
+                start = w.start + offsets[index]
+                step = lengths[index]
                 if mora == REST:
                     # An unreleased stop (Thai รัก, มาก): a note of its own
                     # holds the slot through the layout below - left empty, the
@@ -561,7 +664,11 @@ def build_notes(
         respelled, timed = _time_morae(respelled, joined, mora_timer, cfg.phrase_gap_ms / 1000.0)
     if getattr(cfg, "vowel_on_beat", True) and not timed:
         respelled = _vowels_on_the_beat(respelled, joined, track)
-    adjusted = _dedupe_spans(respelled, cfg, joined, floor if japanese_lyrics else None)
+    # Morae were sized to fit their word above; here they only need to be
+    # singable at all. With the bank's floor every short mora pushed the next
+    # one back, and English sung as Japanese - three morae for "test" - fell up
+    # to a second behind the speaker by the end of a phrase.
+    adjusted = _dedupe_spans(respelled, cfg, joined, MIN_MORA_SECONDS if japanese_lyrics else None)
     if not adjusted:
         return []
 

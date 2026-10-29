@@ -1232,12 +1232,80 @@ class TestJapaneseConversion(unittest.TestCase):
         self.assertLessEqual(notes[-1].duration, 0.25 + MAX_RELEASE + 1e-6)
 
     def test_the_voicebank_floor_wins_over_a_short_measurement(self):
-        """A note under the sample's preutterance is all consonant, no vowel."""
+        """A note under the sample's preutterance is all consonant, no vowel:
+        where the word leaves room, every mora that was said gets the floor."""
+        cfg = Config(auto_octave=False, min_mora_seconds=0.06)
+        words = [Word("understand", 0.0, 0.9), Word("love", 1.0, 1.2)]
+        notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True, mora_floor=0.09)
+        said = [n for n in notes[:8] if n.lyric not in ("す", "ど")]   # す and ど were inserted
+        self.assertTrue(all(n.duration >= 0.09 - 1e-6 for n in said), [n.duration for n in said])
+
+    def test_a_word_said_too_fast_for_the_floor_shrinks_instead_of_pushing(self):
+        """Eight morae said in 0.1 s cannot all have the floor; they shrink
+        together (no lower than MIN_MORA_SECONDS) instead of each pushing the
+        next back - which left "love" half a second late, and a phrase a
+        second behind the speaker."""
+        from teto_relay.notes import MIN_MORA_SECONDS
+
         cfg = Config(auto_octave=False, min_mora_seconds=0.06)
         words = [Word("understand", 0.0, 0.1), Word("love", 0.2, 0.4)]
         notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True, mora_floor=0.09)
+        self.assertGreaterEqual(min(n.duration for n in notes), MIN_MORA_SECONDS - 1e-6)
+        self.assertLess(notes[0].duration, 0.09)
+        love = notes[8]
+        self.assertEqual(love.lyric, "ら")
+        self.assertLessEqual(love.start, 8 * MIN_MORA_SECONDS + 0.01)   # the floors would put it at 0.72 s
 
-        self.assertAlmostEqual(notes[0].duration, 0.09, places=3)
+    def test_english_sung_in_japanese_keeps_the_speakers_rhythm(self):
+        """Fast English on a Japanese bank: each word still starts where it
+        was said, and the phrase lasts about as long as the speech."""
+        cfg = Config(auto_octave=False)
+        text = "hello Teto this is a test one hundred twenty three"
+        words, t = [], 0.1
+        for w in text.split():   # 4.5 words a second
+            dur = (0.6 + 0.12 * len(w)) / 4.5
+            words.append(Word(w, round(t, 3), round(t + dur, 3)))
+            t += dur + 0.03
+        notes = build_notes(words, self._long_track(), cfg, japanese_lyrics=True, mora_floor=0.11)
+        from teto_relay import japanese as jp
+
+        i = 0
+        for w in words:
+            first = notes[i]
+            self.assertLess(abs(first.start - w.start), 0.05, (w.text, first.start, w.start))
+            i += len(jp.split_morae(jp.english_to_kana(w.text)))
+        spoken = words[-1].end - words[0].start
+        sung = notes[-1].end - notes[0].start
+        self.assertLess(sung / spoken, 1.15)
+
+    def test_inserted_morae_are_known_and_quick(self):
+        from teto_relay import japanese as jp
+        from teto_relay.notes import INSERTED_SHARE, MIN_MORA_SECONDS, _mora_lengths
+
+        self.assertEqual(jp.english_morae("test"), [("て", False), ("す", True), ("と", True)])
+        self.assertEqual("".join(m for m, _ in jp.english_morae("street")), jp.english_to_kana("street"))
+        # Room for everything: shares by weight, the said mora the longest.
+        lengths = _mora_lengths(0.4, [False, True, True], 0.11, 0.25)
+        self.assertAlmostEqual(sum(lengths), 0.4)
+        self.assertAlmostEqual(lengths[1] / lengths[0], INSERTED_SHARE)
+        # Room for the floors, but an inserted mora's share is under its own:
+        # it takes MIN_MORA_SECONDS and the said one the rest.
+        snug = _mora_lengths(0.17, [False, True], 0.11, 0.25)
+        self.assertAlmostEqual(snug[1], MIN_MORA_SECONDS)
+        self.assertAlmostEqual(snug[0], 0.12)
+        # Short of room even for the floors: everything shrinks together, the
+        # said mora still the longest, nothing under MIN_MORA_SECONDS.
+        short = _mora_lengths(0.2, [False, True, True], 0.11, 0.25)
+        self.assertAlmostEqual(sum(short), 0.2)
+        self.assertGreater(short[0], short[1])
+        self.assertGreaterEqual(min(short), MIN_MORA_SECONDS - 1e-9)
+        tight = _mora_lengths(0.12, [False, False, False], 0.11, 0.25)
+        self.assertAlmostEqual(sum(tight), 0.15)          # 3 x MIN_MORA_SECONDS: the least they can be
+        self.assertTrue(all(abs(x - MIN_MORA_SECONDS) < 1e-9 for x in tight))
+        # A slow word: no mora but the last is longer than a mora may be.
+        slow = _mora_lengths(1.5, [False, False, False], 0.11, 0.25)
+        self.assertEqual(slow[:2], [0.25, 0.25])
+        self.assertAlmostEqual(slow[2], 1.0)
 
     def test_native_mode_leaves_words_alone(self):
         cfg = Config(auto_octave=False)
