@@ -3846,6 +3846,21 @@ def _phrase_doc(singer="Teto", position=480, notes=((0, 240, 60, "a"),)):
     }
 
 
+class _Hooks:
+    """Stands in for a pywebview event: `+=` a handler, `fire()` them."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def __iadd__(self, handler):
+        self.handlers.append(handler)
+        return self
+
+    def fire(self):
+        for handler in self.handlers:
+            handler()
+
+
 class TestTakes(unittest.TestCase):
     """Record a take: one audio file and one OpenUtau project for a cover."""
 
@@ -4183,6 +4198,30 @@ class TestTakes(unittest.TestCase):
             self.assertEqual(take_file(folder, "lines/03.wav"), folder / "lines" / "03.wav")
             for bad in ("lines/03-pitch.npz", "lines/../take.json", "take.json", "lines/3.wav", "lines/04.wav"):
                 self.assertIsNone(take_file(folder, bad), bad)
+
+    def test_the_window_lets_uploads_go_straight_out(self):
+        # pywebview's watch on every request froze the window on a 436 MB
+        # voicebank upload; the window turns it off once the page has loaded.
+        import sys
+        import types
+        import unittest.mock
+
+        from teto_relay import window
+
+        events = types.SimpleNamespace(shown=_Hooks(), loaded=_Hooks())
+        fake_window = types.SimpleNamespace(events=events, native=None)
+        fake_webview = types.SimpleNamespace(
+            create_window=lambda *a, **k: fake_window, settings={},
+            start=lambda **k: events.loaded.fire())
+        stopped = []
+        with unittest.mock.patch.dict(sys.modules, {"webview": fake_webview}), \
+                unittest.mock.patch.object(window, "stop_request_hook", lambda w: stopped.append(w) or True), \
+                unittest.mock.patch.object(window, "_tell_panel_closed", lambda url: None), \
+                unittest.mock.patch.object(window, "_storage_folder", lambda: Path(".")):
+            self.assertEqual(window.run_window("http://127.0.0.1:1/"), 0)
+        self.assertEqual(stopped, [fake_window])
+        # Without .NET (or pywebview's WebView2) it says so and carries on.
+        self.assertFalse(window.stop_request_hook(types.SimpleNamespace(native=None)))
 
     def test_the_window_drags_only_take_files(self):
         import unittest.mock

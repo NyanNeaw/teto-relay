@@ -221,6 +221,34 @@ def _drag_file(form, path: Path) -> bool:
         return False
 
 
+def stop_request_hook(window) -> bool:
+    """Let the page's requests go straight out, as they do in Edge.
+
+    pywebview watches every request the page makes (a WebResourceRequested
+    filter on "*") for request/response events Teto Relay does not use. Each
+    request then passes through the window's UI thread, body and all: a
+    voicebank upload - a 436 MB .zip read from disk - froze the window at
+    "Uploading..." and never reached the panel. Called once the page has
+    loaded (pywebview adds the filter as the browser starts).
+    """
+    form = getattr(window, "native", None)
+    if form is None:
+        return False
+    try:
+        from System import Action
+        from Microsoft.Web.WebView2.Core import CoreWebView2WebResourceContext
+
+        def remove():
+            form.browser.webview.CoreWebView2.RemoveWebResourceRequestedFilter(
+                "*", CoreWebView2WebResourceContext.All)
+
+        form.Invoke(Action(remove))
+        return True
+    except Exception:  # noqa: BLE001 - uploads are slow then, not broken everywhere
+        log.warning("could not stop pywebview watching every request", exc_info=True)
+        return False
+
+
 def run_window(url: str) -> int:
     """Show the panel in our own window until it is closed. 0, or 1 if no
     window could be made (no WebView2) - the caller falls back to Edge."""
@@ -242,6 +270,13 @@ def run_window(url: str) -> int:
             set_window_relaunch(hwnd)
 
     window.events.shown += shown
+    hooked = [True]
+
+    def loaded() -> None:
+        if hooked[0]:
+            hooked[0] = not stop_request_hook(window)
+
+    window.events.loaded += loaded
     try:
         # Takes are downloaded from the panel (.wav, .ustx, .zip); pywebview
         # blocks downloads unless told otherwise.
