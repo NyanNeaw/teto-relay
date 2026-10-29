@@ -875,8 +875,13 @@ function renderTake(d){
   const btn=$('rec'), t=d.take||{};
   btn.disabled=!d.running||!!d.take_finishing;
   btn.classList.toggle('on',!!t.recording);
+  // Record collects what she sings, and she sings only while the talk key is
+  // held: until the first phrase, the button says so.
+  const key=String(cfg.ptt_key||'F8').toUpperCase();
   $('rectext').textContent=d.take_finishing?'Saving take':
-    t.recording?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):'Record';
+    !t.recording?'Record':
+    t.phrases?clock(t.seconds)+' \u00b7 '+t.phrases+(t.phrases===1?' phrase':' phrases'):
+    clock(t.seconds)+' \u00b7 hold '+key+' and sing';
   btn.title=t.recording?'Stop and save the take':
     'Record a take: everything she sings until you press again, as one audio file and one OpenUtau project';
   if(d.takes_changed!==takesSeen){
