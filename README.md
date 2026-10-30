@@ -19,7 +19,7 @@ and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
-  <img alt="The Teto Relay control panel: Teto's voicebank on the left; singing style, language, microphone and output on the right" src="docs/images/panel-light.png">
+  <img alt="The Teto Relay control panel: Teto's voicebank and the last phrase she sang, with its melody, on the left; style, language, microphone and output on the right" src="docs/images/panel-light.png">
 </picture>
 
 ## Download
@@ -44,7 +44,7 @@ before you download.** It shows the whole setup in pictures.
 
 | | |
 |---|---|
-| **A UTAU voicebank** | Her voice. Kasane Teto's 単独音 (tandoku) bank sounds best; any UTAU bank works. Drop its `.zip` into the app. |
+| **A UTAU voicebank** | Her voice. Kasane Teto's 単独音 (tandoku) bank sounds best; any UTAU bank works. Drag its `.zip` onto the app. |
 | **[VB-Cable](https://vb-audio.com/Cable/)** | Only for Discord, OBS and other apps: the virtual cable she sings into. Restart after installing. |
 | **OpenUtau** | The installer gets it. With the portable zip, get [OpenUtau](https://github.com/stakira/OpenUtau/releases) yourself and unzip it anywhere. |
 | **An NVIDIA graphics card** | Optional. Listening is faster with one. |
@@ -66,6 +66,22 @@ the microphone.
 4. **She sings.** The words and notes become an OpenUtau project, and
    OpenUtau's engine sings it in the background, with no window.
 5. **Out it goes**, into VB-Cable or your speakers.
+
+Minimize the window and a small player stays on top in the corner, with
+Start, Record and a hold-to-talk button.
+
+## Song covers
+
+Press the round **Record** button next to Start and sing along to a song
+(headphones for the music). No key needed: each pause ends a line. Press it
+again and the take opens:
+
+- **Play it back** on a piano roll.
+- **Fix a word she misheard**: click the line, type the right word, and she
+  sings that line again with the same timing and melody.
+- **Drag it straight into FL Studio** or any DAW. It lines up with the music
+  from where you pressed Record. Or download her singing (.wav), an OpenUtau
+  project (.ustx) to fine-tune, your own voice, or everything as a .zip.
 
 ## Known issues in this beta
 

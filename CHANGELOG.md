@@ -1,15 +1,35 @@
 # Changelog
 
-## 0.3.1 (in progress)
+## 0.3.1 beta (2026-10-30)
 
 - **A calmer panel.** Far less text: the main settings carry a small icon
   instead of a line of help (point at one for its tip), the style switch
   says *Speak* / *Sing* instead of *Speech* / *Sung*, and buttons, groups
   and the take sheet have icons too. Drop-downs show names, not codes
   ("Hold the talk key", not "ptt").
+- **A new look**, with a friend's touches: a logo that fills with the
+  voice's colour while she runs, a status pill, and an opening where the
+  app's logo pops in, sings, and lands in the top bar.
+- **A mini player.** Minimize the window and a small player stays on top in
+  the corner, Spotify-style: Start/Stop, Record, and a hold-to-talk button.
+- **Adding a voicebank**: a popup shows the upload's progress, then
+  "ready" with a button to use her straight away. Or drop the .zip anywhere
+  on the window. Big voicebanks no longer freeze the app window (a 436 MB
+  bank took minutes, or never finished; now about 6 s).
+- **Japanese voicebanks keep your rhythm on English.** Each English word
+  becomes several Japanese syllables, and each used to push the next word
+  later, up to a second behind by the end of a sentence. Words now start
+  where you said them (median 162 ms late → on time, worst 1.1 s → 0.18 s),
+  and a phrase lasts about as long as you took to say it.
+- **VCV voicebanks** no longer sing longer than others, and find a sample
+  for every syllable.
+- **The talk key works in any keyboard language.** After switching Windows
+  to Thai, holding it did nothing.
+- **The window no longer shows "Not Responding"** for a while when it opens.
 - **Record a take, for song covers.** Press Record next to Start, sing your
-  lines over the song (no key needed: each pause ends a line), press it again. Every phrase lands where you sang it,
-  so it lines up with the music. Download Teto's singing (.wav), an OpenUtau
+  lines over the song (no key needed: each pause ends a line), press it
+  again. Every phrase lands where you sang it, so it lines up with the
+  music. Download Teto's singing (.wav), an OpenUtau
   project (.ustx) to fix notes or swap the voicebank, your own voice (.wav)
   as a guide, or all three in a .zip. A take where nothing was sung isn't
   kept, and the panel says so.
