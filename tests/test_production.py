@@ -3846,6 +3846,282 @@ def _phrase_doc(singer="Teto", position=480, notes=((0, 240, 60, "a"),)):
     }
 
 
+def _curved_doc():
+    """A line's project with two touching notes, a pitch curve, vibrato on
+    the first, a phonetic hint on the second, and a part curve."""
+    doc = _phrase_doc(position=960, notes=((0, 480, 60, "hel"), (480, 480, 62, "lo")))
+    first, second = doc["voice_parts"][0]["notes"]
+    first["pitch"] = {"data": [{"x": -40.0, "y": -5.0, "shape": "io"}, {"x": 100.0, "y": 0.0, "shape": "io"},
+                               {"x": 300.0, "y": 3.0, "shape": "io"}, {"x": 450.0, "y": 1.0, "shape": "io"}],
+                      "snap_first": True}
+    first["vibrato"] = {"length": 40, "period": 175, "depth": 25}
+    second["phonetic_hint"] = "l ow"
+    doc["voice_parts"][0]["curves"] = [{"xs": [0, 480], "ys": [0, 10], "abbr": "dyn"}]
+    return doc
+
+
+class TestNoteEditor(unittest.TestCase):
+    """The take sheet's note editor: a small OpenUtau for one line."""
+
+    # 480 ticks a beat at 120 bpm: 960 ticks a second. The part starts at
+    # 960 ticks, 1 s into the recording; "hel" is 1.0-1.5 s, "lo" 1.5-2.0 s.
+    def notes(self, **changes):
+        out = [{"src": 0, "cut": 0, "tone": 60, "start": 1.0, "dur": 0.5, "lyric": "hel"},
+               {"src": 1, "cut": 0, "tone": 62, "start": 1.5, "dur": 0.5, "lyric": "lo"}]
+        for i, change in changes.items():
+            out[int(i[1:])].update(change)
+        return out
+
+    def test_a_note_moved_keeps_its_curve_and_never_overlaps(self):
+        from teto_relay.takes import doc_notes, edit_notes
+
+        doc = edit_notes(_curved_doc(), self.notes(n0={"tone": 64, "dur": 0.8}))
+        part = doc["voice_parts"][0]
+        first, second = part["notes"]
+        self.assertEqual(first["tone"], 64)
+        # Stretched over "lo": cut back to where "lo" begins.
+        self.assertEqual(first["duration"], 480)
+        self.assertEqual(first["pitch"], _curved_doc()["voice_parts"][0]["notes"][0]["pitch"])
+        self.assertEqual(first["vibrato"]["length"], 40)
+        self.assertEqual(second["phonetic_hint"], "l ow")
+        self.assertEqual(doc_notes(doc), [{"lyric": "hel", "tone": 64, "start": 1.0, "dur": 0.5},
+                                          {"lyric": "lo", "tone": 62, "start": 1.5, "dur": 0.5}])
+        # The source document is left alone.
+        self.assertEqual(_curved_doc()["voice_parts"][0]["notes"][0]["tone"], 60)
+
+    def test_a_split_note_shares_its_curve_and_the_vibrato_goes_to_the_end(self):
+        from teto_relay.takes import edit_notes
+
+        notes = self.notes(n0={"dur": 0.25})
+        notes.insert(1, {"src": 0, "cut": 0.25, "tone": 59, "start": 1.25, "dur": 0.25, "lyric": "+"})
+        doc = edit_notes(_curved_doc(), notes)
+        head, tail, _ = doc["voice_parts"][0]["notes"]
+        self.assertEqual((head["position"], head["duration"], tail["position"], tail["duration"]),
+                         (0, 240, 240, 240))
+        self.assertEqual((tail["lyric"], tail["tone"]), ("+", 59))
+        # The head keeps the curve up to its end; the tail starts on the
+        # point before its start and carries the rest, 250 ms earlier.
+        self.assertEqual([p["x"] for p in head["pitch"]["data"]], [-40.0, 100.0])
+        self.assertEqual([(p["x"], p["y"]) for p in tail["pitch"]["data"]], [(-150.0, 0.0), (50.0, 3.0), (200.0, 1.0)])
+        self.assertEqual(head["vibrato"]["length"], 0)
+        self.assertEqual(tail["vibrato"]["length"], 40)
+
+    def test_joined_and_deleted_notes(self):
+        from teto_relay.takes import edit_notes
+
+        joined = edit_notes(_curved_doc(), [self.notes(n0={"dur": 1.0})[0]])
+        notes = joined["voice_parts"][0]["notes"]
+        self.assertEqual([(n["lyric"], n["duration"]) for n in notes], [("hel", 960)])
+        self.assertEqual(joined["voice_parts"][0]["duration"], 960)
+        with self.assertRaises(ValueError):
+            edit_notes(_curved_doc(), [])
+
+    def test_a_typed_lyric_is_spelled_for_the_bank_and_drops_the_hint(self):
+        from teto_relay.takes import edit_notes
+
+        seen = []
+
+        def respell(lyric, previous):
+            seen.append((lyric, previous))
+            return lyric.upper()
+
+        doc = edit_notes(_curved_doc(), self.notes(n1={"lyric": "low"}, n0={"lyric": "+"}), respell)
+        first, second = doc["voice_parts"][0]["notes"]
+        # "+" holds the vowel on: never respelled.
+        self.assertEqual((first["lyric"], second["lyric"]), ("+", "LOW"))
+        self.assertNotIn("phonetic_hint", second)
+        # "low" touches the note before it, so it is told what that was.
+        self.assertEqual(seen, [("low", "+")])
+        seen.clear()
+        edit_notes(_curved_doc(), self.notes(n1={"lyric": "low", "start": 1.7, "dur": 0.3}), respell)
+        self.assertEqual(seen, [("low", None)])
+
+    def test_a_note_moved_before_the_part_moves_the_part(self):
+        from teto_relay.takes import doc_notes, edit_notes
+
+        doc = edit_notes(_curved_doc(), self.notes(n0={"start": 0.5, "dur": 0.4}))
+        part = doc["voice_parts"][0]
+        self.assertEqual(part["position"], 480)
+        self.assertEqual([n["position"] for n in part["notes"]], [0, 960])
+        # The part's curves stay where they were in time.
+        self.assertEqual(part["curves"][0]["xs"], [480, 960])
+        self.assertEqual([n["start"] for n in doc_notes(doc)], [0.5, 1.5])
+
+    def test_bad_edits_are_refused(self):
+        from teto_relay.takes import edit_notes
+
+        for bad in ([{"src": 5, "tone": 60, "start": 1.0, "dur": 0.5, "lyric": "a"}],
+                    [{"src": 0, "tone": 60, "start": -1.0, "dur": 0.5, "lyric": "a"}],
+                    [{"src": 0, "tone": 60, "start": 1.0, "dur": 0.0, "lyric": "a"}],
+                    [{"src": 0, "tone": 60, "start": float("nan"), "dur": 0.5, "lyric": "a"}],
+                    [{"src": 0, "tone": 60, "start": 1.0, "dur": 0.5, "lyric": ""}],
+                    [{"src": 0, "tone": 60, "start": 1.0, "dur": 0.5, "lyric": "x" * 40}],
+                    [{"tone": 60, "start": 1.0, "dur": 0.5, "lyric": "a"}],
+                    "nope"):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                edit_notes(_curved_doc(), bad)
+        # Tones are kept to the keyboard, and a note never shorter than 30 ms.
+        doc = edit_notes(_curved_doc(), [{"src": 0, "tone": 200, "start": 1.0, "dur": 0.001, "lyric": "a"}])
+        note = doc["voice_parts"][0]["notes"][0]
+        self.assertEqual((note["tone"], note["duration"]), (108, 29))
+
+    def test_a_line_can_be_deleted_and_the_last_one_takes_the_take(self):
+        import json
+
+        from teto_relay.takes import Take
+
+        with _TempHome() as home, _PanelServer() as s:
+            take = Take(home / "takes")
+            take.phrases = [TestTakes.phrase(None, 0.0, "first"), TestTakes.phrase(None, 1.0, "second")]
+            info = take.finish()
+            folder = take.folder
+            first = int(info["phrases"][0]["n"])
+            headers = {"X-Teto-Relay": "1", "Content-Type": "application/json"}
+            status, body = s.request("POST", f"/api/take/line/delete?take={folder.name}",
+                                     {"line": first}, headers)
+            data = json.loads(body)
+            self.assertEqual(status, 200, body)
+            self.assertFalse(data["gone"])
+            self.assertEqual([p["text"] for p in data["take"]["phrases"]], ["second"])
+            self.assertFalse((folder / "lines" / f"{first:02d}.wav").exists())
+            self.assertEqual([p["text"] for p in json.loads((folder / "take.json").read_text(encoding="utf-8"))["phrases"]],
+                             ["second"])
+            # A line that isn't there.
+            status, _ = s.request("POST", f"/api/take/line/delete?take={folder.name}",
+                                  {"line": 99}, headers)
+            self.assertEqual(status, 400)
+            # Editing notes needs her singing, and says so.
+            status, body = s.request("POST", f"/api/take/notes?take={folder.name}",
+                                     {"line": 2, "notes": [{"src": 0}]}, headers)
+            self.assertEqual(status, 400)
+            self.assertIn("Start", json.loads(body)["error"])
+            status, _ = s.request("POST", f"/api/take/notes?take={folder.name}",
+                                  {"line": 2, "notes": "x"}, headers)
+            self.assertEqual(status, 400)
+            # The last line goes: so does the take.
+            last = int(data["take"]["phrases"][0]["n"])
+            status, body = s.request("POST", f"/api/take/line/delete?take={folder.name}",
+                                     {"line": last}, headers)
+            self.assertEqual(status, 200)
+            self.assertTrue(json.loads(body)["gone"])
+            self.assertFalse(folder.exists())
+
+    def test_an_edited_line_is_sung_by_the_voice_that_sang_it(self):
+        import types
+
+        from teto_relay.app import TetoRelay
+        from teto_relay.voicebank import Voicebank
+
+        calls = []
+        relay = TetoRelay.__new__(TetoRelay)
+        relay.renderer = types.SimpleNamespace(set_bank=lambda b: calls.append(b.key),
+                                               render=lambda ustx, wav: calls.append("render"), last_origin=0.2)
+        relay.bank = Voicebank(key="tandoku", name="Teto", root=Path("banks/tandoku"), flavour="ja-cv")
+        english = Voicebank(key="english", name="Teto EN", root=Path("banks/english"), flavour="en-arpa")
+        relay.banks = [relay.bank, english]
+        self.assertIs(relay._bank_named("english"), english)
+        self.assertIsNone(relay._bank_named("gone"))
+        # Sung by the English bank, then the selected one is back.
+        self.assertEqual(relay._render(Path("a.ustx"), Path("a.wav"), english), 0.2)
+        self.assertEqual(calls, ["english", "render", "tandoku"])
+        calls.clear()
+        relay._render(Path("a.ustx"), Path("a.wav"), relay.bank)
+        relay._render(Path("a.ustx"), Path("a.wav"))
+        self.assertEqual(calls, ["render", "render"])
+
+    def test_the_page_has_the_note_editor_and_take_deleting(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/take/notes?take=", "api/take/line/delete?take=", "function lineEditor",
+                       "normalizeNotes", "splitAt", "Delete all", "hear_myself"):
+            self.assertIn(needle, page)
+        # Questions are asked in the page's own popup, not the browser's.
+        self.assertNotIn("confirm(", page)
+
+
+class TestHearMyself(unittest.TestCase):
+    """Hear her in your headphones; a take is kept off the output."""
+
+    def play(self, cfg, job, device=7, monitor=3):
+        import tempfile
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay import playback
+
+        played, heard, started = [], [], []
+        fake_sd = types.SimpleNamespace(
+            play=lambda data, **k: played.append(k.get("device")), stop=lambda: None, get_stream=lambda: None,
+            query_devices=lambda *a: {"default_samplerate": 48000, "max_output_channels": 2},
+        )
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(playback, "sd", lambda: fake_sd), \
+                unittest.mock.patch.object(playback, "monitor_device", lambda c: monitor), \
+                unittest.mock.patch.object(playback.Monitor, "start", lambda self: None), \
+                unittest.mock.patch.object(playback.Monitor, "play",
+                                           lambda self, data, rate, dev: heard.append(dev)):
+            wav = Path(tmp) / "p.wav"
+            sf.write(str(wav), np.full(480, 0.1, np.float32), 48000)
+            player = playback.Player(cfg, None, device, on_playback=started.append,
+                                     quiet=lambda j: bool(getattr(j, "in_take", False)))
+            if job is not None:
+                job.timeline = types.SimpleNamespace(lap=lambda *a: None, add=lambda *a: None)
+            player._play_file(wav, job)
+        return played, heard, started
+
+    def test_a_take_is_kept_off_the_output(self):
+        import types
+
+        from teto_relay.config import Config
+
+        job = types.SimpleNamespace(in_take=True)
+        played, heard, started = self.play(Config(), job)
+        self.assertEqual(played, [])
+        self.assertEqual(heard, [])
+        # Still counted as played, for the timing shown in the panel.
+        self.assertEqual(started, [job])
+        played, heard, _ = self.play(Config(hear_myself=True), job)
+        self.assertEqual((played, heard), ([], [3]))
+
+    def test_hear_myself_plays_on_the_second_device(self):
+        import types
+
+        from teto_relay.config import Config
+
+        job = types.SimpleNamespace(in_take=False)
+        self.assertEqual(self.play(Config(), job)[:2], ([7], []))
+        self.assertEqual(self.play(Config(hear_myself=True), job)[:2], ([7], [3]))
+        # The output is already your headphones: not played twice.
+        self.assertEqual(self.play(Config(hear_myself=True), job, device=3)[:2], ([3], []))
+
+    def test_the_monitor_device_falls_back_to_windows_default(self):
+        import types
+        import unittest.mock
+
+        from teto_relay import playback
+        from teto_relay.config import Config
+
+        fake_sd = types.SimpleNamespace(default=types.SimpleNamespace(device=(1, 4)))
+        with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+            self.assertEqual(playback.monitor_device(Config()), 4)
+            with unittest.mock.patch("teto_relay.devices.find_device",
+                                     lambda name, kind: types.SimpleNamespace(index=9) if name == "Phones" else None):
+                self.assertEqual(playback.monitor_device(Config(monitor_device="Phones")), 9)
+                self.assertEqual(playback.monitor_device(Config(monitor_device="Gone")), 4)
+
+    def test_the_panel_offers_it(self):
+        from teto_relay.config import Config
+        from teto_relay.webui import LABELS, _meta
+
+        meta = _meta(Config())
+        self.assertIn("hear_myself", meta["essentials"])
+        self.assertIn("monitor_device", meta["groups"]["Setup"])
+        self.assertIn("hear_myself", LABELS)
+        self.assertIn("monitor_device", LABELS)
+
+
 class _Hooks:
     """Stands in for a pywebview event: `+=` a handler, `fire()` them."""
 
@@ -4087,6 +4363,31 @@ class TestTakes(unittest.TestCase):
             self.assertTrue((folder / "teto.wav").is_file())
             with self.assertRaises(Exception):
                 relay.resing(folder, 2, ["nope"])
+
+            # The note editor: the first note a semitone up and split in two,
+            # the last note deleted. She sings the edited notes, and the
+            # take's project has them.
+            notes = fixed["phrases"][0]["notes"]
+            self.assertGreaterEqual(len(notes), 2)
+            edited = [dict(n, src=i, cut=0.0) for i, n in enumerate(notes)]
+            first = edited[0]
+            half = round(first["dur"] / 2, 3)
+            edited[0] = dict(first, tone=first["tone"] + 1, dur=half)
+            edited.insert(1, dict(first, tone=first["tone"] + 1, start=round(first["start"] + half, 3),
+                                  dur=round(first["dur"] - half, 3), cut=half, lyric="+"))
+            edited.pop()
+            renoted = relay.renote(folder, 1, edited)
+            line = renoted["phrases"][0]
+            self.assertTrue(line["notes_edited"])
+            self.assertEqual(len(line["notes"]), len(notes))
+            self.assertEqual([n["lyric"] for n in line["notes"]][:2], ["goodbye", "+"])
+            self.assertEqual(line["notes"][0]["tone"], notes[0]["tone"] + 1)
+            doc = yaml.safe_load((folder / "teto.ustx").read_text(encoding="utf-8"))
+            self.assertEqual([n["lyric"] for n in doc["voice_parts"][0]["notes"]][:2], ["goodbye", "+"])
+            # Fixing the words builds the notes again: the note edits are gone.
+            again = relay.resing(folder, 1, ["goodbye", "there"])
+            self.assertFalse(again["phrases"][0]["notes_edited"])
+            self.assertEqual(len(again["phrases"][0]["notes"]), len(notes))
 
     def test_the_panel_lists_and_serves_takes(self):
         import http.client

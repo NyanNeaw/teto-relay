@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 # is the UTAU / Voice switch in the top bar.
 ESSENTIALS: list[str] = [
     "singing_style", "double_when", "transpose", "playback_gain", "language", "lyrics_hint",
-    "input_device", "output_device", "ptt_key",
+    "input_device", "output_device", "hear_myself", "ptt_key",
 ]
 
 # "All settings", in order of how often they matter. Anything not listed still
@@ -52,7 +52,7 @@ GROUPS: dict[str, list[str]] = {
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
     # Where things are. Empty means "look in the usual places".
-    "Setup": ["openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
+    "Setup": ["monitor_device", "openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
               "persistent_output", "keep_input_audio", "panel_window"],
     "Fine tuning: pitch": [
         "target_tone", "shift_mode", "stable_shift", "shift_tolerance", "max_shift",
@@ -200,6 +200,8 @@ LABELS: dict[str, list[str]] = {
     "voicebank_root": ["Voicebank folder", "Empty finds it."],
     "input_device": ["Microphone", ""],
     "output_device": ["Output", "VB-Cable sends her into other apps."],
+    "hear_myself": ["Hear myself", "Hear her in your headphones too. Takes are only heard here."],
+    "monitor_device": ["Hear myself on", "Blank is Windows' default output."],
     "ptt_key": ["Talk key", "Hold it while you talk."],
     "transpose": ["Transpose", "Semitones."],
     "playback_gain": ["Volume", ""],
@@ -460,6 +462,22 @@ class Controller:
             raise TetoRelayError("Press Start first: fixing a word sings the line again.")
         return relay.resing(folder, line_no, texts)
 
+    def renote(self, folder, line_no: int, notes: list) -> dict:
+        relay = self.relay
+        if relay is None or not self.running:
+            raise TetoRelayError("Press Start first: she sings the edited notes.")
+        return relay.renote(folder, line_no, notes)
+
+    def delete_line(self, folder, line_no: int) -> dict | None:
+        """Drop a line from a take; needs no relay. None: the take was its
+        only line, so the take went too."""
+        from . import takes as takes_mod
+
+        with takes_mod.edit_lock(folder):
+            out = takes_mod.delete_line(folder, line_no)
+        self.takes_changed += 1
+        return out
+
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
         relay = self.relay
@@ -578,6 +596,8 @@ class Controller:
             "takes_changed": self.takes_changed,
             "take_notice": self.take_notice,
             "last_take": self.last_take,
+            # For the mini player's headphones button.
+            "hear_myself": bool(getattr(self.cfg, "hear_myself", False)),
             "log": list(self.buffer.lines)[-60:],
         }
 
@@ -913,6 +933,35 @@ def make_handler(controller: Controller):
                 except Exception as exc:  # noqa: BLE001 - a render that failed: say so
                     log.exception("could not sing the line again")
                     self._json({"ok": False, "error": f"Could not sing it again: {exc}"}, 500)
+            elif route == "api/take/notes":
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    notes = body.get("notes")
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    elif not isinstance(notes, list) or not all(isinstance(n, dict) for n in notes):
+                        self._json({"ok": False, "error": "notes must be a list of notes"}, 400)
+                    else:
+                        self._json({"ok": True, "take": controller.renote(folder, int(body.get("line", 0)), notes)})
+                except (TetoRelayError, ValueError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+                except Exception as exc:  # noqa: BLE001 - a render that failed: say so
+                    log.exception("could not sing the edited notes")
+                    self._json({"ok": False, "error": f"Could not sing it: {exc}"}, 500)
+            elif route == "api/take/line/delete":
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    else:
+                        take = controller.delete_line(folder, int(body.get("line") or 0))
+                        self._json({"ok": True, "take": take, "gone": take is None})
+                except (ValueError, TypeError, KeyError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/take/delete":
                 from .takes import discard
 

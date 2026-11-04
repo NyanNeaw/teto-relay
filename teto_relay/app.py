@@ -71,6 +71,9 @@ class Job:
     words: list | None = None
     track: object = None
     context: dict | None = None
+    # Sung into a take: kept off the output (VB-Cable), so a cover being
+    # recorded does not go out as your microphone too. Hear myself still plays it.
+    in_take: bool = False
 
     @property
     def age(self) -> float:
@@ -229,7 +232,8 @@ class TetoRelay:
             from .live import LivePitch
 
             chunker.live_factory = lambda: LivePitch(self.cfg, self.cfg.sample_rate)
-        self._player = Player(cfg, self.wav_q, out_dev.index, on_playback=self._on_playback)
+        self._player = Player(cfg, self.wav_q, out_dev.index, on_playback=self._on_playback,
+                              quiet=lambda job: bool(getattr(job, "in_take", False)))
         self._capture = MicCapture(
             cfg, self.chunk_q, in_dev.index if in_dev else None, threshold, chunker=chunker
         )
@@ -753,6 +757,7 @@ class TetoRelay:
                 take = getattr(self, "_take", None)
                 if take is not None:
                     take.add(job)
+                    job.in_take = True
                 done = job.timeline.lap("render")
                 for stage, seconds in (getattr(self.renderer, "last_timings", None) or {}).items():
                     job.timeline.add(stage, seconds)
@@ -773,11 +778,22 @@ class TetoRelay:
                 self._in_progress(-1)
                 self._trim_output()
 
-    def _render(self, ustx_path: Path, wav_path: Path) -> float:
-        """Render; returns where in the phrase's recording the audio starts."""
+    def _render(self, ustx_path: Path, wav_path: Path, bank=None) -> float:
+        """Render; returns where in the phrase's recording the audio starts.
+        With `bank` (an edited take line), that voice sings it, and the one
+        selected is back for the next live phrase."""
         with self._render_gate:
-            self.renderer.render(ustx_path, wav_path)
-            return float(getattr(self.renderer, "last_origin", 0.0) or 0.0)
+            set_bank = getattr(self.renderer, "set_bank", None)
+            swap = (bank is not None and set_bank is not None and self.bank is not None
+                    and Path(bank.root) != Path(self.bank.root))
+            if swap:
+                set_bank(bank)
+            try:
+                self.renderer.render(ustx_path, wav_path)
+                return float(getattr(self.renderer, "last_origin", 0.0) or 0.0)
+            finally:
+                if swap:
+                    set_bank(self.bank)
 
     # ---------------------------------------------------------------- takes
     def resing(self, folder: Path, line_no: int, texts: list[str]) -> dict:
@@ -829,9 +845,70 @@ class TetoRelay:
             line["words"] = [{"text": w.text, "start": w.start, "end": w.end} for w in words]
             line["text"] = " ".join(w.text for w in words)
             line["edited"] = True
+            # New notes from the words: any note edits are gone.
+            line["notes_edited"] = False
             takes_mod.assemble(folder, info)
             log.info("Sang line %d of %s again: %s", line_no, folder.name, line["text"])
         return takes_mod.detail(folder)
+
+    def renote(self, folder: Path, line_no: int, notes: list) -> dict:
+        """Sing one line of a finished take again from notes edited in the
+        panel's note editor (takes.edit_notes): moved, stretched, split,
+        joined, re-lyricked or deleted. Returns the take's detail."""
+        from . import takes as takes_mod
+
+        folder = Path(folder)
+        with takes_mod.edit_lock(folder):
+            info = takes_mod.read_info(folder)
+            line = next((p for p in info["phrases"] if int(p["n"]) == int(line_no)), None)
+            if line is None:
+                raise TetoRelayError(f"This take has no line {line_no}.")
+            stem = folder / takes_mod.LINES / f"{int(line_no):02d}"
+            ustx = stem.with_suffix(".ustx")
+            doc = takes_mod._read_doc(ustx)
+            # The voice that sang the line sings its edited notes: its lyrics
+            # are spelled for that bank (an English bank's words are silence
+            # on a Japanese one). If that bank is gone, the one selected now.
+            bank = self._bank_named(str(doc["tracks"][0].get("singer", ""))) or self.bank
+            doc = takes_mod.edit_notes(doc, notes, lambda lyric, previous: self._respell(lyric, previous, bank))
+            track = doc["tracks"][0]
+            track["singer"] = bank.root.name
+            track["phonemizer"] = self.cfg.phonemizer or bank.phonemizer
+            takes_mod._write_doc(doc, ustx)
+            wav = stem.with_suffix(".wav")
+            line["origin"] = self._render(ustx, wav, bank)
+            self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav,
+                                   sung=bool(line.get("sung"))))
+            line["edited"] = line["notes_edited"] = True
+            takes_mod.assemble(folder, info)
+            log.info("Sang line %d of %s again from edited notes", line_no, folder.name)
+        return takes_mod.detail(folder)
+
+    def _bank_named(self, folder_name: str):
+        """The installed voicebank whose folder is `folder_name` (how a
+        .ustx names its singer), or None."""
+        if not folder_name:
+            return None
+        for bank in [self.bank] + list(getattr(self, "banks", None) or []):
+            if bank is not None and Path(bank.root).name == folder_name:
+                return bank
+        return None
+
+    def _respell(self, lyric: str, previous: str | None, bank=None) -> str:
+        """A lyric typed into the note editor, spelled as the voicebank needs
+        it (what ustx.build_project does for the lyrics it writes): kana for a
+        Japanese bank, and its own alias for the plain phonemizer."""
+        bank = bank or self.bank
+        if not bank.flavour.startswith("ja-"):
+            return lyric
+        lyric = bank.singable(lyric)
+        if (self.cfg.phonemizer or bank.phonemizer).endswith("DefaultPhonemizer") and " " not in lyric:
+            from .translit import vowel_of
+
+            before = previous.split()[-1] if previous else None
+            vowel = (vowel_of(before) or ("n" if before in ("ん", "ン") else None)) if before else None
+            lyric = bank.alias_for(lyric, vowel)
+        return lyric
 
     def _in_progress(self, change: int) -> None:
         """Phrases between the microphone and a finished render."""

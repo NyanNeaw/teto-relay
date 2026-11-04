@@ -73,7 +73,11 @@ or deleted in one go.
 6. Hold **F8**, say something, let go. Teto sings it a couple of seconds later.
 
 To hear her in **Discord**, **OBS** or anything else, pick **CABLE Output** as
-the microphone in that app.
+the microphone in that app. To hear her yourself, turn on **Hear myself**: she
+also plays on your headphones (Windows' default output, or the one picked
+under All settings → Setup → *Hear myself on*). While you record a take she
+isn't sent to CABLE Input at all, so a cover being recorded doesn't go out as
+your microphone; Hear myself is how you hear it.
 
 ## 4. Where things are
 

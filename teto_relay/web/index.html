@@ -179,11 +179,42 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   display:grid;place-items:center;flex:none}
 .mini:hover{background-color:var(--line);color:var(--text);filter:none}
 .editor{padding:4px 10px 12px}
-.lineroll{display:block;width:100%;background:var(--card);border-radius:10px;border:1px solid var(--line)}
+/* The note editor: a toolbar, then piano keys beside a strip of notes that
+   scrolls sideways. Locked (dimmed) while the words have unsung changes. */
+.sheet.wide{width:min(860px,calc(100vw - 32px))}
+.ntools{display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:0 0 8px}
+.ntools .mini{width:32px;height:32px}
+.ntools .mini:disabled{opacity:.3}
+.ntools .sep{width:1px;height:18px;background:var(--line);margin:0 6px}
+.proll{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--card)}
+.proll.locked{opacity:.45;pointer-events:none}
+.pkeys{width:38px;flex:none;border-right:1px solid var(--line)}
+/* Keys look like a piano's in both themes. */
+.pkey{height:16px;font-size:9px;line-height:15px;text-align:right;padding-right:4px;color:#6e6e73;
+  background:#f2f2f5;border-bottom:1px solid #dcdce0}
+.pkey.black{background:#3a3a3d;border-bottom-color:#3a3a3d}
+.pscroll{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden;position:relative;outline:none}
+.pscroll:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.lineroll{display:block;user-select:none;touch-action:none}
 .lineroll .row{fill:var(--sink)}
-.lineroll rect.n{fill:var(--accent)}
-.lineroll text{fill:#fff;font-size:11px;font-weight:600;pointer-events:none;
+.lineroll .grid{stroke:var(--line);stroke-width:1}
+.lineroll rect.n{fill:var(--accent);opacity:.82}
+.lineroll .nt{cursor:grab}
+.lineroll .nt .edge{fill:transparent;cursor:ew-resize}
+.lineroll .nt.sel rect.n{opacity:1;stroke:var(--text);stroke-width:1.5}
+.lineroll .head{stroke:var(--text);stroke-width:1.5}
+.lineroll text{fill:var(--on-accent);font-size:11px;font-weight:600;pointer-events:none;
   font-family:"Yu Gothic UI","Segoe UI",system-ui,sans-serif}
+.plyric{position:absolute;z-index:2;height:16px;padding:0 4px;font:inherit;font-size:12px;
+  border:1px solid var(--accent);border-radius:4px;background:var(--card);color:var(--text);outline:none}
+.editor .hint{margin:8px 0 10px}
+.words input:disabled{opacity:.5}
+.ed-btns{flex-wrap:wrap}
+/* display:inline-flex beats the hidden attribute. */
+.ed-btns [hidden]{display:none}
+.ed-btns .grow{margin-left:auto}
+.ed-btns .danger,.tlist .del{color:var(--muted)}
+.ed-btns .danger:hover,.tlist .del:hover{color:var(--accent);background-color:var(--accent-weak)}
 .words{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 4px}
 .words input{font:inherit;font-size:14px;padding:5px 9px;border-radius:8px;border:1px solid var(--line);
   background:var(--card);color:var(--text);min-width:2.5ch;field-sizing:content}
@@ -211,9 +242,10 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .stopbtn{width:100%;margin-top:14px}
 .empty{font-size:14px;color:var(--muted);padding:6px 2px}
 .tlist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.tlist button{width:100%;display:flex;align-items:baseline;gap:10px;text-align:left;background-color:transparent;
+.tlist li{display:flex;align-items:center;gap:4px}
+.tlist button:not(.mini){flex:1;min-width:0;display:flex;align-items:baseline;gap:10px;text-align:left;background-color:transparent;
   color:var(--text);padding:9px 10px;border-radius:12px;font-weight:500}
-.tlist button:hover{background-color:var(--sink);filter:none}
+.tlist button:not(.mini):hover{background-color:var(--sink);filter:none}
 .tlist span{font-size:12px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
 
 /* ---------- the voice card ---------- */
@@ -756,6 +788,13 @@ const ICON_PATHS={
   upload:'<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   download:'<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   chevron:'<path d="M9 5l7 7-7 7"/>',
+  cable:'<path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0z"/><path d="M12 16v5"/>',
+  arrowup:'<path d="M12 19V5M6 11l6-6 6 6"/>',
+  arrowdown:'<path d="M12 5v14M6 13l6 6 6-6"/>',
+  shorter:'<path d="M12 4v16M3 12h6M6.5 9.5L9 12l-2.5 2.5M21 12h-6M17.5 9.5L15 12l2.5 2.5"/>',
+  longer:'<path d="M3 4v16M21 4v16M7 12h10M9.5 9.5L7 12l2.5 2.5M14.5 9.5L17 12l-2.5 2.5"/>',
+  split:'<circle cx="6" cy="6.5" r="2.8"/><circle cx="6" cy="17.5" r="2.8"/><path d="M8.4 8.2L20 18M8.4 15.8L20 6"/>',
+  join:'<rect x="3" y="8" width="7" height="8" rx="1.5"/><rect x="14" y="8" width="7" height="8" rx="1.5"/><path d="M10 12h4"/>',
   pencil:'<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   again:'<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
   undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
@@ -773,7 +812,7 @@ function fillIcons(root){
 fillIcons();
 /* Which icon each setting on the main screen carries. */
 const SETTING_ICONS={singing_style:'note',double_when:'double',transpose:'updown',playback_gain:'volume',
-  language:'globe',lyrics_hint:'lyrics',input_device:'mic',output_device:'headphones',ptt_key:'key'};
+  language:'globe',lyrics_hint:'lyrics',input_device:'mic',output_device:'cable',hear_myself:'headphones',ptt_key:'key'};
 
 /* ---------- theme: follow the system until told otherwise ---------- */
 /* Drawn rather than typed: the sun and moon code points render as a weak
@@ -913,7 +952,7 @@ function deviceOptions(k){
   const list=((meta.devices||{})[kind]||[]).slice();
   const current=cfg[k]||'';
   if(current&&!list.some(n=>n===current)) list.unshift(current);
-  return {list:list,blank:(kind==='input')?'System default':''};
+  return {list:list,blank:{input_device:'System default',monitor_device:'Windows default'}[k]||''};
 }
 /* `brief` is the main screen: an icon on the label and the help line kept to a
    tooltip, so the most used settings read at a glance. */
@@ -923,7 +962,7 @@ function control(k,brief){
   if(brief&&SETTING_ICONS[k]) lab.prepend(iconEl(SETTING_ICONS[k]));
   wrap.appendChild(lab);
   const range=meta.ranges?meta.ranges[k]:null;
-  const isDevice=(k==='input_device'||k==='output_device');
+  const isDevice=(k==='input_device'||k==='output_device'||k==='monitor_device');
   let inp,out=null;
   if(isDevice&&((meta.devices||{}).input||[]).length){
     const {list,blank}=deviceOptions(k);
@@ -1454,7 +1493,11 @@ $('rec').onclick=async()=>{
   try{
     const d=await api(on?'api/take/stop':'api/take/start');
     if(d&&d.ok===false) toast(d.error);
-    else if(!on){ sheet.dismissed=false; showSheet('live'); }
+    else if(!on){
+      sheet.dismissed=false; showSheet('live');
+      // A take is kept off the output, so Hear myself is the only way to hear it.
+      if(!cfg.hear_myself) toast('Turn on Hear myself to hear her while you record');
+    }
   }catch(err){toast('Could not reach the relay.');}
   poll();
 };
@@ -1501,7 +1544,7 @@ function setTitle(word,value,live){
   if(value) h.append(el('b','',value));
 }
 function showSheet(view){
-  sheet.view=view; $('sheet').hidden=false;
+  sheet.view=view; $('sheet').hidden=false; $('sheet').classList.remove('wide'); sheet.ed=null;
   if(view==='live'){ sheet.liveCount=-1; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
   else if(view==='list') showList();
 }
@@ -1539,14 +1582,32 @@ async function showList(){
   const takes=d.takes||[];
   if(!takes.length){ body.append(el('p','empty','No takes yet.')); return; }
   const ul=el('ul','tlist');
+  const remove=async ids=>{
+    player.pause();
+    for(const id of ids){
+      try{ const r=await api('api/take/delete?take='+encodeURIComponent(id)); if(r&&r.ok===false){ toast(r.error); break; } }
+      catch(e){ toast('Could not reach the relay.'); break; }
+    }
+    refreshCount(); showList();
+  };
   for(const t of takes){
     const b=el('button'), when=new Date(t.created);
-    b.append(el('b','',isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'})));
+    const name=isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'});
+    b.append(el('b','',name));
     b.append(el('span','',clock(t.length||t.seconds)+' \u00b7 '+plural((t.phrases||[]).length,'line')));
     b.onclick=()=>openTake(t.id);
-    const li=el('li'); li.append(b); ul.append(li);
+    const bin=el('button','mini del'); bin.title='Delete this take'; bin.setAttribute('aria-label','Delete the take from '+name);
+    bin.append(iconEl('trash',15));
+    bin.onclick=async()=>{ if(await ask('Delete this take?',name+' is deleted for good.','Delete')){ await remove([t.id]); toast('Take deleted'); } };
+    const li=el('li'); li.append(b,bin); ul.append(li);
   }
   body.append(ul);
+  const foot=el('div','sh-foot'), all=el('button','danger','Delete all'); all.prepend(iconEl('trash'));
+  all.onclick=async()=>{
+    if(!await ask('Delete all '+plural(takes.length,'take')+'?','Every take and its files are deleted for good.','Delete all')) return;
+    await remove(takes.map(t=>t.id)); toast('All takes deleted');
+  };
+  foot.append(all); body.append(foot);
 }
 
 /* ---- a saved take ---- */
@@ -1567,7 +1628,7 @@ function renderTakeView(){
   const date=el('span','',isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'}));
   date.style.setProperty('--dot','var(--faint)'); chips.append(date);
   const fixed=lines.filter(l=>l.edited).length;
-  if(fixed){ const f=el('span','',plural(fixed,'line')+' fixed'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
+  if(fixed){ const f=el('span','',plural(fixed,'line')+' edited'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
   body.append(chips);
 
   const svg=sv('svg',{class:'takeroll'}); body.append(svg);
@@ -1582,11 +1643,14 @@ function renderTakeView(){
     if(player.dataset.what==='take'&&!player.paused){ player.pause(); return; }
     playFile(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0),'take');
   };
-  sheet.redraw=()=>{ draw(); setPlayIcon(play,player.dataset.what==='take'&&!player.paused); };
+  sheet.redraw=()=>{ draw(); setPlayIcon(play,player.dataset.what==='take'&&!player.paused);
+    if(sheet.ed&&sheet.ed.head) sheet.ed.head(); };
 
   body.append(el('p','sh-sec','Lines'));
   const ul=el('ul','lines');
-  for(const l of lines) ul.append(lineItem(t,l));
+  // The note editor wants room: the sheet widens while a line is open.
+  sheet.ed=null; $('sheet').classList.toggle('wide',!!sheet.open);
+  lines.forEach((l,i)=>ul.append(lineItem(t,l,i+1)));
   body.append(ul);
 
   body.append(dragTile(t,length));
@@ -1603,7 +1667,7 @@ function renderTakeView(){
   open.onclick=async()=>{ try{ const r=await api('api/take/open?take='+encodeURIComponent(t.id)); if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); } };
   const discard=el('button','danger','Discard'); discard.prepend(iconEl('trash'));
   discard.onclick=async()=>{
-    if(!confirm('Delete this take?')) return;
+    if(!await ask('Delete this take?','Its singing and files are deleted for good.','Delete')) return;
     player.pause();
     try{ const r=await api('api/take/delete?take='+encodeURIComponent(t.id)); if(r&&r.ok===false){ toast(r.error); return; } }
     catch(e){ toast('Could not reach the relay.'); return; }
@@ -1628,20 +1692,20 @@ player.addEventListener('ended',()=>{ if(sheet.redraw) sheet.redraw(); });
 function toggleLine(n){
   sheet.open=sheet.open===n?0:n;
   renderTakeView();
-  const open=$('shBody').querySelector('.line.open input');
-  if(open) open.focus();
+  const open=$('shBody').querySelector('.line.open .pscroll');
+  if(open) open.focus({preventScroll:true});
 }
-function lineItem(t,l){
+function lineItem(t,l,number){
   const li=el('li','line'+(sheet.open===l.n?' open':''));
   const row=el('div','lrow');
-  row.append(el('span','num',l.n),el('span','txt',l.text));
-  if(l.edited) row.append(el('span','fixed','fixed'));
+  row.append(el('span','num',number),el('span','txt',l.text));
+  if(l.edited) row.append(el('span','fixed','edited'));
   // The pencil only says what a click on the row does; the row handles it.
-  const edit=el('button','mini'); edit.title='Fix a word'; edit.setAttribute('aria-label','Fix a word in line '+l.n);
+  const edit=el('button','mini'); edit.title='Edit'; edit.setAttribute('aria-label','Edit line '+number);
   edit.append(iconEl('pencil',14));
-  const play=el('button','mini'); play.title='Play this line'; play.setAttribute('aria-label','Play line '+l.n);
+  const play=el('button','mini'); play.title='Play this line'; play.setAttribute('aria-label','Play line '+number);
   setPlayIcon(play,false);
-  play.onclick=e=>{ e.stopPropagation(); playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'); };
+  play.onclick=e=>{ e.stopPropagation(); playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'+l.n); };
   row.append(edit,play);
   row.onclick=()=>toggleLine(l.n);
   li.append(row);
@@ -1649,70 +1713,307 @@ function lineItem(t,l){
   return li;
 }
 
-/* ---- the line editor: her notes with their lyrics (as OpenUtau shows
-   them), and the words, each one fixable ---- */
-function lineEditor(t,l){
-  const box=el('div','editor');
-  const svg=sv('svg',{class:'lineroll'}); box.append(svg);
-  requestAnimationFrame(()=>drawLine(svg,l.notes||[]));
-  if(!l.editable){
-    box.append(el('p','hint','Too old to fix here. Open teto.ustx in OpenUtau.'));
-    return box;
-  }
-  const words=el('div','words'), inputs=[];
-  (l.words||[]).forEach((w,i)=>{
-    const input=el('input'); input.value=w.text; input.spellcheck=false;
-    input.setAttribute('aria-label','Word '+(i+1));
-    input.oninput=()=>{ input.classList.toggle('changed',input.value.trim()!==w.text); sync(); };
-    input.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); sing.click(); } };
-    inputs.push(input); words.append(input);
-  });
-  box.append(words);
-  const hint=el('p','hint','Type the right word, then sing again.');
-  hint.title='Two words in one box share its time. An empty box drops the word.';
-  box.append(hint);
-  const btns=el('div','ed-btns');
-  const sing=el('button','','Sing again'), reset=el('button','ghost','Undo'), busy=el('span','busy','');
-  sing.prepend(iconEl('again',15)); reset.prepend(iconEl('undo',15));
-  const sync=()=>{ const changed=inputs.some((x,i)=>x.value.trim()!==l.words[i].text); sing.disabled=!changed||sheet.busy; reset.hidden=!changed; };
-  reset.onclick=()=>{ inputs.forEach((x,i)=>{ x.value=l.words[i].text; x.classList.remove('changed'); }); sync(); };
-  sing.onclick=async()=>{
-    if(sing.disabled) return;
-    sheet.busy=true; sing.disabled=true; busy.textContent='Singing…';
-    try{
-      const r=await api('api/take/line?take='+encodeURIComponent(t.id),{line:l.n,words:inputs.map(x=>x.value)});
-      if(!r.ok){ toast(r.error||'Could not sing it again.'); return; }
-      r.take.version=(t.version||0)+1;
-      sheet.take=r.take; renderTakeView();
-      playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+r.take.version,'line');
-    }catch(e){ toast('Could not reach the relay.'); }
-    finally{ sheet.busy=false; busy.textContent=''; sync(); }
-  };
-  btns.append(sing,reset,busy); box.append(btns); sync();
-  return box;
-}
-function drawLine(svg,notes){
-  svg.textContent='';
-  const W=svg.clientWidth||400;
-  if(!notes.length){ svg.setAttribute('viewBox','0 0 '+W+' 40'); svg.style.height='40px'; return; }
-  let t0=Infinity,t1=0,lo=127,hi=0;
-  for(const n of notes){ t0=Math.min(t0,n.start); t1=Math.max(t1,n.start+n.dur); lo=Math.min(lo,n.tone); hi=Math.max(hi,n.tone); }
-  lo-=1; hi+=1;
-  const rows=hi-lo+1, rowH=Math.max(8,Math.min(16,140/rows)), H=rows*rowH+8;
-  svg.setAttribute('viewBox','0 0 '+W+' '+H); svg.style.height=H+'px';
-  const x=t=>8+(t-t0)/Math.max(.001,t1-t0)*(W-16), y=tone=>4+(hi-tone)*rowH;
-  for(let tone=lo;tone<=hi;tone++)   // black keys shaded, like a piano roll
-    if([1,3,6,8,10].includes(((tone%12)+12)%12)) svg.append(sv('rect',{class:'row',x:0,y:y(tone),width:W,height:rowH}));
-  for(const n of notes){
-    const nx=x(n.start), w=Math.max(3,x(n.start+n.dur)-nx-1);
-    svg.append(sv('rect',{class:'n',x:nx,y:y(n.tone)+1,width:w,height:rowH-2,rx:Math.min(4,rowH/3)}));
-    const fit=Math.floor((w-6)/6.5);
-    if(fit>=1&&rowH>=11){
-      const label=sv('text',{x:nx+4,y:y(n.tone)+rowH/2+4});
-      label.textContent=n.lyric.length>fit?n.lyric.slice(0,Math.max(1,fit-1))+'\u2026':n.lyric;
-      svg.append(label);
+/* ---- the line editor: a small OpenUtau ----
+   Her notes on a piano roll with their lyrics, as OpenUtau shows them. Drag a
+   note to move it (up and down is pitch), drag its right edge to make it
+   longer or shorter, double-click it to change the lyric, Alt+click to split
+   it there. The toolbar does the same for the selected note, and joins and
+   deletes; the arrow keys move it. Edits stay here, with Undo, until "Sing
+   again" sends them (api/take/notes). The words below fix what whisper heard
+   instead, which builds the line's notes again from the words - so only one
+   of the two can be changed at a time. */
+const NOTE_MIN=0.03, NOTE_SNAP=0.01, ROW=16, BLACK_KEYS=[1,3,6,8,10], NUDGE=0.05;
+let noteIds=0;
+const r3=v=>Math.round(v*1000)/1000;
+const snapTime=v=>Math.round(v/NOTE_SNAP)*NOTE_SNAP;
+const clampTone=v=>Math.min(108,Math.max(24,v));
+/* What the server does too (takes.edit_notes): in time order, and a note
+   running into the next ends where the next begins. */
+function normalizeNotes(ns){
+  ns=ns.map(n=>({...n})).sort((a,b)=>a.start-b.start);
+  for(let i=1;i<ns.length;i++){
+    const p=ns[i-1], n=ns[i];
+    if(n.start<p.start+p.dur-1e-6){
+      if(n.start>p.start+1e-6) p.dur=Math.max(NOTE_MIN,n.start-p.start);
+      else{ const end=n.start+n.dur; n.start=p.start+p.dur; n.dur=Math.max(NOTE_MIN,end-n.start); }
     }
   }
+  return ns.map(n=>({...n,start:r3(n.start),dur:r3(n.dur)}));
+}
+/* A yes/no question in the page's own popup (see addDialog). */
+function ask(title,text,yes){
+  return new Promise(done=>addDialog({kind:'bad',icon:'trash',title,text,
+    buttons:[['Cancel',()=>{closeAdd();done(false);},true],[yes,()=>{closeAdd();done(true);}]]}));
+}
+function lineEditor(t,l){
+  const box=el('div','editor');
+  // A line from before lines kept their own files: nothing to edit here.
+  if(!l.n||!(l.notes||[]).length){
+    box.append(el('p','hint','Open teto.ustx in OpenUtau to change this line.'));
+    return box;
+  }
+  const base=(l.notes||[]).map((n,i)=>({id:i,src:i,cut:0,lyric:n.lyric,tone:n.tone,start:n.start,dur:n.dur}));
+  noteIds=base.length;
+  const ed={notes:base.map(n=>({...n})),hist:[],sel:null,head:null};
+  sheet.ed=ed;
+  const baseKey=JSON.stringify(base);
+  const notesDirty=()=>JSON.stringify(ed.notes)!==baseKey;
+  const selected=()=>ed.notes.find(n=>n.id===ed.sel)||null;
+  let inputs=[];
+  const wordsDirty=()=>inputs.some((x,i)=>x.value.trim()!==l.words[i].text);
+
+  // ---- the toolbar
+  const bar=el('div','ntools');
+  const tool=(icon,title,fn)=>{
+    const b=el('button','mini'); b.type='button'; b.title=title; b.setAttribute('aria-label',title.replace(/ \(.*\)$/,''));
+    b.append(iconEl(icon,15)); b.onclick=e=>{ e.stopPropagation(); fn(); scroll.focus({preventScroll:true}); };
+    bar.append(b); return b;
+  };
+  const sep=()=>bar.append(el('span','sep'));
+  const play=el('button','mini'); play.type='button'; play.title='Play this line'; play.setAttribute('aria-label','Play this line');
+  setPlayIcon(play,player.dataset.what==='line'+l.n&&!player.paused);
+  play.onclick=e=>{ e.stopPropagation();
+    if(player.dataset.what==='line'+l.n&&!player.paused){ player.pause(); return; }
+    playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'+l.n); };
+  bar.append(play); sep();
+  const bUndo=tool('undo','Undo (Ctrl+Z)',()=>undo());
+  sep();
+  const bUp=tool('arrowup','Pitch up (↑, Shift for an octave)',()=>pitch(1));
+  const bDown=tool('arrowdown','Pitch down (↓)',()=>pitch(-1));
+  const bShort=tool('shorter','Shorter',()=>stretch(-NUDGE));
+  const bLong=tool('longer','Longer',()=>stretch(NUDGE));
+  const bSplit=tool('split','Split in two (or Alt+click where to cut)',()=>{ const n=selected(); if(n) splitAt(n,n.start+n.dur/2); });
+  const bJoin=tool('join','Join with the next note',()=>join());
+  const bDel=tool('trash','Delete note (Del)',()=>del());
+  const noteTools=[bUp,bDown,bShort,bLong,bSplit,bJoin,bDel];
+  box.append(bar);
+
+  // ---- the roll: piano keys, and the notes in a strip that scrolls sideways
+  const wrap=el('div','proll'), keys=el('div','pkeys'), scroll=el('div','pscroll');
+  scroll.tabIndex=0; scroll.title='Drag a note to move it, its edge to resize. Double-click to rename.';
+  const svg=sv('svg',{class:'lineroll'}); scroll.append(svg); wrap.append(keys,scroll); box.append(wrap);
+  let lo=60,hi=72,t0=0,t1=1,pps=160,drag=null,lastPress=null;
+  const X=s=>(s-t0)*pps, Y=tone=>(hi-tone)*ROW;
+  const pointerTime=e=>(e.clientX-svg.getBoundingClientRect().left)/pps+t0;
+  function layout(){
+    const ns=ed.notes, tones=ns.map(n=>n.tone);
+    lo=Math.min(...tones)-3; hi=Math.max(...tones)+3;
+    if(hi-lo<13){ lo=Math.floor((lo+hi)/2-6.5); hi=lo+13; }
+    const all=base.concat(ns);
+    t0=Math.max(0,Math.min(...all.map(n=>n.start))-0.2);
+    t1=Math.max(...all.map(n=>n.start+n.dur))+0.8;
+    pps=Math.max((scroll.clientWidth||420)/(t1-t0),150);
+  }
+  function draw(){
+    if(!drag) layout();
+    const W=Math.ceil((t1-t0)*pps), H=(hi-lo+1)*ROW;
+    svg.setAttribute('width',W); svg.setAttribute('height',H); svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    svg.textContent=''; keys.textContent='';
+    for(let tone=hi;tone>=lo;tone--){
+      const black=BLACK_KEYS.includes(((tone%12)+12)%12);
+      if(black) svg.append(sv('rect',{class:'row',x:0,y:Y(tone),width:W,height:ROW}));
+      const k=el('div','pkey'+(black?' black':'')); if(((tone%12)+12)%12===0) k.textContent=noteName(tone);
+      keys.append(k);
+    }
+    for(let s=Math.ceil(t0*2)/2;s<t1;s+=0.5) svg.append(sv('line',{class:'grid',x1:X(s),x2:X(s),y1:0,y2:H}));
+    ed.notes.forEach((n,i)=>{
+      const g=sv('g',{class:'nt'+(n.id===ed.sel?' sel':'')}); g.dataset.i=i;
+      const x=X(n.start), w=Math.max(4,n.dur*pps-1), y=Y(n.tone);
+      g.append(sv('rect',{class:'n',x,y:y+1,width:w,height:ROW-2,rx:4}));
+      const fit=Math.floor((w-6)/6.5);
+      if(fit>=1){ const tx=sv('text',{x:x+4,y:y+ROW/2+4}); tx.textContent=n.lyric.length>fit?n.lyric.slice(0,Math.max(1,fit-1))+'…':n.lyric; g.append(tx); }
+      g.append(sv('rect',{class:'edge',x:x+w-6,y:y+1,width:7,height:ROW-2}));
+      const tip=sv('title',{}); tip.textContent=n.lyric+' · '+noteName(n.tone)+' · '+Math.round(n.dur*1000)+' ms'; g.append(tip);
+      svg.append(g);
+    });
+    const head=sv('line',{class:'head',x1:0,x2:0,y1:0,y2:H,visibility:'hidden'}); svg.append(head);
+    ed.head=()=>{
+      const on=player.dataset.what==='line'+l.n&&!player.paused;
+      setPlayIcon(play,on);
+      head.setAttribute('visibility',on?'visible':'hidden');
+      if(on){ const hx=X((+l.origin||0)+player.currentTime); head.setAttribute('x1',hx); head.setAttribute('x2',hx); }
+    };
+    sync();
+  }
+
+  // ---- edits: each one can be undone
+  const commit=(next,sel)=>{
+    ed.hist.push(JSON.stringify(ed.notes));
+    ed.notes=normalizeNotes(next);
+    if(sel!==undefined) ed.sel=sel;
+    draw();
+  };
+  const change=fn=>{ const n=selected(); if(!n) return; commit(ed.notes.map(m=>m.id===n.id?fn({...m}):m)); };
+  const pitch=d=>change(m=>(m.tone=clampTone(m.tone+d),m));
+  const stretch=d=>change(m=>(m.dur=Math.max(NOTE_MIN,r3(m.dur+d)),m));
+  const nudge=d=>change(m=>(m.start=Math.max(0,r3(m.start+d)),m));
+  function splitAt(n,at){
+    const left=snapTime(at-n.start);
+    if(left<NOTE_MIN||n.dur-left<NOTE_MIN){ toast('Too short to split there'); return; }
+    // The second piece holds the vowel on ("+"), as in OpenUtau; rename it to sing a new syllable.
+    const piece={...n,id:noteIds++,start:r3(n.start+left),dur:r3(n.dur-left),cut:r3(n.cut+left),lyric:'+'};
+    commit(ed.notes.map(m=>m.id===n.id?{...m,dur:r3(left)}:m).concat([piece]),piece.id);
+  }
+  function join(){
+    const n=selected(); if(!n) return;
+    const next=ed.notes[ed.notes.indexOf(n)+1];
+    if(!next){ toast('No note after this one'); return; }
+    commit(ed.notes.filter(m=>m!==next).map(m=>m.id===n.id?{...m,dur:r3(next.start+next.dur-m.start)}:m));
+  }
+  function del(){
+    const n=selected(); if(!n) return;
+    if(ed.notes.length<2){ toast('A line needs at least one note'); return; }
+    commit(ed.notes.filter(m=>m.id!==n.id),null);
+  }
+  function undo(){
+    if(!ed.hist.length) return;
+    ed.notes=JSON.parse(ed.hist.pop()); draw();
+  }
+  function editLyric(n){
+    const box2=el('input','plyric'); box2.value=n.lyric; box2.maxLength=32; box2.spellcheck=false;
+    box2.style.left=X(n.start)+'px'; box2.style.top=Y(n.tone)+'px'; box2.style.width=Math.max(64,n.dur*pps)+'px';
+    scroll.append(box2); box2.focus(); box2.select();
+    let finished=false;
+    const done=keep=>{
+      // Removing the box blurs it, which calls this again.
+      if(finished) return;
+      finished=true;
+      const v=box2.value.trim(); box2.remove();
+      if(keep&&v&&v!==n.lyric) commit(ed.notes.map(m=>m.id===n.id?{...m,lyric:v}:m));
+      scroll.focus({preventScroll:true});
+    };
+    box2.onkeydown=e=>{ e.stopPropagation();
+      if(e.key==='Enter'){ e.preventDefault(); done(true); } else if(e.key==='Escape'){ e.preventDefault(); done(false); } };
+    box2.onblur=()=>done(true);
+  }
+
+  // ---- the pointer: select, drag to move, drag the edge to resize
+  svg.addEventListener('pointerdown',e=>{
+    if(e.button!==0||wrap.classList.contains('locked')) return;
+    scroll.focus({preventScroll:true});
+    const g=e.target.closest('.nt');
+    if(!g){ if(ed.sel!==null){ ed.sel=null; draw(); } return; }
+    const n=ed.notes[+g.dataset.i];
+    ed.sel=n.id;
+    if(e.altKey){ e.preventDefault(); splitAt(n,pointerTime(e)); return; }
+    // A double-click, told here: each press redraws the notes, so the
+    // browser's own dblclick lands on the background, not the note.
+    // Only a click (pressed and let go without moving) counts as the first half.
+    const now=performance.now();
+    if(lastPress&&lastPress.id===n.id&&now-lastPress.t<400&&Math.hypot(e.clientX-lastPress.x,e.clientY-lastPress.y)<6){
+      lastPress=null; e.preventDefault(); draw(); editLyric(n); return;
+    }
+    lastPress=null;
+    drag={id:n.id,len:e.target.classList.contains('edge'),x:e.clientX,y:e.clientY,
+          start:n.start,tone:n.tone,dur:n.dur,before:JSON.stringify(ed.notes),moved:false};
+    svg.setPointerCapture(e.pointerId); draw();
+  });
+  svg.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    if(!drag.moved&&Math.abs(e.clientX-drag.x)<3&&Math.abs(e.clientY-drag.y)<3) return;
+    drag.moved=true;
+    const n=ed.notes.find(m=>m.id===drag.id); if(!n) return;
+    const dt=(e.clientX-drag.x)/pps;
+    if(drag.len) n.dur=Math.max(NOTE_MIN,r3(snapTime(drag.dur+dt)));
+    else{ n.start=Math.max(0,r3(snapTime(drag.start+dt))); n.tone=clampTone(drag.tone+Math.round((drag.y-e.clientY)/ROW)); }
+    draw();
+  });
+  const endDrag=()=>{
+    if(!drag) return;
+    const d=drag; drag=null;
+    if(d.moved){ ed.hist.push(d.before); ed.notes=normalizeNotes(ed.notes); }
+    else lastPress={id:d.id,t:performance.now(),x:d.x,y:d.y};
+    draw();
+  };
+  svg.addEventListener('pointerup',endDrag);
+  svg.addEventListener('pointercancel',endDrag);
+  scroll.addEventListener('keydown',e=>{
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){ e.preventDefault(); undo(); return; }
+    if(wrap.classList.contains('locked')||!selected()) return;
+    const keysMap={ArrowUp:()=>pitch(e.shiftKey?12:1),ArrowDown:()=>pitch(e.shiftKey?-12:-1),
+      ArrowLeft:()=>nudge(-NUDGE),ArrowRight:()=>nudge(NUDGE),Delete:del,Backspace:del,
+      Enter:()=>editLyric(selected())};
+    if(keysMap[e.key]){ e.preventDefault(); e.stopPropagation(); keysMap[e.key](); }
+  });
+
+  // ---- the words
+  if(l.editable){
+    const words=el('div','words');
+    (l.words||[]).forEach((w,i)=>{
+      const input=el('input'); input.value=w.text; input.spellcheck=false;
+      input.setAttribute('aria-label','Word '+(i+1));
+      input.oninput=()=>{ input.classList.toggle('changed',input.value.trim()!==w.text); sync(); };
+      input.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); sing.click(); } };
+      inputs.push(input); words.append(input);
+    });
+    box.append(words);
+  }
+  const hint=el('p','hint',''); box.append(hint);
+
+  // ---- sing it, put it back, or drop the line
+  const btns=el('div','ed-btns');
+  const sing=el('button','','Sing again'), revert=el('button','ghost','Discard changes'),
+    melody=el('button','ghost','Her melody'), busy=el('span','busy',''), drop=el('button','ghost danger grow','Delete line');
+  sing.prepend(iconEl('again',15)); revert.prepend(iconEl('undo',15)); melody.prepend(iconEl('note',15)); drop.prepend(iconEl('trash',15));
+  melody.title='Back to the notes she first sang for these words';
+  function sync(){
+    const nd=notesDirty(), wd=wordsDirty();
+    wrap.classList.toggle('locked',wd);
+    inputs.forEach(x=>{ x.disabled=nd; });
+    bUndo.disabled=!ed.hist.length;
+    noteTools.forEach(b=>{ b.disabled=wd||!selected(); });
+    sing.disabled=!(nd||wd)||sheet.busy;
+    revert.hidden=!(nd||wd);
+    melody.hidden=nd||wd||!l.notes_edited||!l.editable;
+    hint.textContent=!l.editable?'Words can’t be fixed in this older line; its notes can.'
+      :wd?'Sing again to hear the new words, then edit notes.'
+      :nd?'Sing again to hear your edits.'
+      :'Edit notes above, or type the right word.';
+    if(ed.head) ed.head();
+  }
+  revert.onclick=()=>{
+    inputs.forEach((x,i)=>{ x.value=l.words[i].text; x.classList.remove('changed'); });
+    ed.notes=base.map(n=>({...n})); ed.hist=[]; ed.sel=null; draw();
+  };
+  async function send(url,body,after){
+    sheet.busy=true; sync(); busy.textContent='Singing…';
+    try{
+      const r=await api(url,body);
+      if(!r.ok){ toast(r.error||'Could not sing it.'); return; }
+      r.take.version=(t.version||0)+1;
+      sheet.take=r.take; renderTakeView();
+      playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+r.take.version,'line'+l.n);
+      if(after) after();
+    }catch(e){ toast('Could not reach the relay.'); }
+    finally{ sheet.busy=false; busy.textContent=''; if(box.isConnected) sync(); }
+  }
+  sing.onclick=async()=>{
+    if(sing.disabled) return;
+    if(notesDirty()){
+      send('api/take/notes?take='+encodeURIComponent(t.id),{line:l.n,notes:ed.notes.map(n=>({src:n.src,cut:n.cut,tone:n.tone,start:n.start,dur:n.dur,lyric:n.lyric}))});
+      return;
+    }
+    if(l.notes_edited&&!await ask('Change the words?','Her notes are built again from the words, so your note edits go.','Change words')) return;
+    send('api/take/line?take='+encodeURIComponent(t.id),{line:l.n,words:inputs.map(x=>x.value)});
+  };
+  melody.onclick=async()=>{
+    if(!await ask('Back to her melody?','Your note edits on this line go.','Go back')) return;
+    send('api/take/line?take='+encodeURIComponent(t.id),{line:l.n,words:l.words.map(w=>w.text)});
+  };
+  drop.onclick=async()=>{
+    if(!await ask('Delete this line?','It is taken out of the take for good.','Delete')) return;
+    player.pause();
+    try{
+      const r=await api('api/take/line/delete?take='+encodeURIComponent(t.id),{line:l.n});
+      if(!r.ok){ toast(r.error||'Could not delete it.'); return; }
+      if(r.gone){ toast('That was its only line, so the take is gone'); showSheet('list'); refreshCount(); return; }
+      r.take.version=(t.version||0)+1;
+      sheet.take=r.take; sheet.open=0; renderTakeView(); toast('Line deleted');
+    }catch(e){ toast('Could not reach the relay.'); }
+  };
+  btns.append(sing,revert,melody,busy,drop); box.append(btns);
+  requestAnimationFrame(draw);
+  return box;
 }
 function drawRoll(svg,lines,opts){
   svg.textContent='';
@@ -1799,7 +2100,8 @@ const ICONS={
 let adding=null;
 function addDialog(o){
   $('addmodal').hidden=false;
-  $('addicon').className='icon-big'+(o.kind?' '+o.kind:''); $('addicon').innerHTML=ICONS[o.kind||'up'];
+  $('addicon').className='icon-big'+(o.kind?' '+o.kind:'');
+  $('addicon').innerHTML=o.icon?icon(o.icon,26):ICONS[o.kind||'up'];
   $('addtitle').textContent=o.title; $('addtext').textContent=o.text||'';
   $('addbar').hidden=o.progress==null; $('addrow').hidden=o.progress==null||o.progress<0;
   $('addbar').classList.toggle('busy',o.progress!=null&&o.progress<0);
@@ -1892,7 +2194,8 @@ function renderAlert(h){
   box.hidden=!(h.problems||[]).length;
 }
 $('quit').onclick=async()=>{
-  if(!confirm('Quit Teto Relay?')) return;
+  if(!await new Promise(done=>addDialog({kind:'bad',icon:'power',title:'Quit Teto Relay?',
+    buttons:[['Cancel',()=>{closeAdd();done(false);},true],['Quit',()=>{closeAdd();done(true);}]]}))) return;
   try{await fetch('api/quit',{method:'POST'});}catch(e){}
   document.body.textContent='Teto Relay has stopped. You can close this tab.';
 };
@@ -1932,6 +2235,10 @@ async function poll(){
     // this used to refetch a missing picture every second.
     if(d.bank&&d.bank!==pick.value&&[...pick.options].some(o=>o.value===d.bank)){
       pick.value=d.bank; showBank(d.bank);
+    }
+    // The mini player can switch Hear myself too.
+    if(typeof d.hear_myself==='boolean'&&cfg.hear_myself!==undefined&&cfg.hear_myself!==d.hear_myself){
+      cfg.hear_myself=d.hear_myself; const f=$('f-hear_myself'); if(f) f.checked=d.hear_myself;
     }
     renderHero(d); renderMeters(d.stats||{}); renderAlert(d.health||{}); renderTake(d);
     const box=$('log');

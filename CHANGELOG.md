@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.2 (in progress)
+
+- **A small OpenUtau in the take sheet.** Open a line of a take and her notes
+  are on a piano roll: drag a note up or down to change its pitch, sideways
+  to move it, drag its edge to make it longer or shorter, Alt+click (or the
+  scissors) to split it, join it with the next, double-click to change its
+  lyric, delete it. Undo steps back; **Sing again** sings the edited line with
+  the voice that sang it. Her intonation curve moves with each note.
+- **Delete takes from the list**, one at a time or all at once, and delete a
+  single line from a take. Questions are asked in the app's own popup.
+- **Hear myself**: a switch on the main screen (and a headphones button on
+  the mini player) to hear her in your headphones as well.
+- **Recording a take no longer sings into your microphone.** While a take
+  records she isn't sent to CABLE Input; turn on Hear myself to hear her.
+
 ## 0.3.1 beta (2026-10-30)
 
 - **A calmer panel.** Far less text: the main settings carry a small icon

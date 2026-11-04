@@ -4,6 +4,10 @@ Output goes to VB-Cable rather than speakers for two reasons: Discord/OBS pick
 it up as a microphone, and the real microphone never hears it, so the relay
 cannot feed itself. That is what let the reference implementation's second PC
 be dropped.
+
+Hear myself plays each phrase on a second device too (your headphones), and a
+phrase sung into a take goes only there: a cover being recorded is not sent
+out as your microphone.
 """
 
 from __future__ import annotations
@@ -72,6 +76,68 @@ def _fit(data: np.ndarray, rate: int, target_rate: int | None, target_channels: 
     return data, rate
 
 
+def monitor_device(cfg) -> int | None:
+    """The device Hear myself plays on: cfg.monitor_device, or Windows'
+    default output when that is empty (or not found). None: no output at all."""
+    name = (getattr(cfg, "monitor_device", "") or "").strip()
+    if name:
+        from .devices import find_device
+
+        try:
+            found = find_device(name, "output")
+        except Exception:  # noqa: BLE001
+            found = None
+        if found is not None:
+            return found.index
+        log.warning("Hear myself: no output device matching %r; using the default", name)
+    try:
+        index = sd().default.device[1]
+    except Exception:  # noqa: BLE001
+        return None
+    return None if index is None or index < 0 else int(index)
+
+
+class Monitor(threading.Thread):
+    """Hear myself: plays each phrase again on a second device, in its own
+    queue and stream, so it never holds up the main output."""
+
+    daemon = True
+    BLOCK = 1024
+
+    def __init__(self):
+        super().__init__(name="monitor")
+        self.clips: queue.Queue = queue.Queue(maxsize=8)
+        self._stopping = threading.Event()
+
+    def play(self, data: np.ndarray, sample_rate: int, device: int | None) -> None:
+        try:
+            self.clips.put_nowait((data, sample_rate, device))
+        except queue.Full:
+            log.debug("Hear myself is behind; a phrase was skipped")
+
+    def stop(self) -> None:
+        self._stopping.set()
+
+    def run(self) -> None:
+        while not self._stopping.is_set():
+            try:
+                data, sample_rate, device = self.clips.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            try:
+                rate, channels = _device_format(device)
+                data, sample_rate = _fit(data, sample_rate, rate, channels)
+                data = np.ascontiguousarray(data, dtype=np.float32)
+                with sd().OutputStream(samplerate=sample_rate, channels=data.shape[1],
+                                       dtype="float32", device=device) as stream:
+                    for start in range(0, len(data), self.BLOCK):
+                        if self._stopping.is_set():
+                            break
+                        stream.write(data[start:start + self.BLOCK])
+            except Exception:  # noqa: BLE001 - hearing yourself must never stop the relay
+                log.warning("Hear myself could not play on device %s", device, exc_info=True)
+
+
 class Player(threading.Thread):
     """Serialises playback so overlapping utterances queue instead of colliding."""
 
@@ -83,6 +149,7 @@ class Player(threading.Thread):
         source: queue.Queue,
         device: int | None,
         on_playback: Callable[[object], None] | None = None,
+        quiet: Callable[[object], bool] | None = None,
     ):
         super().__init__(name="playback")
         self.cfg = cfg
@@ -91,12 +158,16 @@ class Player(threading.Thread):
         # Told the moment a job's audio starts, with its latency timeline
         # completed - the end of the measurement in teto_relay.latency.
         self.on_playback = on_playback
+        # True for a job that must not go to the main output (a phrase sung
+        # into a take); Hear myself still plays it.
+        self.quiet = quiet
         self.target_rate, self.target_channels = _device_format(device)
         self._stopping = threading.Event()
         self._playing = threading.Event()
         # persistent_output: the open stream and the format it was opened for.
         self._stream = None
         self._stream_format: tuple[int, int] | None = None
+        self._monitor: Monitor | None = None
 
     #: Frames written per call on the persistent stream; small enough that
     #: stop() is answered within a few tens of milliseconds.
@@ -104,8 +175,23 @@ class Player(threading.Thread):
 
     def stop(self) -> None:
         self._stopping.set()
+        if self._monitor is not None:
+            self._monitor.stop()
         if not getattr(self.cfg, "persistent_output", False):
             sd().stop()
+
+    def _hear(self, data: np.ndarray, sample_rate: int, to_main: bool) -> None:
+        """Hear myself: the phrase on the monitor device too - unless that is
+        the main output itself, which is already playing it."""
+        if not getattr(self.cfg, "hear_myself", False):
+            return
+        device = monitor_device(self.cfg)
+        if to_main and device == self.device:
+            return
+        if self._monitor is None:
+            self._monitor = Monitor()
+            self._monitor.start()
+        self._monitor.play(data, sample_rate, device)
 
     @property
     def busy(self) -> bool:
@@ -141,6 +227,8 @@ class Player(threading.Thread):
                 log.exception("failed to play %s", wav_path)
                 self._close_stream()  # a broken stream is reopened next time
         self._close_stream()
+        if self._monitor is not None:
+            self._monitor.stop()
         log.info("Playback thread stopped")
 
     def _report_start(self, job, data, sample_rate: int) -> None:
@@ -167,6 +255,14 @@ class Player(threading.Thread):
 
         if self.cfg.playback_gain != 1.0:
             data = np.clip(data * self.cfg.playback_gain, -1.0, 1.0)
+
+        to_main = not (job is not None and self.quiet is not None and self.quiet(job))
+        self._hear(data, sample_rate, to_main)
+        if not to_main:
+            # Recorded into a take: not sent out as your microphone.
+            self._report_start(job, data, sample_rate)
+            log.info("Kept %s off the output: it is part of a take", path.name)
+            return
 
         original_rate = sample_rate
         data, sample_rate = _fit(data, sample_rate, self.target_rate, self.target_channels)

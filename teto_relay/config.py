@@ -302,6 +302,11 @@ class Config:
     # utterance; the `output` stage of the latency line shows how much on your
     # PC. Off until it has been tried on real hardware.
     persistent_output: bool = False
+    # Hear her yourself: each phrase also plays on `monitor_device` (empty is
+    # Windows' default output - your speakers or headphones), since the main
+    # output is usually VB-Cable, which only other apps hear.
+    hear_myself: bool = False
+    monitor_device: str = ""
     # Save what the microphone heard beside each rendered phrase in out/
     # (relay_<time>_in.wav), so a phrase can be re-rendered or reported later.
     keep_input_audio: bool = False

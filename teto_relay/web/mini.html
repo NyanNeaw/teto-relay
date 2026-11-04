@@ -69,6 +69,7 @@ button:disabled{opacity:.45;cursor:default;filter:none}
     <div class="controls">
       <button class="round" id="run" title="Start" aria-label="Start"></button>
       <button class="round" id="rec" title="Record a take" aria-label="Record a take"><svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg></button>
+      <button class="round" id="hear" title="Hear myself" aria-label="Hear myself" aria-pressed="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-4a8 8 0 0 1 16 0v4"/><rect x="3" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16.5" y="14" width="4.5" height="6.5" rx="1.6"/></svg></button>
       <button class="talk" id="talk" title="Hold while you talk"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>Hold to talk</button>
     </div>
   </div>
@@ -112,6 +113,9 @@ function render(d){
   $('rec').disabled=!d.running||!!d.take_finishing;
   $('rec').classList.toggle('on',!!t.recording);
   $('rec').title=t.recording?'Stop and save':'Record a take';
+  $('hear').classList.toggle('on',!!d.hear_myself);
+  $('hear').setAttribute('aria-pressed',String(!!d.hear_myself));
+  $('hear').title=d.hear_myself?'Hear myself: on':'Hear myself: off';
   $('talk').disabled=!d.running;
   $('talk').classList.toggle('on',!!d.talking);
   let text, dot='var(--muted)';
@@ -132,6 +136,7 @@ async function poll(){
 }
 
 $('run').onclick=async()=>{ $('run').disabled=true; await post(last.running?'api/stop':'api/start'); poll(); };
+$('hear').onclick=async()=>{ await post('api/config',{hear_myself:!last.hear_myself}); poll(); };
 $('rec').onclick=async()=>{ await post((last.take||{}).recording?'api/take/stop':'api/take/start'); poll(); };
 let holding=false;
 const talk=down=>{ if(holding===down) return; holding=down; $('talk').classList.toggle('on',down); post('api/talk',{down}); };

@@ -18,7 +18,8 @@ Each line also keeps its own files in ``lines/`` - her singing, its project,
 what the microphone heard and its pitch - so a word whisper got wrong can be
 fixed afterwards: the line is built again from the corrected words, with the
 timing and the pitch it was sung with, sung again, and the whole take is put
-together again from the lines (`assemble`).
+together again from the lines (`assemble`). Its notes can be edited too, as
+in a small OpenUtau (`edit_notes`), and a line can be dropped (`delete_line`).
 
 Takes are kept in the data folder's ``takes`` directory.
 """
@@ -28,6 +29,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import math
 import re
 import shutil
 import threading
@@ -36,6 +38,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -313,6 +316,150 @@ def respace(words: list[dict], texts: list[str]) -> list[dict]:
     if not out:
         raise ValueError("a line needs at least one word")
     return out
+
+
+# ------------------------------------------------------------- editing notes
+#: The shortest a note can be made in the panel's note editor.
+MIN_EDIT_SECONDS = 0.03
+#: The tones the editor accepts (C1 to C8).
+TONE_RANGE = (24, 108)
+#: How long a lyric typed into the editor may be.
+MAX_LYRIC = 32
+
+
+def _piece_pitch(block: dict, cut_ms: float, length_ms: float) -> dict:
+    """The source note's pitch curve for a piece of it: shifted to start
+    `cut_ms` into the note and cut off where the piece ends. x is in ms from
+    the note start (see teto_relay.ustx)."""
+    pitch = copy.deepcopy(block.get("pitch") or {})
+    points = [dict(p) for p in pitch.get("data") or []]
+    for p in points:
+        p["x"] = round(float(p.get("x", 0.0)) - cut_ms, 1)
+    inside = [p for p in points if p["x"] <= length_ms]
+    before = [p for p in inside if p["x"] <= 0]
+    # The curve from the piece's own start on, plus the last point before it
+    # as the lead-in, so a cut piece starts on the pitch she was at.
+    kept = before[-1:] + [p for p in inside if p["x"] > 0]
+    if len(kept) < 2:
+        y = kept[0]["y"] if kept else 0.0
+        kept = [{"x": -40.0, "y": y, "shape": "io"}, {"x": min(40.0, max(10.0, length_ms)), "y": y, "shape": "io"}]
+    pitch["data"] = kept
+    pitch.setdefault("snap_first", True)
+    return pitch
+
+
+def edit_notes(doc: dict, notes: list[dict], respell: Callable[[str, str | None], str] | None = None) -> dict:
+    """The line's project with its notes as the panel's note editor left them.
+
+    Each note is {src, tone, start, dur, lyric, cut}: `src` is the index of
+    the note it came from, `start` and `dur` are seconds from the start of
+    the recording (as doc_notes gives them), and `cut` is how far into the
+    source note a piece split from it begins. A note keeps its source's pitch
+    curve, shifted with it, so the inflection she sang survives a move or a
+    split; vibrato stays on the last piece of a split note. A note dropped
+    from the list is deleted; one stretched over the next is cut back so
+    notes never overlap. `respell(lyric, previous)` spells a typed lyric the
+    way the voicebank needs (`previous` is the lyric of a note it touches).
+    """
+    if not isinstance(notes, list) or not notes:
+        raise ValueError("a line needs at least one note")
+    doc = copy.deepcopy(doc)
+    parts = doc.get("voice_parts") or []
+    if not parts:
+        raise ValueError("this line has no notes to edit")
+    part = parts[0]
+    sources = part.get("notes") or []
+    tps = float(doc["resolution"]) * float(doc["bpm"]) / 60.0
+    base = int(part.get("position", 0))
+    shortest = max(1, int(round(MIN_EDIT_SECONDS * tps)))
+
+    pieces = []
+    for note in notes:
+        try:
+            src = int(note["src"])
+            tone = int(round(float(note["tone"])))
+            start, dur = float(note["start"]), float(note["dur"])
+            cut = float(note.get("cut") or 0.0)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"a note is missing something: {exc}") from None
+        if not 0 <= src < len(sources):
+            raise ValueError(f"no note {src} in this line")
+        if not all(math.isfinite(v) for v in (start, dur, cut)) or start < 0 or dur <= 0 or cut < 0:
+            raise ValueError("a note's time is out of range")
+        lyric = str(note.get("lyric", sources[src].get("lyric", ""))).strip()
+        if not lyric or len(lyric) > MAX_LYRIC:
+            raise ValueError("a note needs a lyric of 1 to 32 characters")
+        pieces.append({"src": src, "tone": min(max(tone, TONE_RANGE[0]), TONE_RANGE[1]),
+                       "at": int(round(start * tps)), "length": max(shortest, int(round(dur * tps))),
+                       "cut": cut, "lyric": lyric})
+    pieces.sort(key=lambda p: p["at"])
+
+    # No overlaps: a note running into the next ends where the next begins;
+    # two starting together, the later one waits for the first.
+    for before, piece in zip(pieces, pieces[1:]):
+        end = before["at"] + before["length"]
+        if piece["at"] < end:
+            if piece["at"] > before["at"]:
+                before["length"] = piece["at"] - before["at"]
+            else:
+                stop = piece["at"] + piece["length"]
+                piece["at"] = end
+                piece["length"] = max(shortest, stop - end)
+
+    last_cut = {}
+    for p in pieces:
+        last_cut[p["src"]] = max(last_cut.get(p["src"], -1.0), p["cut"])
+    ms_per_tick = 1000.0 / tps
+    blocks = []
+    previous = None
+    for p in pieces:
+        source = sources[p["src"]]
+        block = copy.deepcopy(source)
+        block["tone"] = p["tone"]
+        block["pitch"] = _piece_pitch(source, p["cut"] * 1000.0, p["length"] * ms_per_tick)
+        if p["cut"] < last_cut[p["src"]]:
+            block.setdefault("vibrato", {})["length"] = 0
+        lyric = p["lyric"]
+        if lyric != str(source.get("lyric", "")):
+            block.pop("phonetic_hint", None)
+            if respell is not None and not lyric.startswith("+"):
+                touching = previous is not None and previous["at"] + previous["length"] == p["at"]
+                lyric = respell(lyric, previous["lyric"] if touching else None)
+        block["lyric"] = lyric
+        block["position"], block["duration"] = p["at"], p["length"]
+        blocks.append(block)
+        previous = p
+
+    first = min(b["position"] for b in blocks)
+    new_base = min(base, first)
+    for block in blocks:
+        block["position"] -= new_base
+    # Part curves count from the part start, which may have moved earlier.
+    for curve in part.get("curves") or []:
+        curve["xs"] = [int(x) + base - new_base for x in curve.get("xs") or []]
+    part["position"] = new_base
+    part["notes"] = blocks
+    part["duration"] = max(b["position"] + b["duration"] for b in blocks)
+    return doc
+
+
+def delete_line(folder: Path, line_no: int) -> dict | None:
+    """Remove one line from a take and put the take together again. A take
+    left with no lines is deleted; then this returns None."""
+    folder = Path(folder)
+    info = read_info(folder)
+    kept = [p for p in info["phrases"] if p.get("n") is None or int(p["n"]) != int(line_no)]
+    if len(kept) == len(info["phrases"]):
+        raise ValueError(f"This take has no line {line_no}.")
+    if not kept:
+        discard(folder)
+        return None
+    stem = f"{int(line_no):02d}"
+    for name in (f"{stem}.wav", f"{stem}-voice.wav", f"{stem}.ustx", f"{stem}-pitch.npz"):
+        (folder / LINES / name).unlink(missing_ok=True)
+    info["phrases"] = kept
+    assemble(folder, info)
+    return detail(folder)
 
 
 _EDIT_LOCKS: dict[str, threading.Lock] = {}
