@@ -13,6 +13,10 @@
 - **Downloads sit beside the DAW tile**, as three buttons: her singing
   (.wav), the OpenUtau project, and everything in a .zip. (Your own voice is
   still in the .zip.)
+- **Song lyrics work for Thai too.** Thai is heard by a model that can't be
+  given the lyrics, so the line it heard is now looked up in them, allowing
+  for misheard letters, and sung as the lyric's words, each where you sang
+  it. Talking that isn't in the song is left as heard.
 - **Hear myself**: a switch on the main screen (and a headphones button on
   the mini player) to hear her in your headphones as well.
 - **Recording a take no longer sings into your microphone.** While a take

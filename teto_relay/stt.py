@@ -514,6 +514,12 @@ class Transcriber:
         if self._thai is not None:
             words = self._thai.transcribe(audio, sample_rate)
             log.info("Transcribed %d word(s): %s", len(words), " ".join(w.text for w in words))
+            # Typhoon takes no prompt, so Song lyrics are matched afterwards.
+            lyrics = str(getattr(self.cfg, "lyrics_hint", "") or "")
+            if lyrics.strip():
+                from .lyrics import snap
+
+                words = snap(words, lyrics)
             return words
 
         prompt = whisper_prompt(self.cfg)

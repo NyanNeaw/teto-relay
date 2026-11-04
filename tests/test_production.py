@@ -3860,6 +3860,85 @@ def _curved_doc():
     return doc
 
 
+class TestThaiSongLyrics(unittest.TestCase):
+    """Song lyrics for Thai: Typhoon ASR takes no prompt, so a sung line is
+    looked up in the lyrics after it is heard (teto_relay.lyrics)."""
+
+    SONG = ("ฉันรักเธอมากกว่าใคร ในโลกนี้\n"
+            "อยากให้เธอรู้ว่าฉันยังคิดถึงเธอ\n"
+            "หัวใจของฉันเต้นแรงทุกครั้งที่เธอยิ้ม")
+
+    def heard(self, *texts, step=0.3):
+        from teto_relay.stt import Word
+
+        return [Word(t, round(i * step, 3), round((i + 1) * step, 3)) for i, t in enumerate(texts)]
+
+    def test_a_misheard_line_becomes_the_lyric_timed_as_sung(self):
+        from teto_relay.lyrics import snap
+
+        # ว่า heard as วา, คิดถึง as คิด ทึง.
+        words = self.heard("อยาก", "ให้", "เธอ", "รู้", "วา", "ฉัน", "ยัง", "คิด", "ทึง", "เธอ")
+        out = snap(words, self.SONG)
+        self.assertEqual([w.text for w in out], ["อยาก", "ให้", "เธอ", "รู้", "ว่า", "ฉัน", "ยัง", "คิดถึง", "เธอ"])
+        # Each lyric word sits where its sounds were heard: คิดถึง spans คิด and ทึง.
+        self.assertEqual((out[7].start, out[7].end), (2.1, 2.7))
+        self.assertEqual(out[0].start, 0.0)
+        self.assertEqual(out[-1].end, 3.0)
+        self.assertTrue(all(a.start < b.start for a, b in zip(out, out[1:])))
+
+    def test_talking_is_left_as_heard(self):
+        from teto_relay.lyrics import snap
+
+        for said in (("วันนี้", "กิน", "ข้าว", "หรือ", "ยัง"), ("ขอบคุณ", "ที่", "มา", "ดู", "สตรีม", "นะ", "ครับ"),
+                     ("ฉัน", "คิดถึง", "บ้าน")):
+            words = self.heard(*said)
+            self.assertIs(snap(words, self.SONG), words, said)
+        # Too short to tell, and no lyrics at all.
+        words = self.heard("เธอ")
+        self.assertIs(snap(words, self.SONG), words)
+        words = self.heard("อยาก", "ให้", "เธอ", "รู้")
+        self.assertIs(snap(words, "  "), words)
+
+    def test_part_of_a_line_and_a_line_across_two(self):
+        from teto_relay.lyrics import snap
+
+        self.assertEqual([w.text for w in snap(self.heard("หัวใจ", "ของ", "ฉัน", "เต้น", "แรง"), self.SONG)],
+                         ["หัวใจ", "ของ", "ฉัน", "เต้น", "แรง"])
+        out = snap(self.heard("ใน", "โลก", "นี้", "อยาก", "ให้", "เทอ"), self.SONG)
+        self.assertEqual([w.text for w in out], ["ใน", "โลก", "นี้", "อยาก", "ให้", "เธอ"])
+
+    def test_a_long_song_is_quick(self):
+        import time
+
+        from teto_relay.lyrics import snap
+
+        words = self.heard("อยาก", "ให้", "เธอ", "รู้", "วา", "ฉัน", "ยัง", "คิด", "ทึง", "เธอ")
+        long_song = (self.SONG + "\n") * 60
+        # The first phrase loads PyThaiNLP's dictionary (the relay has it
+        # loaded already, for Thai pronunciation) and splits the lyrics once.
+        snap(words, long_song)
+        began = time.perf_counter()
+        for _ in range(3):
+            snap(words, long_song)
+        self.assertLess((time.perf_counter() - began) / 3, 0.1)
+
+    def test_the_thai_listener_uses_the_lyrics(self):
+        import types
+
+        import numpy as np
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        words = self.heard("อยาก", "ให้", "เธอ", "รู้", "วา", "ฉัน")
+        t = Transcriber(Config(language="th", lyrics_hint=self.SONG))
+        t._thai = types.SimpleNamespace(transcribe=lambda audio, rate: list(words))
+        audio = np.zeros(16000, np.float32)
+        self.assertEqual([w.text for w in t.transcribe(audio, 16000)], ["อยาก", "ให้", "เธอ", "รู้", "ว่า", "ฉัน"])
+        t.cfg.lyrics_hint = ""
+        self.assertEqual([w.text for w in t.transcribe(audio, 16000)][4], "วา")
+
+
 class TestNoteEditor(unittest.TestCase):
     """The take sheet's note editor: a small OpenUtau for one line."""
 
