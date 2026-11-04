@@ -10,6 +10,9 @@
   the voice that sang it. Her intonation curve moves with each note.
 - **Delete takes from the list**, one at a time or all at once, and delete a
   single line from a take. Questions are asked in the app's own popup.
+- **Downloads sit beside the DAW tile**, as three buttons: her singing
+  (.wav), the OpenUtau project, and everything in a .zip. (Your own voice is
+  still in the .zip.)
 - **Hear myself**: a switch on the main screen (and a headphones button on
   the mini player) to hear her in your headphones as well.
 - **Recording a take no longer sings into your microphone.** While a take
