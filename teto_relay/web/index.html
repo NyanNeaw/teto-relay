@@ -209,6 +209,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .lineroll .nt .edge{fill:transparent;cursor:ew-resize}
 .lineroll .nt.sel rect.n{opacity:1;stroke:var(--text);stroke-width:1.5}
 .lineroll .head{stroke:var(--text);stroke-width:1.5}
+.lineroll .pitchline{fill:none;stroke:var(--text);stroke-width:1.5;stroke-linejoin:round;opacity:.6;pointer-events:none}
 .lineroll text{fill:var(--on-accent);font-size:11px;font-weight:600;pointer-events:none;
   font-family:"Yu Gothic UI","Segoe UI",system-ui,sans-serif}
 .plyric{position:absolute;z-index:2;height:16px;padding:0 4px;font:inherit;font-size:12px;
@@ -1750,6 +1751,26 @@ function lineItem(t,l,number){
 const NOTE_MIN=0.03, NOTE_SNAP=0.01, ROW=16, BLACK_KEYS=[1,3,6,8,10], NUDGE=0.05;
 let noteIds=0;
 const r3=v=>Math.round(v*1000)/1000;
+/* `from` with note `id` made `dur` long. A longer note eats into the start of
+   the note after it, which keeps its end (and its tuning moves along with
+   its start), so the rest of the line stays on the beat; it stops when that
+   note is down to NOTE_MIN. Notes are in time order (normalizeNotes). */
+function resized(from,id,dur){
+  const ns=from.map(m=>({...m})), i=ns.findIndex(m=>m.id===id), n=ns[i], next=ns[i+1];
+  dur=Math.max(NOTE_MIN,dur);
+  if(next){
+    const nextEnd=next.start+next.dur;
+    dur=Math.max(NOTE_MIN,Math.min(dur,nextEnd-NOTE_MIN-n.start));
+    const overlap=n.start+dur-next.start;
+    if(overlap>1e-6){
+      const rate=next.dur/next.span;
+      next.start=r3(next.start+overlap); next.dur=r3(nextEnd-next.start);
+      next.cut=r3(next.cut+overlap/rate); next.span=r3(next.dur/rate);
+    }
+  }
+  n.dur=r3(dur);
+  return ns;
+}
 const snapTime=v=>Math.round(v/NOTE_SNAP)*NOTE_SNAP;
 const clampTone=v=>Math.min(108,Math.max(24,v));
 /* What the server does too (takes.edit_notes): in time order, and a note
@@ -1777,7 +1798,10 @@ function lineEditor(t,l){
     box.append(el('p','hint','Open teto.ustx in OpenUtau to change this line.'));
     return box;
   }
-  const base=(l.notes||[]).map((n,i)=>({id:i,src:i,cut:0,lyric:n.lyric,tone:n.tone,start:n.start,dur:n.dur}));
+  // span: how much of the note's own tuning it carries. Resizing a note
+  // keeps it, so her bend stretches with the note; split and join keep her
+  // timing (takes.edit_notes does the same).
+  const base=(l.notes||[]).map((n,i)=>({id:i,src:i,cut:0,span:n.dur,lyric:n.lyric,tone:n.tone,start:n.start,dur:n.dur}));
   noteIds=base.length;
   const ed={notes:base.map(n=>({...n})),hist:[],sel:null,head:null};
   sheet.ed=ed;
@@ -1820,6 +1844,21 @@ function lineEditor(t,l){
   let lo=60,hi=72,t0=0,t1=1,pps=160,drag=null,lastPress=null;
   const X=s=>(s-t0)*pps, Y=tone=>(hi-tone)*ROW;
   const pointerTime=e=>(e.clientX-svg.getBoundingClientRect().left)/pps+t0;
+  /* A note's tuning as [seconds, tone] points (its stored curve: x ms from
+     the note start, y tenths of a semitone), placed as the note now is. */
+  function pitchPoints(n){
+    const rate=n.dur/n.span, end=n.dur*1000, out=[];
+    let lead=0;
+    for(const [x,y] of ((l.pitch||[])[n.src]||[])){
+      const at=x-n.cut*1000;
+      if(at<=0){ lead=y; continue; }
+      if(at*rate>end+0.05) break;
+      out.push([at*rate,y]);
+    }
+    out.unshift([0,lead]);
+    if(out[out.length-1][0]<end) out.push([end,out[out.length-1][1]]);
+    return out.map(([x,y])=>[n.start+x/1000,n.tone+y/10]);
+  }
   function layout(){
     const ns=ed.notes, tones=ns.map(n=>n.tone);
     lo=Math.min(...tones)-3; hi=Math.max(...tones)+3;
@@ -1851,6 +1890,10 @@ function lineEditor(t,l){
       const tip=sv('title',{}); tip.textContent=n.lyric+' · '+noteName(n.tone)+' · '+Math.round(n.dur*1000)+' ms'; g.append(tip);
       svg.append(g);
     });
+    // Her tuning, as OpenUtau draws it: a line through each note, moved and
+    // stretched with it.
+    const line=ed.notes.map(n=>pitchPoints(n).map(([s,tone],k)=>(k?'L':'M')+X(s).toFixed(1)+' '+(Y(tone)+ROW/2).toFixed(1)).join(' ')).join(' ');
+    svg.append(sv('path',{class:'pitchline',d:line}));
     const head=sv('line',{class:'head',x1:0,x2:0,y1:0,y2:H,visibility:'hidden'}); svg.append(head);
     ed.head=()=>{
       const on=player.dataset.what==='line'+l.n&&!player.paused;
@@ -1870,20 +1913,26 @@ function lineEditor(t,l){
   };
   const change=fn=>{ const n=selected(); if(!n) return; commit(ed.notes.map(m=>m.id===n.id?fn({...m}):m)); };
   const pitch=d=>change(m=>(m.tone=clampTone(m.tone+d),m));
-  const stretch=d=>change(m=>(m.dur=Math.max(NOTE_MIN,r3(m.dur+d)),m));
+  const stretch=d=>{ const n=selected(); if(n) commit(resized(ed.notes,n.id,n.dur+d)); };
   const nudge=d=>change(m=>(m.start=Math.max(0,r3(m.start+d)),m));
   function splitAt(n,at){
     const left=snapTime(at-n.start);
     if(left<NOTE_MIN||n.dur-left<NOTE_MIN){ toast('Too short to split there'); return; }
     // The second piece holds the vowel on ("+"), as in OpenUtau; rename it to sing a new syllable.
-    const piece={...n,id:noteIds++,start:r3(n.start+left),dur:r3(n.dur-left),cut:r3(n.cut+left),lyric:'+'};
-    commit(ed.notes.map(m=>m.id===n.id?{...m,dur:r3(left)}:m).concat([piece]),piece.id);
+    const rate=n.dur/n.span;
+    const piece={...n,id:noteIds++,start:r3(n.start+left),dur:r3(n.dur-left),cut:r3(n.cut+left/rate),
+      span:r3((n.dur-left)/rate),lyric:'+'};
+    commit(ed.notes.map(m=>m.id===n.id?{...m,dur:r3(left),span:r3(left/rate)}:m).concat([piece]),piece.id);
   }
   function join(){
     const n=selected(); if(!n) return;
     const next=ed.notes[ed.notes.indexOf(n)+1];
     if(!next){ toast('No note after this one'); return; }
-    commit(ed.notes.filter(m=>m!==next).map(m=>m.id===n.id?{...m,dur:r3(next.start+next.dur-m.start)}:m));
+    commit(ed.notes.filter(m=>m!==next).map(m=>{
+      if(m.id!==n.id) return m;
+      const dur=r3(next.start+next.dur-m.start);
+      return {...m,dur,span:r3(m.span*dur/m.dur)};
+    }));
   }
   function del(){
     const n=selected(); if(!n) return;
@@ -1931,6 +1980,7 @@ function lineEditor(t,l){
     lastPress=null;
     drag={id:n.id,len:e.target.classList.contains('edge'),x:e.clientX,y:e.clientY,
           start:n.start,tone:n.tone,dur:n.dur,before:JSON.stringify(ed.notes),moved:false};
+    drag.from=JSON.parse(drag.before);
     svg.setPointerCapture(e.pointerId); draw();
   });
   svg.addEventListener('pointermove',e=>{
@@ -1939,7 +1989,7 @@ function lineEditor(t,l){
     drag.moved=true;
     const n=ed.notes.find(m=>m.id===drag.id); if(!n) return;
     const dt=(e.clientX-drag.x)/pps;
-    if(drag.len) n.dur=Math.max(NOTE_MIN,r3(snapTime(drag.dur+dt)));
+    if(drag.len) ed.notes=resized(drag.from,drag.id,snapTime(drag.dur+dt));
     else{ n.start=Math.max(0,r3(snapTime(drag.start+dt))); n.tone=clampTone(drag.tone+Math.round((drag.y-e.clientY)/ROW)); }
     draw();
   });
@@ -2015,7 +2065,7 @@ function lineEditor(t,l){
   sing.onclick=async()=>{
     if(sing.disabled) return;
     if(notesDirty()){
-      send('api/take/notes?take='+encodeURIComponent(t.id),{line:l.n,notes:ed.notes.map(n=>({src:n.src,cut:n.cut,tone:n.tone,start:n.start,dur:n.dur,lyric:n.lyric}))});
+      send('api/take/notes?take='+encodeURIComponent(t.id),{line:l.n,notes:ed.notes.map(n=>({src:n.src,cut:n.cut,span:n.span,tone:n.tone,start:n.start,dur:n.dur,lyric:n.lyric}))});
       return;
     }
     if(l.notes_edited&&!await ask('Change the words?','Her notes are built again from the words, so your note edits go.','Change words')) return;

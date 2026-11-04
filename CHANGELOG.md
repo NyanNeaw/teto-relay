@@ -7,7 +7,11 @@
   to move it, drag its edge to make it longer or shorter, Alt+click (or the
   scissors) to split it, join it with the next, double-click to change its
   lyric, delete it. Undo steps back; **Sing again** sings the edited line with
-  the voice that sang it. Her intonation curve moves with each note.
+  the voice that sang it. Her tuning is drawn over the notes and follows
+  them: moved up, a note's bends move up; made longer or shorter, they
+  stretch or squeeze to fit, and her loudness and breath go with it. A note
+  made longer eats into the start of the next one, so the rest of the line
+  stays on the beat.
 - **Delete takes from the list**, one at a time or all at once, and delete a
   single line from a take. Questions are asked in the app's own popup.
 - **Downloads sit beside the DAW tile**, as three buttons: her singing

@@ -327,15 +327,19 @@ TONE_RANGE = (24, 108)
 MAX_LYRIC = 32
 
 
-def _piece_pitch(block: dict, cut_ms: float, length_ms: float) -> dict:
-    """The source note's pitch curve for a piece of it: shifted to start
-    `cut_ms` into the note and cut off where the piece ends. x is in ms from
-    the note start (see teto_relay.ustx)."""
+def _piece_pitch(block: dict, cut_ms: float, length_ms: float, span_ms: float | None = None) -> dict:
+    """The source note's pitch curve for a piece of it: the `span_ms` of it
+    starting `cut_ms` into the note, stretched (or squeezed) to the piece's
+    `length_ms`, so a longer note bends the same way, only slower. x is in ms
+    from the note start (see teto_relay.ustx); the lead-in before the note
+    keeps its own length."""
     pitch = copy.deepcopy(block.get("pitch") or {})
     points = [dict(p) for p in pitch.get("data") or []]
+    scale = length_ms / span_ms if span_ms and span_ms > 0 else 1.0
     for p in points:
-        p["x"] = round(float(p.get("x", 0.0)) - cut_ms, 1)
-    inside = [p for p in points if p["x"] <= length_ms]
+        x = float(p.get("x", 0.0)) - cut_ms
+        p["x"] = round(x * scale if x > 0 else x, 1)
+    inside = [p for p in points if p["x"] <= length_ms + 0.05]
     before = [p for p in inside if p["x"] <= 0]
     # The curve from the piece's own start on, plus the last point before it
     # as the lead-in, so a cut piece starts on the pitch she was at.
@@ -351,15 +355,19 @@ def _piece_pitch(block: dict, cut_ms: float, length_ms: float) -> dict:
 def edit_notes(doc: dict, notes: list[dict], respell: Callable[[str, str | None], str] | None = None) -> dict:
     """The line's project with its notes as the panel's note editor left them.
 
-    Each note is {src, tone, start, dur, lyric, cut}: `src` is the index of
-    the note it came from, `start` and `dur` are seconds from the start of
-    the recording (as doc_notes gives them), and `cut` is how far into the
-    source note a piece split from it begins. A note keeps its source's pitch
-    curve, shifted with it, so the inflection she sang survives a move or a
-    split; vibrato stays on the last piece of a split note. A note dropped
-    from the list is deleted; one stretched over the next is cut back so
-    notes never overlap. `respell(lyric, previous)` spells a typed lyric the
-    way the voicebank needs (`previous` is the lyric of a note it touches).
+    Each note is {src, tone, start, dur, lyric, cut, span}: `src` is the
+    index of the note it came from, `start` and `dur` are seconds from the
+    start of the recording (as doc_notes gives them), `cut` is how far into
+    the source note a piece split from it begins, and `span` how much of the
+    source it carries (its own length unless it was stretched or squeezed).
+    Her tuning follows the notes: a note keeps its source's pitch curve,
+    moved with it and stretched to its new length, so the inflection she
+    sang survives a move, a resize or a split; vibrato stays on the last
+    piece of a split note; and the line's loudness and breath curves move
+    and stretch with the notes they were sung on. A note dropped from the
+    list is deleted; one stretched over the next is cut back so notes never
+    overlap. `respell(lyric, previous)` spells a typed lyric the way the
+    voicebank needs (`previous` is the lyric of a note it touches).
     """
     if not isinstance(notes, list) or not notes:
         raise ValueError("a line needs at least one note")
@@ -380,18 +388,24 @@ def edit_notes(doc: dict, notes: list[dict], respell: Callable[[str, str | None]
             tone = int(round(float(note["tone"])))
             start, dur = float(note["start"]), float(note["dur"])
             cut = float(note.get("cut") or 0.0)
+            # Without one the bend keeps its timing (the editor always sends it).
+            span = float(note["span"]) if note.get("span") else None
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"a note is missing something: {exc}") from None
         if not 0 <= src < len(sources):
             raise ValueError(f"no note {src} in this line")
-        if not all(math.isfinite(v) for v in (start, dur, cut)) or start < 0 or dur <= 0 or cut < 0:
+        if (not all(math.isfinite(v) for v in (start, dur, cut, span or dur))
+                or start < 0 or dur <= 0 or cut < 0 or (span is not None and span <= 0)):
             raise ValueError("a note's time is out of range")
         lyric = str(note.get("lyric", sources[src].get("lyric", ""))).strip()
         if not lyric or len(lyric) > MAX_LYRIC:
             raise ValueError("a note needs a lyric of 1 to 32 characters")
+        # Where the piece's stretch of the source was sung, in ticks from the
+        # recording's start: what the line's curves are laid against.
+        was = base + int(sources[src].get("position", 0)) + cut * tps
         pieces.append({"src": src, "tone": min(max(tone, TONE_RANGE[0]), TONE_RANGE[1]),
                        "at": int(round(start * tps)), "length": max(shortest, int(round(dur * tps))),
-                       "cut": cut, "lyric": lyric})
+                       "cut": cut, "span": span, "lyric": lyric, "was": (was, was + (span or dur) * tps)})
     pieces.sort(key=lambda p: p["at"])
 
     # No overlaps: a note running into the next ends where the next begins;
@@ -416,7 +430,8 @@ def edit_notes(doc: dict, notes: list[dict], respell: Callable[[str, str | None]
         source = sources[p["src"]]
         block = copy.deepcopy(source)
         block["tone"] = p["tone"]
-        block["pitch"] = _piece_pitch(source, p["cut"] * 1000.0, p["length"] * ms_per_tick)
+        block["pitch"] = _piece_pitch(source, p["cut"] * 1000.0, p["length"] * ms_per_tick,
+                                      p["span"] * 1000.0 if p["span"] else None)
         if p["cut"] < last_cut[p["src"]]:
             block.setdefault("vibrato", {})["length"] = 0
         lyric = p["lyric"]
@@ -434,13 +449,62 @@ def edit_notes(doc: dict, notes: list[dict], respell: Callable[[str, str | None]
     new_base = min(base, first)
     for block in blocks:
         block["position"] -= new_base
-    # Part curves count from the part start, which may have moved earlier.
+    # The line's curves (loudness, breath) go where the notes went.
+    warp = _time_warp([(p["was"][0], p["at"]) for p in pieces] + [(p["was"][1], p["at"] + p["length"]) for p in pieces])
     for curve in part.get("curves") or []:
-        curve["xs"] = [int(x) + base - new_base for x in curve.get("xs") or []]
+        curve["xs"], curve["ys"] = _warp_curve(curve.get("xs") or [], curve.get("ys") or [], base, new_base, warp)
     part["position"] = new_base
     part["notes"] = blocks
     part["duration"] = max(b["position"] + b["duration"] for b in blocks)
     return doc
+
+
+def _time_warp(anchors: list[tuple[float, float]]) -> Callable[[np.ndarray], np.ndarray]:
+    """old time -> new time (ticks from the recording's start), through each
+    note's (where it was sung, where it is now) at its start and end: linear
+    within and between notes, and shifted like the nearest note outside them."""
+    pairs: dict[float, float] = {}
+    for old, new in sorted(anchors):
+        pairs.setdefault(round(old, 3), new)  # one place per moment: the first note there
+    olds = np.array(list(pairs.keys()), dtype=float)
+    news = np.array(list(pairs.values()), dtype=float)
+
+    def warp(x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=float)
+        out = np.interp(x, olds, news)
+        out = np.where(x < olds[0], x + news[0] - olds[0], out)
+        return np.where(x > olds[-1], x + news[-1] - olds[-1], out)
+
+    return warp
+
+
+def _warp_curve(xs: list, ys: list, base: int, new_base: int, warp) -> tuple[list[int], list[int]]:
+    """A part curve's points moved by `warp`: in ticks from the part start
+    before (`base`) and after (`new_base`), one value per tick, in order."""
+    if not xs:
+        return [], []
+    moved = warp(np.asarray(xs, dtype=float) + base) - new_base
+    points = sorted(zip((int(round(x)) for x in moved), ys), key=lambda p: p[0])
+    out_x: list[int] = []
+    out_y: list[int] = []
+    for x, y in points:
+        if out_x and x <= out_x[-1]:
+            out_y[-1] = int(y)  # the same tick: the later point wins
+            continue
+        out_x.append(max(0, x))
+        out_y.append(int(y))
+    return out_x, out_y
+
+
+def doc_pitch(doc: dict) -> list[list[list[float]]]:
+    """Each note's pitch curve as [[x ms, y tenths of a semitone], ...], for
+    the panel's note editor to draw her tuning (index = the note's index)."""
+    out = []
+    for part in doc.get("voice_parts") or []:
+        for note in part.get("notes") or []:
+            out.append([[round(float(p.get("x", 0.0)), 1), round(float(p.get("y", 0.0)), 2)]
+                        for p in (note.get("pitch") or {}).get("data") or []])
+    return out
 
 
 def delete_line(folder: Path, line_no: int) -> dict | None:
@@ -479,9 +543,11 @@ def detail(folder: Path) -> dict:
     info["files"] = [name for name in FILES if (folder / name).is_file()]
     for line in info["phrases"]:
         try:
-            line["notes"] = doc_notes(_read_doc(folder / LINES / f"{int(line['n']):02d}.ustx"))
+            doc = _read_doc(folder / LINES / f"{int(line['n']):02d}.ustx")
+            line["notes"] = doc_notes(doc)
+            line["pitch"] = doc_pitch(doc)
         except (OSError, KeyError, ValueError, TypeError):
-            line["notes"] = []
+            line["notes"], line["pitch"] = [], []
         line.pop("context", None)
     return info
 

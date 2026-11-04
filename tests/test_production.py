@@ -4015,6 +4015,43 @@ class TestNoteEditor(unittest.TestCase):
         edit_notes(_curved_doc(), self.notes(n1={"lyric": "low", "start": 1.7, "dur": 0.3}), respell)
         self.assertEqual(seen, [("low", None)])
 
+    def test_her_tuning_stretches_with_the_note(self):
+        """Lengthen "hel" to 1 s (pushing "lo" on): its bend takes twice as
+        long, and the loudness under it stretches too."""
+        from teto_relay.takes import edit_notes
+
+        notes = self.notes(n0={"dur": 1.0, "span": 0.5}, n1={"start": 2.0, "span": 0.5})
+        doc = edit_notes(_curved_doc(), notes)
+        first, second = doc["voice_parts"][0]["notes"]
+        self.assertEqual((first["duration"], second["position"]), (960, 960))
+        self.assertEqual([(p["x"], p["y"]) for p in first["pitch"]["data"]],
+                         [(-40.0, -5.0), (200.0, 0.0), (600.0, 3.0), (900.0, 1.0)])
+        # The loudness point at the start of "lo" went with it.
+        self.assertEqual(doc["voice_parts"][0]["curves"][0]["xs"], [0, 960])
+        # Squeezed to half: the bend comes twice as fast, the lead-in as it was.
+        doc = edit_notes(_curved_doc(), self.notes(n0={"dur": 0.25, "span": 0.5}))
+        self.assertEqual([p["x"] for p in doc["voice_parts"][0]["notes"][0]["pitch"]["data"]],
+                         [-40.0, 50.0, 150.0, 225.0])
+
+    def test_split_pieces_keep_the_bend_where_it_was(self):
+        from teto_relay.takes import edit_notes
+
+        # "hel" stretched to 1 s, then split in half: each half carries half the
+        # source (0.25 s of it), still at the stretched speed.
+        notes = [{"src": 0, "cut": 0, "span": 0.25, "tone": 60, "start": 1.0, "dur": 0.5, "lyric": "hel"},
+                 {"src": 0, "cut": 0.25, "span": 0.25, "tone": 60, "start": 1.5, "dur": 0.5, "lyric": "+"},
+                 {"src": 1, "cut": 0, "span": 0.5, "tone": 62, "start": 2.0, "dur": 0.5, "lyric": "lo"}]
+        head, tail, _ = edit_notes(_curved_doc(), notes)["voice_parts"][0]["notes"]
+        self.assertEqual([p["x"] for p in head["pitch"]["data"]], [-40.0, 200.0])
+        self.assertEqual([(p["x"], p["y"]) for p in tail["pitch"]["data"]], [(-150.0, 0.0), (100.0, 3.0), (400.0, 1.0)])
+
+    def test_the_take_detail_carries_each_notes_tuning(self):
+        from teto_relay.takes import doc_pitch
+
+        pitch = doc_pitch(_curved_doc())
+        self.assertEqual(pitch[0][:2], [[-40.0, -5.0], [100.0, 0.0]])
+        self.assertEqual(pitch[1], [])
+
     def test_a_note_moved_before_the_part_moves_the_part(self):
         from teto_relay.takes import doc_notes, edit_notes
 
@@ -4022,8 +4059,10 @@ class TestNoteEditor(unittest.TestCase):
         part = doc["voice_parts"][0]
         self.assertEqual(part["position"], 480)
         self.assertEqual([n["position"] for n in part["notes"]], [0, 960])
-        # The part's curves stay where they were in time.
-        self.assertEqual(part["curves"][0]["xs"], [480, 960])
+        # The line's loudness curve moves with the note it was sung on: its
+        # point at the start of "hel" (960 ticks) is at its new start, the
+        # one at the start of "lo" (1440) stays with "lo".
+        self.assertEqual(part["curves"][0]["xs"], [0, 960])
         self.assertEqual([n["start"] for n in doc_notes(doc)], [0.5, 1.5])
 
     def test_bad_edits_are_refused(self):
