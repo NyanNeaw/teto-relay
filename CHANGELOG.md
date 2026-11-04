@@ -21,6 +21,10 @@
   syllable an octave low (or high), so she sang it far below you and then
   leapt up for the next. A stretch an octave away from its neighbour, joined
   by a jump no voice makes, is now moved back; a real sung leap is kept.
+- **Stop says it's stopping.** The button spins and reads "Stopping" until
+  she has really stopped (it used to go on saying "Stop"), and ending a take
+  turns the record button into a spinning ring with "saving take..." until
+  it is saved. The mini player shows the same.
 - **Hear myself**: a switch on the main screen (and a headphones button on
   the mini player) to hear her in your headphones as well.
 - **Recording a take no longer sings into your microphone.** While a take

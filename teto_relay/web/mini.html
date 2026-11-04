@@ -53,6 +53,10 @@ button:disabled{opacity:.45;cursor:default;filter:none}
 .talk{flex:1;height:34px;border-radius:999px;font-size:12px;font-weight:600;padding:0 12px;white-space:nowrap;
   display:flex;align-items:center;justify-content:center;gap:6px}
 .talk.on{background:var(--accent);color:var(--on-accent)}
+.spin{width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;
+  animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+button:disabled .spin{opacity:1}
 .tiny{width:26px;height:26px;border-radius:50%;background:transparent;color:var(--muted)}
 .tiny:hover{background:var(--sink);color:var(--text)}
 </style>
@@ -85,6 +89,8 @@ try{ const t=localStorage.getItem('teto.theme'); if(t==='light'||t==='dark') doc
 const ICON={
   play:'<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
   stop:'<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+  rec:'<svg width="12" height="12" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="currentColor"/></svg>',
+  spin:'<span class="spin"></span>',
   note:'<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>'};
 $('initial').innerHTML=ICON.note;
 let banks=[], shownBank=null, key='', last={};
@@ -104,23 +110,28 @@ function showBank(k){
   const S=document.documentElement.style;
   if(b&&/^#[0-9a-f]{6}$/i.test(b.accent||'')) S.setProperty('--accent',b.accent); else S.removeProperty('--accent');
 }
+/* Only when it changes: a spinner put back every poll would restart its turn. */
+function setIcon(el,name){ if(el.dataset.icon!==name){ el.dataset.icon=name; el.innerHTML=ICON[name]; } }
 function render(d){
   const run=$('run'), t=d.take||{};
-  const busy=!!(d.starting||d.restarting);
-  run.innerHTML=d.running?ICON.stop:ICON.play;
-  run.title=d.running?'Stop':'Start'; run.setAttribute('aria-label',run.title);
+  const busy=!!(d.starting||d.restarting||d.stopping);
+  setIcon(run,busy?'spin':d.running?'stop':'play');
+  run.title=d.stopping?'Stopping…':d.running?'Stop':'Start'; run.setAttribute('aria-label',run.title);
   run.disabled=busy; run.classList.toggle('on',!!d.running);
   $('rec').disabled=!d.running||!!d.take_finishing;
-  $('rec').classList.toggle('on',!!t.recording);
-  $('rec').title=t.recording?'Stop and save':'Record a take';
+  $('rec').classList.toggle('on',!!t.recording&&!d.take_finishing);
+  setIcon($('rec'),d.take_finishing?'spin':'rec');
+  $('rec').title=d.take_finishing?'Saving the take…':t.recording?'Stop and save':'Record a take';
   $('hear').classList.toggle('on',!!d.hear_myself);
   $('hear').setAttribute('aria-pressed',String(!!d.hear_myself));
   $('hear').title=d.hear_myself?'Hear myself: on':'Hear myself: off';
   $('talk').disabled=!d.running;
   $('talk').classList.toggle('on',!!d.talking);
   let text, dot='var(--muted)';
-  if(busy){ text=(d.stage||'starting').toLowerCase()+'…'; }
+  if(d.stopping){ text='stopping…'; dot='var(--accent)'; }
+  else if(busy){ text=(d.stage||'starting').toLowerCase()+'…'; }
   else if(!d.running){ text='stopped'; }
+  else if(d.take_finishing){ text='saving take…'; dot='var(--accent)'; }
   else if(t.recording){ text='recording · '+Math.floor((t.seconds||0)/60)+':'+String(Math.floor((t.seconds||0)%60)).padStart(2,'0'); dot='var(--accent)'; }
   else if(d.talking){ text='hearing you'; dot='var(--accent)'; }
   else { text='listening'; dot='var(--ok)'; }

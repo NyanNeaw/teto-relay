@@ -4108,6 +4108,28 @@ class TestNoteEditor(unittest.TestCase):
         relay._render(Path("a.ustx"), Path("a.wav"))
         self.assertEqual(calls, ["render", "render"])
 
+    def test_stopping_is_reported_while_it_happens(self):
+        import logging
+        import types
+
+        from teto_relay.config import Config
+        from teto_relay.webui import Controller
+
+        controller = Controller(Config())
+        seen = []
+        self.assertFalse(controller.status()["stopping"])
+        controller.relay = types.SimpleNamespace(_take=None, stop=lambda: seen.append(controller.stopping))
+        controller.stop()
+        self.assertEqual(seen, [True])
+        self.assertFalse(controller.status()["stopping"])
+        self.assertIsNone(controller.relay)
+        logging.getLogger().removeHandler(controller.buffer)
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        mini = (ROOT / "teto_relay" / "web" / "mini.html").read_text(encoding="utf-8")
+        for needle in ("d.stopping", "'Stopping'", "savingTake", ".recbtn.saving"):
+            self.assertIn(needle, page)
+        self.assertIn("d.stopping", mini)
+
     def test_the_page_has_the_note_editor_and_take_deleting(self):
         page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
         for needle in ("api/take/notes?take=", "api/take/line/delete?take=", "function lineEditor",

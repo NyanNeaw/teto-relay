@@ -385,6 +385,7 @@ class Controller:
         self.starting = False
         self.start_stage = ""
         self.start_progress = 0.0
+        self.stopping = False
         self.buffer = _LogBuffer()
         self.buffer.setLevel(logging.INFO)
         logging.getLogger().addHandler(self.buffer)
@@ -419,6 +420,15 @@ class Controller:
                 self.start_progress = 0.0
 
     def stop(self) -> None:
+        # Said while it happens (status "stopping"): saving a take and closing
+        # the models takes seconds, and the page used to keep showing "Stop".
+        self.stopping = True
+        try:
+            self._stop()
+        finally:
+            self.stopping = False
+
+    def _stop(self) -> None:
         with self._lock:
             if self.relay is None:
                 return
@@ -572,6 +582,7 @@ class Controller:
             "running": self.running,
             "restarting": self.restarting,
             "starting": self.starting,
+            "stopping": bool(getattr(self, "stopping", False)),
             "stage": self.start_stage,
             "progress": round(self.start_progress, 2),
             "restart_error": self.restart_error,
