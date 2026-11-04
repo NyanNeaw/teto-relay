@@ -67,21 +67,29 @@ the microphone.
    OpenUtau's engine sings it in the background, with no window.
 5. **Out it goes**, into VB-Cable or your speakers.
 
-Minimize the window and a small player stays on top in the corner, with
-Start, Record and a hold-to-talk button.
+Turn on **Hear myself** to hear her in your headphones too. Minimize the
+window and a small player stays on top in the corner, with Start, Record,
+Hear myself and a hold-to-talk button.
 
 ## Song covers
 
 Press the round **Record** button next to Start and sing along to a song
-(headphones for the music). No key needed: each pause ends a line. Press it
-again and the take opens:
+(headphones for the music). No key needed: each pause ends a line. While you
+record she isn't sent out as your microphone; turn on Hear myself to hear
+her. Press it again and the take opens:
 
 - **Play it back** on a piano roll.
 - **Fix a word she misheard**: click the line, type the right word, and she
   sings that line again with the same timing and melody.
+- **Edit her notes, like a small OpenUtau**: drag a note up or down to change
+  its pitch, sideways to move it, drag its edge to make it longer or
+  shorter, split, join, rename or delete it. Her tuning follows the notes.
 - **Drag it straight into FL Studio** or any DAW. It lines up with the music
-  from where you pressed Record. Or download her singing (.wav), an OpenUtau
-  project (.ustx) to fine-tune, your own voice, or everything as a .zip.
+  from where you pressed Record. Or download her singing (.wav), the OpenUtau
+  project (.ustx), or everything as a .zip.
+
+Singing a real song? Paste its lyrics into **Song lyrics** first, in any of
+the three languages, so every word is heard right.
 
 ## Known issues in this beta
 

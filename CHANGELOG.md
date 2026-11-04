@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.2 (in progress)
+## 0.3.2 beta (2026-11-04)
 
 - **A small OpenUtau in the take sheet.** Open a line of a take and her notes
   are on a piano roll: drag a note up or down to change its pitch, sideways
