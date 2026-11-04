@@ -160,6 +160,59 @@ class TestPitchBackends(unittest.TestCase):
             self.assertGreater(len(track.times), 0)
 
 
+class TestOctaveSlipInTheTrack(unittest.TestCase):
+    """A stretch the tracker heard an octave out, caught where it happens."""
+
+    @staticmethod
+    def track(segments, voiced_gaps=True):
+        """segments: (seconds, midi or (from, to), voiced). 10 ms frames;
+        unvoiced frames keep a value, as crepe gives them, unless voiced_gaps
+        is False (pyin leaves them empty)."""
+        import numpy as np
+
+        values, voiced = [], []
+        for seconds, midi, on in segments:
+            n = int(round(seconds * 100))
+            a, b = midi if isinstance(midi, tuple) else (midi, midi)
+            values.extend(np.linspace(a, b, n))
+            voiced.extend([on] * n)
+        midi = np.array(values)
+        f0 = 440.0 * 2 ** ((midi - 69) / 12)
+        voiced = np.array(voiced)
+        if not voiced_gaps:
+            f0 = np.where(voiced, f0, np.nan)
+        return pitch_mod.F0Track(times=np.arange(len(f0)) / 100.0, f0=f0, voiced=voiced, sample_rate=16000,
+                                 method="test")
+
+    def test_the_slipped_fa_from_a_take(self):
+        """'... mi fa fa': the first fa read 84 Hz (MIDI 40) between 49.6 and 52;
+        correct_octaves missed it, being 8 below the phrase's middle, not 12."""
+        track = self.track([(0.4, 47.0, True), (0.4, 49.6, True), (0.15, (49.6, 40.4), False),
+                            (0.14, 40.4, True), (0.16, 39.7, False), (0.33, 52.2, True), (0.3, 49.0, True)])
+        fixed = pitch_mod.fix_octave_jumps(track, Config())
+        self.assertAlmostEqual(fixed.median_midi(0.95, 1.10), 52.4, places=1)
+        # Everything else is left as it was.
+        for span in ((0.0, 0.8), (1.25, 1.58), (1.58, 1.88)):
+            self.assertAlmostEqual(fixed.median_midi(*span), track.median_midi(*span), places=6)
+
+    def test_a_sung_octave_leap_is_kept(self):
+        """'Some-where': a real leap glides up through the consonant."""
+        track = self.track([(0.4, 50.0, True), (0.1, 50.0, True), (0.12, (50.0, 62.0), True),
+                            (0.4, 62.0, True), (0.4, 60.0, True)])
+        self.assertIs(pitch_mod.fix_octave_jumps(track, Config()), track)
+        # Over a pause it is a new phrase of the melody, not a slip.
+        track = self.track([(0.4, 50.0, True), (0.5, 50.0, False), (0.4, 62.0, True), (0.4, 61.0, True)])
+        self.assertIs(pitch_mod.fix_octave_jumps(track, Config()), track)
+
+    def test_pyin_gaps_and_switching_it_off(self):
+        segments = [(0.4, 50.0, True), (0.1, 50.0, False), (0.2, 38.2, True), (0.1, 38.0, False),
+                    (0.4, 50.5, True)]
+        fixed = pitch_mod.fix_octave_jumps(self.track(segments, voiced_gaps=False), Config())
+        self.assertAlmostEqual(fixed.median_midi(0.5, 0.7), 50.2, places=1)
+        track = self.track(segments)
+        self.assertIs(pitch_mod.fix_octave_jumps(track, Config(fix_octave_errors=False)), track)
+
+
 class TestOctaveCorrection(unittest.TestCase):
     def test_a_word_detected_an_octave_low_is_pulled_back(self):
         """Live this looked like "hello@50 what is@51 up@61 my@61"."""

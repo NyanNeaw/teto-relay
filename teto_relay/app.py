@@ -267,7 +267,8 @@ class TetoRelay:
         recorded (teto_relay.live), or tracked now."""
         live = getattr(chunk, "live", None)
         track = live.finish(chunk.audio) if live is not None else None
-        return track or pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
+        track = track or pitch_mod.track_f0(chunk.audio, chunk.sample_rate, self.cfg)
+        return pitch_mod.fix_octave_jumps(track, self.cfg)
 
     def _side_work(self):
         """One worker thread for analysis that can run beside whisper."""

@@ -289,6 +289,84 @@ def octave_shift(midis: list[float], cfg, previous: int | None = None) -> int:
     return int(round((target - centre) / 12.0)) * 12
 
 
+#: Frames this far apart (semitones) start a new stretch of voice.
+RUN_SPLIT = 3.0
+#: Two stretches at most this far apart in time are neighbours.
+OCTAVE_JUMP_GAP = 0.3
+#: How close to exactly an octave apart two neighbours must be.
+OCTAVE_JUMP_TOLERANCE = 1.5
+#: A jump at least this big (semitones) from one 10 ms frame to the next is
+#: the tracker, not a voice: a sung leap glides or passes through a consonant.
+SUDDEN_JUMP = 9.0
+
+
+def fix_octave_jumps(track: F0Track, cfg) -> F0Track:
+    """Move a stretch of the track the tracker heard an octave out.
+
+    crepe now and then locks onto half (or double) the pitch for a syllable:
+    on the user's sung "... mi fa fa" the first "fa" read 84 Hz between 145
+    and 165 Hz, and she sang it an octave low and then leapt up for the next.
+    correct_octaves, which compares each word with the phrase's middle,
+    missed it: the true "fa" sat 3.5 semitones above the middle, so the
+    slipped one was 8 below it, not 12. Here the slip is caught where it
+    happens: two neighbouring stretches an octave apart, joined by a jump no
+    voice makes in 10 ms. The one further from the rest of the phrase moves.
+    """
+    if not getattr(cfg, "fix_octave_errors", True) or not track.any_voiced:
+        return track
+    f0 = np.asarray(track.f0, dtype=float)
+    voiced = np.asarray(track.voiced, dtype=bool) & np.isfinite(f0) & (f0 > 0)
+    midi = np.full(f0.shape, np.nan)
+    midi[np.isfinite(f0) & (f0 > 0)] = hz_to_midi(f0[np.isfinite(f0) & (f0 > 0)])
+    # Stretches of voice: voiced frames running on without a big step.
+    runs: list[list[int]] = []
+    for i in np.flatnonzero(voiced):
+        if runs and runs[-1][1] == i - 1 and abs(midi[i] - midi[i - 1]) < RUN_SPLIT:
+            runs[-1][1] = i
+        else:
+            runs.append([i, i])
+    runs = [r for r in runs if r[1] - r[0] >= 2]  # a frame or two is noise
+    if len(runs) < 2:
+        return track
+    reference = float(np.median(midi[voiced]))
+    shift = np.zeros(len(runs))
+    level = lambda k: float(np.median(midi[runs[k][0]:runs[k][1] + 1])) + shift[k]
+    moved = False
+    for k in range(len(runs) - 1):
+        a, b = runs[k], runs[k + 1]
+        if track.times[b[0]] - track.times[a[1]] > OCTAVE_JUMP_GAP:
+            continue
+        diff = level(k + 1) - level(k)
+        if abs(abs(diff) - 12.0) > OCTAVE_JUMP_TOLERANCE:
+            continue
+        # Sudden, where the tracker gives a value between the two (crepe
+        # does; pyin leaves the gap empty, and then the octave alone decides).
+        between = midi[a[1]:b[0] + 1] + 0.0
+        between[: 1] += shift[k]
+        between[-1:] += shift[k + 1]
+        steps = np.abs(np.diff(between))
+        if np.isfinite(steps).all() and steps.size and steps.max() < SUDDEN_JUMP:
+            continue
+        octave = 12.0 if diff > 0 else -12.0
+        if abs(level(k) - reference) > abs(level(k + 1) - reference):
+            if abs(level(k) + octave - reference) < abs(level(k) - reference):
+                shift[k] += octave
+                moved = True
+        elif abs(level(k + 1) - octave - reference) < abs(level(k + 1) - reference):
+            shift[k + 1] -= octave
+            moved = True
+    if not moved:
+        return track
+    fixed = f0.copy()
+    for (start, end), semitones in zip(runs, shift):
+        if semitones:
+            fixed[start:end + 1] *= 2.0 ** (semitones / 12.0)
+            log.info("Corrected an octave slip at %.2f-%.2f s (%+d semitones)",
+                     track.times[start], track.times[end], int(semitones))
+    return F0Track(times=track.times, f0=fixed, voiced=track.voiced, sample_rate=track.sample_rate,
+                   method=track.method)
+
+
 def correct_octaves(midis: list[float], cfg, baseline: float | None = None) -> list[float]:
     """Pull octave-detection errors back in line with the rest of the phrase.
 

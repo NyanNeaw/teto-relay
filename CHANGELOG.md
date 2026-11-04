@@ -17,6 +17,10 @@
   given the lyrics, so the line it heard is now looked up in them, allowing
   for misheard letters, and sung as the lyric's words, each where you sang
   it. Talking that isn't in the song is left as heard.
+- **No more jumping an octave mid-line.** The pitch tracker sometimes heard a
+  syllable an octave low (or high), so she sang it far below you and then
+  leapt up for the next. A stretch an octave away from its neighbour, joined
+  by a jump no voice makes, is now moved back; a real sung leap is kept.
 - **Hear myself**: a switch on the main screen (and a headphones button on
   the mini player) to hear her in your headphones as well.
 - **Recording a take no longer sings into your microphone.** While a take
