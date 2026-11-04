@@ -19,7 +19,7 @@ and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
-  <img alt="The Teto Relay control panel: Teto's voicebank and the last phrase she sang, with its melody, on the left; style, language, microphone and output on the right" src="docs/images/panel-light.png">
+  <img alt="The Teto Relay control panel: Teto's voicebank and the last phrase she sang, with its melody, on the left; style, language, microphone, output and Hear myself on the right" src="docs/images/panel-light.png">
 </picture>
 
 ## Download
@@ -87,6 +87,11 @@ her. Press it again and the take opens:
 - **Drag it straight into FL Studio** or any DAW. It lines up with the music
   from where you pressed Record. Or download her singing (.wav), the OpenUtau
   project (.ustx), or everything as a .zip.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-dark.png">
+  <img width="640" alt="A take open in Teto Relay: a line's notes on a piano roll with her pitch line drawn over them, a note selected, the editing toolbar, the words of the line, and the DAW tile with its three download buttons" src="docs/images/editor-light.png">
+</picture>
 
 Singing a real song? Paste its lyrics into **Song lyrics** first, in any of
 the three languages, so every word is heard right.
