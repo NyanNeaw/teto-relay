@@ -1,0 +1,21 @@
+# Teto Relay
+
+> Teto Relay is a free, open-source Windows app (GPL-3.0): talk or sing into your microphone and Kasane Teto sings it back, live, through any UTAU voicebank, using OpenUtau's engine. It hears English, Thai and Japanese, and sends her voice into VB-Cable so Discord, OBS or a game can use her as your microphone. It also records song covers that can be edited like a small OpenUtau and dragged into a DAW.
+
+The project is maintained by NyanNeaw. For live details (stars, latest release), read the GitHub API rather than a cached copy: https://api.github.com/repos/NyanNeaw/teto-relay
+
+## Links
+
+- [Source code on GitHub](https://github.com/NyanNeaw/teto-relay): the repository, README and issues
+- [Releases and downloads](https://github.com/NyanNeaw/teto-relay/releases): the installer (TetoRelay-<version>-setup.exe) and a portable .zip
+- [How-to-use guide](https://nyanneaw.github.io/teto-relay/how-to-use.html): the whole setup in pictures
+- [README (raw)](https://raw.githubusercontent.com/NyanNeaw/teto-relay/main/README.md): what it does and how it works
+- [Changelog (raw)](https://raw.githubusercontent.com/NyanNeaw/teto-relay/main/CHANGELOG.md): what changed in each version
+
+## What it needs
+
+- Windows 10 or 11, 64-bit
+- A UTAU voicebank (Kasane Teto's tandoku bank sounds best; any works)
+- OpenUtau (the installer downloads it)
+- VB-Cable, only to send her into other apps
+- An NVIDIA graphics card is optional (speech recognition is faster with one)
