@@ -38,6 +38,16 @@
   that much earlier. **Shift all clips** moves a whole take you already
   recorded. Bluetooth headphones have a delay that keeps changing: wired
   ones keep time.
+- **Presets: a way of singing you can save and share.** A **Preset** list
+  sits at the top of the quick settings, with four built in that sound
+  clearly different: *Just like you*, *Pop singer*, *Robot* and *Diva*. Pick
+  one and its settings go on at once. **Save as preset** keeps the way she
+  sings now under a name; **Export** makes a small `.tetostyle` file to
+  give to someone; **Import**, or dropping the file on the window, reads one.
+  A preset only holds settings that change how she sings (style, key, melody,
+  vibrato, held last note, doubled voice): never a device, a folder, the talk
+  key or the language. A file that isn't a preset, or has a value out of
+  range, is refused with the reason and changes nothing.
 - **Recording hears a quiet microphone.** While a take records, a line is
   told from a pause by how loud it is, and that level was fixed. A headset
   microphone that came in very quietly sat under it most of the time, so a

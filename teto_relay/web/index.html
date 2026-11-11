@@ -113,7 +113,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   animation:popin .28s var(--spring)}
 @keyframes popin{from{opacity:0;transform:translateY(10px) scale(.96)}}
 .dialog h2{margin:0;font-size:19px;font-weight:700;line-height:1.3;overflow-wrap:anywhere}
-.dialog p{margin:0;font-size:14px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere}
+.dialog p{margin:0;font-size:14px;color:var(--muted);line-height:1.5;overflow-wrap:anywhere;white-space:pre-line}
 .dialog .icon-big{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;
   background:var(--accent-weak);color:var(--accent-text)}
 .dialog .icon-big.ok{background:color-mix(in srgb,#30d158 18%,transparent);color:#1f9d48}
@@ -562,6 +562,17 @@ input[type=checkbox]:checked:hover:active::after{transform:translateX(12px)}
 
 /* ---------- controls ---------- */
 .deckhead{padding:16px 20px 0}
+/* The preset: a way of singing, picked, saved, exported or imported. */
+.presetrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 20px 4px}
+.presetrow label{display:flex;align-items:center;gap:7px;font-size:14px;font-weight:600}
+.presetrow label .ic{color:var(--accent-text)}
+.presetrow select.box{flex:1;width:auto;min-width:150px}
+.presettools{display:flex;gap:4px}
+.presettools .mini{width:36px;height:36px;background-color:var(--sink);color:var(--text)}
+.presettools .mini:hover{background-color:var(--line)}
+.presettools .mini[hidden]{display:none}
+.pform{display:grid;gap:8px}
+.pform:empty,#addform:empty{display:none}
 .deck{padding:4px 20px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
   gap:4px 24px}
 /* The padding and the equal negative margin cancel: the text stays on the card's
@@ -784,6 +795,17 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <div class="col-set">
     <section class="pane">
       <p class="tag deckhead"><i data-icon="bolt"></i>quick settings</p>
+      <div class="presetrow">
+        <label for="preset"><i data-icon="bookmark"></i>Preset</label>
+        <select id="preset" class="box" aria-label="Singing preset"></select>
+        <span class="presettools">
+          <button class="mini" id="presetSave" title="Save as preset" aria-label="Save as preset"><i data-icon="save"></i></button>
+          <button class="mini" id="presetExport" title="Export this preset as a file (.tetostyle)" aria-label="Export preset"><i data-icon="download"></i></button>
+          <button class="mini" id="presetImport" title="Import a preset (.tetostyle), or drop it on the window" aria-label="Import preset"><i data-icon="upload"></i></button>
+          <button class="mini" id="presetDelete" title="Delete this preset" aria-label="Delete preset" hidden><i data-icon="trash"></i></button>
+        </span>
+        <input type="file" id="presetFile" accept=".tetostyle" hidden>
+      </div>
       <div class="deck" id="deck"></div>
     </section>
     <div class="advbar">
@@ -811,6 +833,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
     <span class="icon-big" id="addicon"></span>
     <h2 id="addtitle"></h2>
     <p id="addtext"></p>
+    <div id="addform"></div>
     <div class="progress" id="addbar"><i></i></div>
     <div class="row" id="addrow"><span id="addleft"></span><span id="addright"></span></div>
     <div class="btns" id="addbtns"></div>
@@ -878,6 +901,8 @@ const ICON_PATHS={
   trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   close:'<path d="M6 6l12 12M18 6L6 18"/>',
   plus:'<path d="M12 5v14M5 12h14"/>',
+  bookmark:'<path d="M7 4h10v16l-5-3.5L7 20z"/>',
+  save:'<path d="M5 4h11l3 3v13H5z"/><path d="M8.5 4v5h6.5V4M8 20v-6h8v6"/>',
   tostart:'<path d="M6 5v14"/><path d="M19 5.5v13L9.5 12z"/>',
   zoomin:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6M10.5 7.5v6"/>',
   zoomout:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6"/>',
@@ -963,7 +988,7 @@ function paint(el){const a=+el.min,b=+el.max;el.style.setProperty('--pct',((el.v
 async function load(){
   const d=await (await fetch('api/config')).json();
   cfg=d.config; meta=d.meta;
-  renderPicker(); renderDeck(); renderGroups();
+  renderPicker(); renderDeck(); renderGroups(); loadStyles();
   setMode(cfg.panel_mode,false);
 }
 /* ---------- Live | Studio ----------
@@ -1169,6 +1194,8 @@ async function saveOne(k){
   const d=await (await fetch('api/config',{method:'POST',
     headers:{'Content-Type':'application/json'},body:JSON.stringify({[k]:value})})).json();
   if(!d.ok){ toast('Could not save: '+d.error); return; }
+  // A singing setting moved: the preset it was may not be the preset it is.
+  if((styles.settings||[]).includes(k)) loadStyles();
   // A new voicebank or OpenUtau folder means a different list of voices.
   if(k==='voicebank_root'||k==='openutau_dir') refreshBanks();
   toast(labelOf(k)+(d.restarting ? ': restarting to apply'
@@ -1185,6 +1212,88 @@ async function refreshBanks(){
     renderPicker();
   }catch(e){}
 }
+/* ---------- presets ----------
+   A preset is a saved way of singing: the settings that only change how she
+   sings, in a small .tetostyle file that can be shared. Four are built in.
+   The list shows the one the settings in force match, or "Custom"; picking
+   one puts its settings on (api/style/apply). Save as preset keeps the
+   current settings under a name, Export downloads the file, and Import (or
+   dropping the file on the window) reads one, checked first. */
+let styles={styles:[],active:'',settings:[]};
+async function loadStyles(){
+  try{ styles=await (await fetch('api/styles')).json(); }catch(e){ return; }
+  const pick=$('preset'); pick.textContent='';
+  if(!styles.active){ const o=el('option','','Custom'); o.value=''; o.selected=true; pick.append(o); }
+  for(const s of styles.styles){
+    const o=el('option','',s.name); o.value=s.id; o.title=s.description||'';
+    if(s.id===styles.active) o.selected=true;
+    pick.append(o);
+  }
+  const now=styles.styles.find(s=>s.id===styles.active);
+  pick.title=now?((now.description||now.name)+(now.author?' · by '+now.author:''))
+    :'Your own settings. Save them as a preset to keep them.';
+  $('presetDelete').hidden=!now||now.builtin;
+}
+/* Settings changed by the program (a preset): shown in the controls. */
+function applySettings(values){
+  Object.assign(cfg,values||{}); renderDeck(); renderGroups(); loadStyles();
+}
+$('preset').onchange=async e=>{
+  const id=e.target.value; if(!id) return;
+  let d; try{ d=await api('api/style/apply',{id}); }catch(err){ toast('Could not reach the relay.'); return; }
+  if(!d.ok){ toast('Could not use it: '+d.error); loadStyles(); return; }
+  applySettings(d.config); toast('Preset: '+d.name);
+};
+/* Asks for a name (and who made it), then keeps the current settings.
+   `then(id)` runs once it is saved. */
+function savePreset(then){
+  const form=el('div','pform');
+  const field=(placeholder,max)=>{ const i=el('input'); i.type='text'; i.placeholder=placeholder; i.maxLength=max;
+    i.spellcheck=false; form.append(i); return i; };
+  const name=field('Name',60), author=field('Made by (optional)',60), about=field('What it sounds like (optional)',300);
+  const mine=styles.styles.find(s=>s.id===styles.active&&!s.builtin);
+  if(mine){ name.value=mine.name; author.value=mine.author||''; about.value=mine.description||''; }
+  const go=async()=>{
+    if(!name.value.trim()){ name.focus(); return; }
+    let d; try{ d=await api('api/style/save',{name:name.value,author:author.value,description:about.value}); }
+    catch(e){ toast('Could not reach the relay.'); return; }
+    if(!d.ok){ toast(d.error); return; }
+    closeAdd(); await loadStyles(); toast('Saved as '+d.name);
+    if(then) then(d.id);
+  };
+  addDialog({icon:'bookmark',title:'Save as preset',text:'The way she sings now, kept under a name.',form,
+    buttons:[['Cancel',closeAdd,true],['Save',go]]});
+  for(const i of [name,author,about]) i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } };
+  name.focus(); name.select();
+}
+$('presetSave').onclick=()=>savePreset();
+$('presetExport').onclick=()=>{
+  const download=id=>{ const a=el('a'); a.href='api/style/export?id='+encodeURIComponent(id); a.setAttribute('download','');
+    document.body.append(a); a.click(); a.remove(); };
+  // Settings not saved as a preset yet need a name before they can be a file.
+  if(styles.active) download(styles.active); else savePreset(download);
+};
+async function importStyle(file){
+  if(!file) return;
+  let d;
+  try{ d=await (await fetch('api/style/import',{method:'POST',body:file})).json(); }
+  catch(e){ toast('Could not reach the relay.'); return; }
+  if(!d.ok){
+    addDialog({kind:'bad',title:'Could not use that preset',text:d.error||'',buttons:[['OK',closeAdd]]});
+    return;
+  }
+  applySettings(d.config); toast('Preset: '+d.name);
+}
+$('presetImport').onclick=()=>$('presetFile').click();
+$('presetFile').onchange=e=>{ importStyle(e.target.files[0]); e.target.value=''; };
+$('presetDelete').onclick=async()=>{
+  const now=styles.styles.find(s=>s.id===styles.active); if(!now||now.builtin) return;
+  if(!await ask('Delete this preset?',now.name+' is removed from the list. Your settings stay as they are.','Delete')) return;
+  try{ const d=await api('api/style/delete',{id:now.id}); if(!d.ok){ toast(d.error); return; } }
+  catch(e){ toast('Could not reach the relay.'); return; }
+  await loadStyles(); toast('Preset deleted');
+};
+
 /* Each group folds. The ones most people never need start folded, and
    whatever you open or close is remembered. */
 function groupOpen(name,info){
@@ -2716,6 +2825,7 @@ function addDialog(o){
   $('addicon').className='icon-big'+(o.kind?' '+o.kind:'');
   $('addicon').innerHTML=o.icon?icon(o.icon,26):ICONS[o.kind||'up'];
   $('addtitle').textContent=o.title; $('addtext').textContent=o.text||'';
+  $('addform').textContent=''; if(o.form) $('addform').append(o.form);
   $('addbar').hidden=o.progress==null; $('addrow').hidden=o.progress==null||o.progress<0;
   $('addbar').classList.toggle('busy',o.progress!=null&&o.progress<0);
   if(o.progress!=null&&o.progress>=0) $('addbar').firstElementChild.style.width=(o.progress*100).toFixed(1)+'%';
@@ -2780,7 +2890,7 @@ document.addEventListener('keydown',e=>{
 let dragDepth=0;
 const hasFiles=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
 document.addEventListener('dragenter',e=>{ if(!hasFiles(e)) return; e.preventDefault(); dragDepth++;
-  $('droptext').textContent=mode==='studio'?'Drop a voicebank or your song':'Drop to add voicebank';
+  $('droptext').textContent=mode==='studio'?'Drop a voicebank, a preset or your song':'Drop a voicebank or a preset';
   $('dropzone').hidden=false; });
 document.addEventListener('dragleave',e=>{ if(!hasFiles(e)) return; dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) $('dropzone').hidden=true; });
 document.addEventListener('dragover',e=>{ if(!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect='copy'; });
@@ -2788,7 +2898,7 @@ document.addEventListener('drop',e=>{
   if(!hasFiles(e)) return;
   e.preventDefault(); dragDepth=0; $('dropzone').hidden=true;
   const file=e.dataTransfer.files[0];
-  if(file) (MUSIC_FILE.test(file.name)?addMusic:addVoicebank)(file);
+  if(file) (/\.tetostyle$/i.test(file.name)?importStyle:MUSIC_FILE.test(file.name)?addMusic:addVoicebank)(file);
 });
 
 $('advtoggle').onclick=()=>{

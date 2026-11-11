@@ -1105,5 +1105,242 @@ class TestRecordingDelay(unittest.TestCase):
             self.assertIn(needle, page)
 
 
+class TestStylePresets(unittest.TestCase):
+    """A preset: a way of singing in one small file that can be shared."""
+
+    def preset(self, **settings):
+        return {"format": 1, "name": "Mine", "author": "me", "description": "a test",
+                "settings": settings or {"singing_style": "sung", "vibrato_depth_cents": 40}}
+
+    def test_a_preset_holds_only_how_she_sings(self):
+        from dataclasses import fields
+
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        known = {f.name for f in fields(Config)}
+        self.assertTrue(set(presets.SETTINGS) <= known)
+        for needed in ("singing_style", "scale", "scale_key", "sung_contour_amount", "sung_melody_range",
+                       "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
+                       "final_hold_seconds", "double_voice", "double_when"):
+            self.assertIn(needed, presets.SETTINGS)
+        # Never a device, a path, a key or the language.
+        for never in ("input_device", "output_device", "monitor_device", "ptt_key", "language", "voicebank",
+                      "voicebank_root", "openutau_dir", "out_dir", "log_file", "lyrics_hint", "panel_mode",
+                      "studio_offset_ms", "whisper_model", "playback_gain"):
+            self.assertNotIn(never, presets.SETTINGS)
+
+    def test_reading_keeps_what_is_on_the_list_and_ignores_the_rest(self):
+        from teto_relay import presets
+
+        read = presets.validate({
+            "format": 1, "name": "  Wide   and\nslow ", "author": "someone", "description": "",
+            "made_with": "a newer app", "settings": {
+                "singing_style": "SUNG", "vibrato_depth_cents": "55", "legato": "false",
+                "output_device": "Speakers", "voicebank_root": "C:\\Windows", "ptt_key": "f1",
+                "language": "ja", "log_file": "C:\\evil.log", "a_setting_from_the_future": 3}})
+        self.assertEqual(read, {"format": 1, "name": "Wide and slow", "author": "someone", "description": "",
+                                "settings": {"singing_style": "sung", "vibrato_depth_cents": 55.0,
+                                             "legato": False}})
+
+    def test_a_bad_file_says_why(self):
+        from teto_relay import presets
+
+        bad = {
+            "not JSON": (b"this is not a preset", "not a preset file"),
+            "not an object": (b"[1, 2, 3]", "not a preset file"),
+            "no format": (json.dumps({"name": "x", "settings": {"legato": True}}).encode(), "format"),
+            "a newer format": (json.dumps({**self.preset(), "format": 2}).encode(), "newer Teto Relay"),
+            "no name": (json.dumps({**self.preset(), "name": "  "}).encode(), "no name"),
+            "a long name": (json.dumps({**self.preset(), "name": "x" * 61}).encode(), "longer than 60"),
+            "no settings": (json.dumps({"format": 1, "name": "x"}).encode(), "no settings"),
+            "nothing usable": (json.dumps(self.preset(output_device="x")).encode(), "no singing settings"),
+            "out of range": (json.dumps(self.preset(vibrato_depth_cents=900)).encode(),
+                             "vibrato_depth_cents is 900.0; it must be between 0.0 and 200.0"),
+            "not a choice": (json.dumps(self.preset(scale="blues")).encode(), "scale is 'blues'"),
+            "the wrong type": (json.dumps(self.preset(legato="maybe")).encode(), "legato is 'maybe'"),
+            "not a key": (json.dumps(self.preset(scale_key="H")).encode(), "H"),
+            "too big": (b" " * 70_000, "too big"),
+            "not text": (b"\xff\xfe\x00\x01", "not a preset file"),
+        }
+        for what, (raw, reason) in bad.items():
+            with self.assertRaises(presets.PresetError, msg=what) as caught:
+                presets.parse(raw)
+            self.assertIn(reason, str(caught.exception), what)
+        # Every problem at once, as the settings file reports them.
+        with self.assertRaises(presets.PresetError) as caught:
+            presets.parse(json.dumps(self.preset(vibrato_depth_cents=900, final_hold_seconds=-1)).encode())
+        self.assertIn("vibrato_depth_cents", str(caught.exception))
+        self.assertIn("final_hold_seconds", str(caught.exception))
+
+    def test_four_presets_are_built_in_and_differ(self):
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        self.assertEqual(list(presets.BUILTIN), ["just-like-you", "pop-singer", "robot", "diva"])
+        seen = []
+        for key, preset in presets.BUILTIN.items():
+            read = presets.validate(preset)
+            # Each sets everything, so picking one never depends on the last.
+            self.assertEqual(set(read["settings"]), set(presets.SETTINGS), key)
+            self.assertTrue(read["name"] and read["description"])
+            self.assertNotIn(read["settings"], seen)
+            seen.append(read["settings"])
+        # A fresh install sings as the first one says.
+        self.assertTrue(presets.matches(presets.BUILTIN["just-like-you"], Config()))
+        self.assertEqual(presets.BUILTIN["robot"]["settings"]["vibrato_depth_cents"], 0.0)
+        self.assertGreater(presets.BUILTIN["diva"]["settings"]["vibrato_depth_cents"],
+                           presets.BUILTIN["pop-singer"]["settings"]["vibrato_depth_cents"])
+
+    def test_export_change_import_brings_the_settings_back(self):
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        cfg = Config(singing_style="sung", scale="minor", scale_key="F#", vibrato_depth_cents=45.0,
+                     final_hold_seconds=0.9, double_voice=0.2, legato=False)
+        text = presets.dumps(presets.from_config(cfg, "My style", "me", "how I like it"))
+        back = presets.parse(text)
+        self.assertEqual((back["name"], back["author"], back["description"]), ("My style", "me", "how I like it"))
+        other = Config()
+        self.assertFalse(presets.matches(back, other))
+        for key, value in back["settings"].items():
+            setattr(other, key, value)
+        for key in presets.SETTINGS:
+            self.assertEqual(getattr(other, key), getattr(cfg, key), key)
+        self.assertTrue(presets.matches(back, other))
+
+    def test_your_presets_are_kept_listed_and_deleted(self):
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        with _TempHome() as home:
+            first = presets.listing(Config())
+            self.assertEqual([s["id"] for s in first["styles"]],
+                             ["builtin:just-like-you", "builtin:pop-singer", "builtin:robot", "builtin:diva"])
+            self.assertEqual(first["active"], "builtin:just-like-you")
+            saved = presets.save(self.preset())
+            self.assertEqual(saved, "user:mine")
+            self.assertTrue((home / "styles" / "mine.tetostyle").is_file())
+            # A name from someone else's file cannot name a file outside the folder.
+            sneaky = presets.save({**self.preset(legato=False), "name": "..\\..\\Start Menu/evil"})
+            self.assertEqual(sneaky, "user:start-menu-evil")
+            thai = presets.save({**self.preset(scale="minor"), "name": "เสียงหวาน"})
+            self.assertRegex(thai, r"^user:preset-[0-9a-f]{10}$")
+            self.assertEqual(sorted(p.name for p in (home / "styles").iterdir()),
+                             sorted(["mine.tetostyle", "start-menu-evil.tetostyle", thai[5:] + ".tetostyle"]))
+            # A file in the folder that is not a preset is passed over.
+            (home / "styles" / "broken.tetostyle").write_text("{", encoding="utf-8")
+            listed = presets.listing(Config(singing_style="sung", vibrato_depth_cents=40.0))
+            self.assertEqual(len(listed["styles"]), 7)
+            self.assertFalse(listed["styles"][4]["builtin"])
+            self.assertEqual(listed["active"], "user:mine")
+            self.assertEqual(presets.get("user:mine")["settings"]["vibrato_depth_cents"], 40.0)
+            self.assertEqual(presets.get("builtin:robot")["name"], "Robot")
+            presets.delete("user:mine")
+            for gone in ("user:mine", "user:../mine", "builtin:nope", "", "user:"):
+                with self.assertRaises(presets.PresetError, msg=gone):
+                    presets.get(gone)
+            with self.assertRaises(presets.PresetError):
+                presets.delete("builtin:robot")
+            self.assertEqual(presets.listing(Config(singing_style="sung", vibrato_depth_cents=40.0))["active"], "")
+
+    def test_the_panel_applies_saves_exports_and_imports(self):
+        import http.client
+
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        def post_file(s, path, data, token=True):
+            conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
+            conn.request("POST", path, body=data, headers=TOKEN if token else {})
+            resp = conn.getresponse()
+            body = resp.read()
+            conn.close()
+            return resp.status, json.loads(body)
+
+        with _TempHome() as home, _PanelServer() as s:
+            _, body = s.request("GET", "/api/styles")
+            listed = json.loads(body)
+            self.assertEqual(len(listed["styles"]), 4)
+            self.assertEqual(listed["active"], "builtin:just-like-you")
+            self.assertEqual(listed["settings"], list(presets.SETTINGS))
+
+            # Pick a built-in one: saved, and in force for a running relay.
+            s.request("POST", "/api/config", {"output_device": "My speakers", "language": "th"}, TOKEN)
+            status, body = s.request("POST", "/api/style/apply", {"id": "builtin:diva"}, TOKEN)
+            self.assertEqual(status, 200, body)
+            data = json.loads(body)
+            self.assertEqual((data["ok"], data["name"], data["config"]["scale"]), (True, "Diva", "minor"))
+            saved = Config.load()
+            self.assertEqual((saved.singing_style, saved.vibrato_depth_cents), ("sung", 70.0))
+            self.assertEqual(s.controller.cfg.vibrato_depth_cents, 70.0)
+            # Nothing else was touched.
+            self.assertEqual((saved.output_device, saved.language), ("My speakers", "th"))
+            self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "builtin:diva")
+
+            # Change something and save it as a preset of your own.
+            s.request("POST", "/api/config", {"final_hold_seconds": 2.0}, TOKEN)
+            self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "")
+            status, body = s.request("POST", "/api/style/save",
+                                     {"name": "Long notes", "author": "me", "description": "held"}, TOKEN)
+            self.assertEqual((status, json.loads(body)["id"]), (200, "user:long-notes"))
+            self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "user:long-notes")
+            status, body = s.request("POST", "/api/style/save", {"name": ""}, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("no name", json.loads(body)["error"])
+
+            # Export it: a .tetostyle file to download.
+            conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
+            conn.request("GET", "/api/style/export?id=user:long-notes")
+            resp = conn.getresponse()
+            exported = resp.read()
+            conn.close()
+            self.assertEqual(resp.status, 200)
+            self.assertIn('filename="long-notes.tetostyle"', resp.getheader("Content-Disposition"))
+            self.assertEqual(json.loads(exported)["settings"]["final_hold_seconds"], 2.0)
+            self.assertEqual(s.request("GET", "/api/style/export?id=user:nope")[0], 404)
+
+            # The done-when: change settings, import the file, and they are back.
+            s.request("POST", "/api/style/apply", {"id": "builtin:robot"}, TOKEN)
+            s.request("POST", "/api/style/delete", {"id": "user:long-notes"}, TOKEN)
+            self.assertEqual(Config.load().final_hold_seconds, 0.0)
+            status, data = post_file(s, "/api/style/import", exported)
+            self.assertEqual(status, 200, data)
+            self.assertEqual((data["id"], data["name"]), ("user:long-notes", "Long notes"))
+            back = Config.load()
+            self.assertEqual((back.final_hold_seconds, back.scale, back.vibrato_depth_cents), (2.0, "minor", 70.0))
+            self.assertEqual(s.controller.cfg.final_hold_seconds, 2.0)
+            self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "user:long-notes")
+
+            # A bad file: a clear message, and nothing changes or is kept.
+            before = s.config_path.read_bytes()
+            kept = sorted(p.name for p in (home / "styles").iterdir())
+            for raw, reason in ((b"MZ not a preset", "not a preset file"),
+                                (json.dumps(self.preset(vibrato_depth_cents=900)).encode(), "vibrato_depth_cents"),
+                                (b"x" * 70_000, "too big")):
+                status, data = post_file(s, "/api/style/import", raw)
+                self.assertEqual(status, 400)
+                self.assertIn(reason, data["error"])
+            self.assertEqual(s.config_path.read_bytes(), before)
+            self.assertEqual(sorted(p.name for p in (home / "styles").iterdir()), kept)
+
+            # Installed without being put on (what the store does).
+            status, data = post_file(s, "/api/style/import?apply=0", json.dumps(self.preset()).encode())
+            self.assertEqual((status, data["id"], data["config"]), (200, "user:mine", {}))
+            self.assertEqual(Config.load().final_hold_seconds, 2.0)
+            # Built-in presets stay; only the panel may do any of this.
+            status, body = s.request("POST", "/api/style/delete", {"id": "builtin:robot"}, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertEqual(post_file(s, "/api/style/import", exported, token=False)[0], 403)
+            self.assertEqual(s.request("POST", "/api/style/apply", {"id": "builtin:robot"})[0], 403)
+
+    def test_the_page_has_the_preset_row(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/styles", "api/style/apply", "api/style/save", "api/style/export?id=",
+                       "api/style/import", "api/style/delete", ".tetostyle", "Save as preset",
+                       'id="preset"', "function importStyle("):
+            self.assertIn(needle, page)
+
+
 if __name__ == "__main__":
     unittest.main()

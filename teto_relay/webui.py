@@ -536,6 +536,31 @@ class Controller:
         self.cfg.studio_offset_ms = float(found["ms"])
         return found
 
+    # ------------------------------------------------------------ presets
+    def apply_style(self, preset: dict) -> dict:
+        """Make a preset's settings the ones in force (teto_relay.presets):
+        saved, and used by a running relay from its next phrase. Returns the
+        settings as they now are."""
+        cfg = Config.load(self.config_path)
+        for key, value in preset["settings"].items():
+            setattr(cfg, key, value)
+        cfg.validate("this preset")
+        for key in preset["settings"]:
+            # In place: the running relay holds this object (see api/config).
+            setattr(self.cfg, key, getattr(cfg, key))
+        cfg.save(self.config_path)
+        return {key: getattr(cfg, key) for key in preset["settings"]}
+
+    def import_style(self, raw: bytes, apply: bool = True) -> dict:
+        """Read a .tetostyle file, keep it, and (unless told not to) sing
+        that way. A file that is not a usable preset raises before anything
+        is kept or changed."""
+        from . import presets
+
+        preset = presets.parse(raw)
+        settings = self.apply_style(preset) if apply else {}
+        return {"id": presets.save(preset), "name": preset["name"], "config": settings}
+
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
         relay = self.relay
@@ -925,6 +950,22 @@ def make_handler(controller: Controller):
                     self._json(detail(folder))
             elif route == "api/take/current":
                 self._json(controller.current_take())
+            elif route == "api/styles":
+                from . import presets
+
+                self._json(presets.listing(Config.load(controller.config_path)))
+            elif route == "api/style/export":
+                from urllib.parse import parse_qs, urlparse
+
+                from . import presets
+
+                wanted = (parse_qs(urlparse(self.path).query).get("id") or [""])[0]
+                try:
+                    preset = presets.get(wanted)
+                    self._download(presets.dumps(preset).encode("utf-8"), presets.file_name(preset),
+                                   "application/json")
+                except presets.PresetError as exc:
+                    self._json({"error": str(exc)}, 404)
             elif route in ("api/take/music", "api/take/music/sound"):
                 # The music row: what is on it and its waveform, or (sound)
                 # the music itself, decoded here so the panel's player hears
@@ -1040,6 +1081,7 @@ def make_handler(controller: Controller):
                 if folder is None:
                     self._json({"ok": False, "error": "no such take"}, 404)
                 elif length <= 0 or length > music.MAX_UPLOAD:
+                    self.close_connection = True  # its body is not read
                     self._json({"ok": False, "error": "That file is empty or too large."}, 400)
                 else:
                     try:
@@ -1148,6 +1190,40 @@ def make_handler(controller: Controller):
                 except Exception as exc:  # noqa: BLE001 - say it on the page
                     log.exception("could not measure the delay")
                     self._json({"ok": False, "error": describe(exc, controller.cfg.log_file)}, 500)
+            elif route in ("api/style/apply", "api/style/save", "api/style/delete", "api/style/import"):
+                from urllib.parse import parse_qs, urlparse
+
+                from . import presets
+
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    if length > presets.MAX_BYTES:
+                        # Its body is not read, so nothing more can come down this connection.
+                        self.close_connection = True
+                        raise presets.PresetError("That file is too big to be a preset.")
+                    raw = self.rfile.read(length)
+                    if route == "api/style/import":
+                        # The file itself is the body, as voicebanks and music arrive.
+                        query = parse_qs(urlparse(self.path).query)
+                        found = controller.import_style(raw, (query.get("apply") or ["1"])[0] != "0")
+                        log.info("Preset imported: %s", found["name"])
+                        self._json({"ok": True, **found})
+                        return
+                    body = json.loads(raw or b"{}") or {}
+                    if not isinstance(body, dict):
+                        raise ValueError("Send a JSON object.")
+                    if route == "api/style/apply":
+                        preset = presets.get(str(body.get("id") or ""))
+                        self._json({"ok": True, "name": preset["name"], "config": controller.apply_style(preset)})
+                    elif route == "api/style/save":
+                        preset = presets.from_config(Config.load(controller.config_path), body.get("name"),
+                                                     body.get("author"), body.get("description"))
+                        self._json({"ok": True, "id": presets.save(preset), "name": preset["name"]})
+                    else:
+                        presets.delete(str(body.get("id") or ""))
+                        self._json({"ok": True})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/take/delete":
                 from .takes import discard
 
