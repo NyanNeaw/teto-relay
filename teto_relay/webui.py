@@ -78,8 +78,9 @@ GROUP_INFO: dict[str, dict] = {
     "Other": {"icon": "dots", "collapsed": True},
 }
 
-# Shown elsewhere on the page, so not in "Other" either.
-SHOWN_ELSEWHERE = {"voicebank"}
+# Shown elsewhere on the page, so not in "Other" either: the voicebank has its
+# picker, and the mode is the Live | Studio switch in the top bar.
+SHOWN_ELSEWHERE = {"voicebank", "panel_mode"}
 
 HIDE = {"out_dir", "log_file", "queue_size", "keep_files"}
 

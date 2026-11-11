@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 beta
+
+- **Two modes: Live and Studio.** A switch in the top bar. *Live* is the main
+  screen as before: talk, and she sings into your output. *Studio* is the
+  recording workspace: the take you are recording, or a saved one, sits in
+  the page above the settings instead of in a sheet floating over it.
+  Pressing Record in Live takes you to Studio. The app opens in the mode you
+  left it in. While a take records she still isn't sent to CABLE Input.
+
 ## 0.3.2 beta (2026-11-04)
 
 - **A small OpenUtau in the take sheet.** Open a line of a take and her notes

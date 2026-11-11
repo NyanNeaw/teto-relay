@@ -80,6 +80,10 @@ class Config:
     # (Edge or Chrome app mode, with its own taskbar button), "browser" a tab
     # in the default browser.
     panel_window: str = "app"
+    # Which of the panel's two modes it opens in, as it was left: "live" is
+    # the main screen (talk, she sings into the output), "studio" the
+    # recording workspace, where takes are made and edited.
+    panel_mode: str = "live"
     beam_size: int = 5
     # Whisper's word timings come from attention and are systematically early -
     # measured at +0.06 to +0.20s per word against a forced aligner, and too
@@ -503,6 +507,7 @@ CHOICES: dict[str, set[str]] = {
     "scale": {"major", "minor", "pentatonic", "chromatic"},
     "double_when": {"off", "singing", "always"},
     "panel_window": {"app", "browser"},
+    "panel_mode": {"live", "studio"},
     "whisper_compute_type": {
         "default", "auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
         "int16", "float16", "bfloat16", "float32",

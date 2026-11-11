@@ -66,6 +66,9 @@ body{margin:0;color:var(--text);font-size:15px;line-height:1.5;
 .tabs button:not([aria-selected=true]):hover{color:var(--text);background-color:transparent}
 .switch{display:inline-flex}
 .switch button{padding:7px 16px;font-size:14px}
+/* Live | Studio, in the top bar. */
+.bar .switch{flex:none}
+.bar .switch button{padding:6px 14px;font-size:13px}
 .state{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
 .state i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal}
 .live .state i{background:var(--accent)}
@@ -147,11 +150,15 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
 .recbtn.saving:disabled{opacity:1}
 .saving .state i{background:var(--accent);animation:spinpulse .8s linear infinite}
-.sheet{position:fixed;z-index:30;top:66px;right:16px;width:min(460px,calc(100vw - 32px));
-  max-height:calc(100vh - 82px);overflow:auto;background:var(--card);border:1px solid var(--line);
-  border-radius:18px;box-shadow:0 18px 50px rgba(0,0,0,.22);padding:16px 18px 18px;
-  animation:sheetIn .22s cubic-bezier(.2,.8,.2,1)}
+/* Studio's workspace: the take, docked above the settings and as wide as the
+   cards below it. (It was a sheet floating over the page, hence the name.) */
+.sheet{margin:24px max(24px,calc((100% - 1072px)/2)) 0;background:var(--card);border:1px solid var(--line);
+  border-radius:18px;padding:16px 18px 18px;animation:sheetIn .22s cubic-bezier(.2,.8,.2,1)}
 .sheet[hidden]{display:none}
+@media(max-width:900px){.sheet{margin:16px 16px 0}}
+/* Studio is for takes: the last live phrase steps aside, and the takes
+   button is the workspace's own. */
+.studio .stage,.studio #takesBtn{display:none}
 @keyframes sheetIn{from{opacity:0;transform:translateY(-6px) scale(.985)}}
 .sh-head{display:flex;align-items:center;gap:4px;margin:-4px -6px 8px 0}
 .sh-title{font-size:15px;color:var(--muted);font-weight:600;margin-right:auto;display:flex;align-items:center;gap:8px}
@@ -187,7 +194,6 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .editor{padding:4px 10px 12px}
 /* The note editor: a toolbar, then piano keys beside a strip of notes that
    scrolls sideways. Locked (dimmed) while the words have unsung changes. */
-.sheet.wide{width:min(860px,calc(100vw - 32px))}
 .ntools{display:flex;align-items:center;flex-wrap:wrap;gap:2px;margin:0 0 8px}
 .ntools .mini{width:32px;height:32px}
 .ntools .mini:disabled{opacity:.3}
@@ -658,6 +664,9 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 <header class="bar pane">
   <span class="mark" id="mark"><i><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
     aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></i>Teto Relay</span>
+  <div class="tabs switch" id="modeSwitch" role="radiogroup" aria-label="Mode"><span class="thumb"></span><button
+    type="button" role="radio" data-mode="live" aria-selected="true" title="Talk, and she sings into your output">Live</button><button
+    type="button" role="radio" data-mode="studio" aria-selected="false" title="Record and edit takes">Studio</button></div>
   <span class="spacer"></span>
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <span class="tools">
@@ -669,6 +678,14 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   <button id="toggle" title="Start or stop (Ctrl+Enter)" aria-keyshortcuts="Control+Enter Meta+Enter">Start</button>
   <div class="loadbar" id="loadbar" aria-hidden="true"><i></i></div>
 </header>
+
+<section class="sheet" id="sheet" hidden aria-label="Studio">
+  <div class="sh-head">
+    <span class="sh-title" id="shTitle"></span>
+    <button class="icon" id="shHistory" title="Your takes" aria-label="Your takes"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+  </div>
+  <div id="shBody"></div>
+</section>
 
 <div class="wrap">
   <div class="col-voice">
@@ -734,14 +751,6 @@ details.group>summary::before{transition:transform .45s var(--spring)}
   </div>
 </div>
 </div>
-<aside class="sheet" id="sheet" hidden aria-label="Take">
-  <div class="sh-head">
-    <span class="sh-title" id="shTitle"></span>
-    <button class="icon" id="shHistory" title="Your takes" aria-label="Your takes"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-    <button class="icon" id="shClose" title="Close" aria-label="Close"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-  </div>
-  <div id="shBody"></div>
-</aside>
 <div class="modal" id="addmodal" hidden role="dialog" aria-modal="true" aria-labelledby="addtitle">
   <div class="dialog">
     <span class="icon-big" id="addicon"></span>
@@ -895,7 +904,30 @@ async function load(){
   const d=await (await fetch('api/config')).json();
   cfg=d.config; meta=d.meta;
   renderPicker(); renderDeck(); renderGroups();
+  setMode(cfg.panel_mode,false);
 }
+/* ---------- Live | Studio ----------
+   The panel's two modes, remembered in the config (panel_mode) so it opens
+   in the one it was left in. Live is the main screen. Studio puts the
+   recording workspace (the take being made, or a saved one) above the
+   settings; while a take records she is kept off the output, as before. */
+let mode='live';
+function setMode(next,save){
+  mode=next==='studio'?'studio':'live';
+  app().classList.toggle('studio',mode==='studio');
+  const seg=$('modeSwitch');
+  for(const b of seg.querySelectorAll('button')) b.setAttribute('aria-selected',String(b.dataset.mode===mode));
+  requestAnimationFrame(()=>placeThumb(seg));
+  $('sheet').hidden=mode!=='studio';
+  // Drawn again on the way in: a roll drawn while hidden has no width.
+  if(mode==='studio') showSheet(sheet.view||'list');
+  else player.pause();
+  if(save&&cfg.panel_mode!==mode){
+    cfg.panel_mode=mode;
+    api('api/config',{panel_mode:mode}).then(d=>{ if(d&&d.ok===false) toast('Could not save: '+d.error); }).catch(()=>{});
+  }
+}
+for(const b of $('modeSwitch').querySelectorAll('button')) b.onclick=()=>{ if(b.dataset.mode!==mode) setMode(b.dataset.mode,true); };
 function renderPicker(){
   const pick=$('bank'); pick.innerHTML='';
   for(const b of (meta.banks||[])){
@@ -1479,13 +1511,14 @@ $('toggle').onclick=async e=>{
   }catch(err){toast('Could not reach the relay.');}
   startAsked=stopAsked=false; btn.disabled=false; poll();
 };
-/* ---------- takes: the round Record button, and the sheet beside it.
-   While recording the sheet shows the lines as they arrive; a saved take
+/* ---------- takes: the round Record button, and Studio's workspace.
+   While recording the workspace shows the lines as they arrive; a saved take
    shows them on a piano roll, plays them, and fixes a word whisper got
    wrong: the line is sung again from the corrected words (api/take/line).
-   The tile drags teto.wav out as a real file, into FL Studio or any DAW. */
+   The tile drags teto.wav out as a real file, into FL Studio or any DAW.
+   Pressing Record in Live goes to Studio. */
 const SVGNS='http://www.w3.org/2000/svg';
-const sheet={view:'',take:null,open:0,edited:{},busy:false,dismissed:false,live:null,liveCount:-1};
+const sheet={view:'',take:null,open:0,edited:{},busy:false,live:null,liveCount:-1};
 let takesSeen=-1, lastTakeSeen='', takeCount=0;
 const player=new Audio();
 function clock(sec){
@@ -1507,26 +1540,27 @@ $('rec').onclick=async()=>{
   const on=$('rec').classList.contains('on');
   // Stopping: the spinner shows at once, not on the next status poll.
   if(on){ $('rec').classList.remove('on'); $('rec').classList.add('saving'); $('rec').disabled=true;
-    if(sheet.view==='live'&&!$('sheet').hidden) savingTake(); }
+    if(sheet.view==='live') savingTake(); }
   try{
     const d=await api(on?'api/take/stop':'api/take/start');
     if(d&&d.ok===false) toast(d.error);
     else if(!on){
-      sheet.dismissed=false; showSheet('live');
+      sheet.view='live'; recordingSeen=true; setMode('studio',true);
       // A take is kept off the output, so Hear myself is the only way to hear it.
       if(!cfg.hear_myself) toast('Turn on Hear myself to hear her while you record');
     }
   }catch(err){toast('Could not reach the relay.');}
   poll();
 };
-$('takesBtn').onclick=()=>{ sheet.view==='list'&&!$('sheet').hidden?closeSheet():showSheet('list'); };
+$('takesBtn').onclick=()=>{ sheet.view='list'; setMode('studio',true); };
 $('shHistory').onclick=()=>showSheet('list');
-$('shClose').onclick=closeSheet;
 document.addEventListener('keydown',e=>{
-  if(e.key==='Escape'&&!$('sheet').hidden&&!(e.target&&e.target.tagName==='INPUT')) closeSheet();
+  if(e.key==='Escape'&&mode==='studio'&&$('addmodal').hidden&&!(e.target&&e.target.tagName==='INPUT')) closeSheet();
 });
+/* Out of a saved take, back to the list of takes. */
 function closeSheet(){
-  $('sheet').hidden=true; sheet.dismissed=true; player.pause();
+  player.pause();
+  if(sheet.view==='take') showSheet('list');
 }
 
 function renderTake(d){
@@ -1536,20 +1570,27 @@ function renderTake(d){
   btn.classList.toggle('saving',!!d.take_finishing);
   btn.title=d.take_finishing?'Saving the take…':t.recording?'Stop and save':'Record a take';
   if(t.recording&&!d.take_finishing){
-    if(!sheet.dismissed&&(sheet.view!=='live'||$('sheet').hidden)) showSheet('live');
-    if(sheet.view==='live'){ setTitle('Take',clock(t.seconds),true); if(t.phrases!==sheet.liveCount) loadLive(); }
-  }else if(d.take_finishing&&sheet.view==='live'&&!$('sheet').hidden) savingTake();
+    // A take started somewhere else (the mini player): Studio shows it. Once,
+    // so Live can still be looked at while it records.
+    if(!recordingSeen){ recordingSeen=true; sheet.view='live'; setMode('studio',true); }
+    else if(sheet.view!=='live') showSheet('live');
+    setTitle('Take',clock(t.seconds),true); if(t.phrases!==sheet.liveCount) loadLive();
+  }else{
+    recordingSeen=false;
+    if(d.take_finishing&&sheet.view==='live') savingTake();
+  }
   if(d.takes_changed!==takesSeen){
     const first=takesSeen===-1;
     takesSeen=d.takes_changed;
     if(!first&&d.take_notice) toast(d.take_notice);
     refreshCount();
-    if(!first&&d.last_take&&d.last_take!==lastTakeSeen&&sheet.view==='live'&&!$('sheet').hidden) openTake(d.last_take);
-    else if(!first&&sheet.view==='live'&&!$('sheet').hidden&&!t.recording) closeSheet();
-    else if(sheet.view==='list'&&!$('sheet').hidden) showSheet('list');
+    if(!first&&d.last_take&&d.last_take!==lastTakeSeen&&sheet.view==='live') openTake(d.last_take);
+    else if(!first&&sheet.view==='live'&&!t.recording) showSheet('list');
+    else if(sheet.view==='list') showSheet('list');
     lastTakeSeen=d.last_take||'';
   }
 }
+let recordingSeen=false;
 /* The take is being finished (the last line sung, the files written): the
    sheet says so with a spinner rather than sitting still. */
 function savingTake(){
@@ -1568,9 +1609,10 @@ function setTitle(word,value,live){
   if(value) h.append(el('b','',value));
 }
 function showSheet(view){
-  sheet.view=view; $('sheet').hidden=false; $('sheet').classList.remove('wide'); sheet.ed=null;
+  sheet.view=view; sheet.ed=null;
   if(view==='live'){ sheet.liveCount=-1; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
-  else if(view==='list') showList();
+  else if(view==='take'&&sheet.take) renderTakeView();
+  else{ sheet.view='list'; showList(); }
 }
 
 /* ---- recording: the lines so far ---- */
@@ -1601,10 +1643,12 @@ async function loadLive(){
 /* ---- your takes ---- */
 async function showList(){
   setTitle('Your takes','',false);
-  const body=$('shBody'); body.textContent='';
+  const body=$('shBody');
   let d; try{ d=await (await fetch('api/takes')).json(); }catch(e){ return; }
   const takes=d.takes||[];
-  if(!takes.length){ body.append(el('p','empty','No takes yet.')); return; }
+  if(sheet.view!=='list') return;   // moved on while the list was fetched
+  body.textContent='';              // here, so two fetches at once draw one list
+  if(!takes.length){ body.append(el('p','empty','No takes yet. Press Start, then the round Record button, and sing.')); return; }
   const ul=el('ul','tlist');
   const remove=async ids=>{
     player.pause();
@@ -1638,7 +1682,7 @@ async function showList(){
 async function openTake(id,keep){
   let d; try{ d=await (await fetch('api/take?take='+encodeURIComponent(id))).json(); }catch(e){ toast('Could not reach the relay.'); return; }
   if(d.error){ toast('That take is gone.'); showSheet('list'); return; }
-  sheet.view='take'; sheet.take=d; $('sheet').hidden=false;
+  sheet.view='take'; sheet.take=d;
   if(!keep){ sheet.open=0; sheet.edited={}; }
   renderTakeView();
 }
@@ -1672,8 +1716,7 @@ function renderTakeView(){
 
   body.append(el('p','sh-sec','Lines'));
   const ul=el('ul','lines');
-  // The note editor wants room: the sheet widens while a line is open.
-  sheet.ed=null; $('sheet').classList.toggle('wide',!!sheet.open);
+  sheet.ed=null;
   lines.forEach((l,i)=>ul.append(lineItem(t,l,i+1)));
   body.append(ul);
 
