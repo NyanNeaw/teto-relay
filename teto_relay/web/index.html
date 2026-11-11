@@ -168,20 +168,56 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .chips{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);margin:0 0 10px}
 .chips span{display:inline-flex;align-items:center;gap:6px}
 .chips span::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--dot,var(--accent))}
-/* takeroll, not roll: .roll is the "what she sang" piano roll. */
-.takeroll{display:block;width:100%;height:84px;background:var(--sink);border-radius:12px}
-.takeroll rect.n{fill:var(--accent)}
-.takeroll .dim rect.n{opacity:.35}
-.takeroll .hit{fill:transparent;cursor:pointer}
-.takeroll .hit:hover{fill:var(--accent-weak)}
-.takeroll .sel .hit{fill:var(--accent-weak)}
-.takeroll .head{stroke:var(--text);stroke-width:1.5}
-.axis{display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);
-  margin:6px 2px 0;font-variant-numeric:tabular-nums}
-.axis .mini{width:32px;height:32px;background-color:var(--sink);color:var(--text)}
-.sh-sec{font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
-.lines{list-style:none;margin:0;padding:0;display:grid;gap:4px}
-.line{border-radius:12px}
+/* ---------- Studio's timeline ----------
+   Play and zoom above it; then a ruler, a music row and a voice row that
+   scroll sideways together, with the row names fixed on the left. A line is
+   a clip on the voice row: its words, and its melody drawn small. */
+.transport{display:flex;align-items:center;gap:6px;margin:0 0 10px}
+.transport .mini{width:34px;height:34px;background-color:var(--sink);color:var(--text)}
+.transport .mini:hover{background-color:var(--line)}
+.transport .mini.go{background-color:var(--accent);color:var(--on-accent)}
+.transport .time{margin:0 8px;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.transport .time s{text-decoration:none;font-weight:500;color:var(--faint)}
+.transport .grow{margin-left:auto}
+.tl{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.tl-side{width:84px;flex:none;border-right:1px solid var(--line);background:var(--sink)}
+.tl-corner{height:24px;border-bottom:1px solid var(--line)}
+.tl-lab{display:flex;align-items:center;gap:7px;padding:0 12px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.tl-lab .ic{color:var(--accent-text)}
+.tl-lab.on-music{height:54px;border-bottom:1px solid var(--line)}
+.tl-lab.on-voice{height:66px}
+.tl-scroll{flex:1;min-width:0;overflow-x:auto;overflow-y:hidden}
+.tl-inner{position:relative;min-width:100%}
+.tl-ruler{position:relative;height:24px;border-bottom:1px solid var(--line);cursor:pointer;user-select:none;overflow:hidden}
+.tl-ruler span{position:absolute;top:0;bottom:0;padding:5px 0 0 5px;border-left:1px solid var(--line);
+  font-size:10.5px;line-height:1.2;color:var(--faint);font-variant-numeric:tabular-nums;pointer-events:none}
+/* A hairline at every mark of the ruler, down through the rows. */
+.tl-row{position:relative;overflow:hidden;
+  background-image:linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:var(--step,64px) 100%}
+.tl-music{height:54px;border-bottom:1px solid var(--line)}
+.tl-voice{height:66px;touch-action:pan-y}
+.tl-empty{position:absolute;left:12px;top:0;bottom:0;display:flex;align-items:center;font-size:12.5px;
+  color:var(--faint);pointer-events:none}
+.clip{position:absolute;top:7px;bottom:7px;border-radius:8px;overflow:hidden;cursor:grab;user-select:none;
+  background:var(--card);box-shadow:inset 0 0 0 100px var(--accent-weak);border:1px solid var(--accent);
+  color:var(--accent);transition:box-shadow .15s,background-color .15s}
+.clip:hover{box-shadow:inset 0 0 0 100px color-mix(in srgb,var(--accent) 24%,transparent)}
+.clip.sel{background:var(--accent);box-shadow:none;color:var(--on-accent)}
+.clip.dragging{cursor:grabbing;z-index:2;box-shadow:inset 0 0 0 100px var(--accent-weak),0 6px 16px rgba(0,0,0,.25)}
+.clip.sel.dragging{box-shadow:0 6px 16px rgba(0,0,0,.25)}
+.clip-t{position:absolute;left:7px;right:5px;top:5px;font-size:12px;font-weight:600;line-height:1.3;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);pointer-events:none}
+.clip.sel .clip-t{color:var(--on-accent)}
+.clip svg{position:absolute;left:0;bottom:5px;width:100%;height:20px;pointer-events:none;opacity:.75}
+.clip svg rect{fill:currentColor}
+.tl-head{position:absolute;left:0;top:0;bottom:0;width:0;border-left:1.5px solid var(--text);pointer-events:none;z-index:3}
+.tl-head[hidden]{display:none}
+/* While recording the playhead is told the time once a second, and glides. */
+.tl-head.glide{transition:transform 1s linear}
+.tl-hint{margin:8px 2px 0}
+.lrow.still{cursor:default}
+.lrow.still:hover{background:none}
+.line{border-radius:12px;margin-top:12px}
 .line.open{background:var(--sink)}
 .lrow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:12px;cursor:pointer}
 .lrow:hover{background:var(--sink)}
@@ -256,7 +292,7 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .sh-foot{display:flex;align-items:center;gap:8px;margin-top:14px}
 .sh-foot .danger{margin-left:auto;background-color:transparent;color:var(--muted);font-weight:500}
 .sh-foot .danger:hover{color:var(--accent);background-color:var(--accent-weak);filter:none}
-.stopbtn{width:100%;margin-top:14px}
+.stopbtn{margin-top:14px}
 .empty{font-size:14px;color:var(--muted);padding:6px 2px}
 .tlist{list-style:none;margin:0;padding:0;display:grid;gap:4px}
 .tlist li{display:flex;align-items:center;gap:4px}
@@ -821,6 +857,10 @@ const ICON_PATHS={
   again:'<path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4v5h-5"/>',
   undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  close:'<path d="M6 6l12 12M18 6L6 18"/>',
+  tostart:'<path d="M6 5v14"/><path d="M19 5.5v13L9.5 12z"/>',
+  zoomin:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6M10.5 7.5v6"/>',
+  zoomout:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6"/>',
   open:'<path d="M3 7.5A2 2 0 0 1 5 5.5h4l2 2h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 11v5M9.5 13.5L12 11l2.5 2.5"/>'};
 function icon(name,size){
   size=size||16;
@@ -921,7 +961,7 @@ function setMode(next,save){
   $('sheet').hidden=mode!=='studio';
   // Drawn again on the way in: a roll drawn while hidden has no width.
   if(mode==='studio') showSheet(sheet.view||'list');
-  else player.pause();
+  else{ player.pause(); tPause(); }
   if(save&&cfg.panel_mode!==mode){
     cfg.panel_mode=mode;
     api('api/config',{panel_mode:mode}).then(d=>{ if(d&&d.ok===false) toast('Could not save: '+d.error); }).catch(()=>{});
@@ -1559,7 +1599,7 @@ document.addEventListener('keydown',e=>{
 });
 /* Out of a saved take, back to the list of takes. */
 function closeSheet(){
-  player.pause();
+  player.pause(); tPause();
   if(sheet.view==='take') showSheet('list');
 }
 
@@ -1574,7 +1614,8 @@ function renderTake(d){
     // so Live can still be looked at while it records.
     if(!recordingSeen){ recordingSeen=true; sheet.view='live'; setMode('studio',true); }
     else if(sheet.view!=='live') showSheet('live');
-    setTitle('Take',clock(t.seconds),true); if(t.phrases!==sheet.liveCount) loadLive();
+    setTitle('Take',clock(t.seconds),true);
+    if(t.phrases!==sheet.liveCount) loadLive(); else if(sheet.view==='live'&&sheet.tl) sheet.tl.setHead(t.seconds,true);
   }else{
     recordingSeen=false;
     if(d.take_finishing&&sheet.view==='live') savingTake();
@@ -1609,34 +1650,26 @@ function setTitle(word,value,live){
   if(value) h.append(el('b','',value));
 }
 function showSheet(view){
-  sheet.view=view; sheet.ed=null;
-  if(view==='live'){ sheet.liveCount=-1; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
+  tPause(); sheet.view=view; sheet.ed=null; sheet.tl=null; sheet.redraw=null; sheet.retime=null;
+  if(view==='live'){ sheet.liveCount=-1; sheet.pps=null; sheet.scrollX=0; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
   else if(view==='take'&&sheet.take) renderTakeView();
   else{ sheet.view='list'; showList(); }
 }
 
-/* ---- recording: the lines so far ---- */
+/* ---- recording: the lines so far, as clips arriving on the timeline ---- */
 async function loadLive(){
   let d; try{ d=await (await fetch('api/take/current')).json(); }catch(e){ return; }
   if(sheet.view!=='live') return;
-  sheet.liveCount=d.lines?d.lines.length:0;
+  const lines=d.lines||[];
+  sheet.liveCount=lines.length;
   const body=$('shBody'); body.textContent='';
   const chips=el('div','chips');
   chips.append(el('span','',plural(sheet.liveCount,'line')));
   const hint=el('span','','pause to end a line'); hint.style.setProperty('--dot','#30d158');
   chips.append(hint); body.append(chips);
-  const svg=sv('svg',{class:'takeroll'}); body.append(svg);
-  requestAnimationFrame(()=>drawRoll(svg,d.lines||[],{total:Math.max(d.seconds||0,4)}));
-  const axis=el('div','axis'); axis.append(el('span','','0:00'),el('span','',clock(d.seconds))); body.append(axis);
-  if(d.lines&&d.lines.length){
-    body.append(el('p','sh-sec','Lines'));
-    const ul=el('ul','lines');
-    for(const l of d.lines.slice(-6)){
-      const li=el('li','line'), row=el('div','lrow');
-      row.append(el('span','num',l.n),el('span','txt',l.text)); li.append(row); ul.append(li);
-    }
-    body.append(ul);
-  }else body.append(el('p','empty','Waiting for the first line…'));
+  const tl=timeline({lines,length:Math.max(d.seconds||0,4),live:true});
+  body.append(tl.root); sheet.tl=tl; sheet.redraw=null;
+  tl.layout(); tl.setHead(d.seconds||0,true);
   const stop=el('button','stopbtn','Stop and save'); stop.onclick=()=>$('rec').click(); body.append(stop);
 }
 
@@ -1678,47 +1711,75 @@ async function showList(){
   foot.append(all); body.append(foot);
 }
 
-/* ---- a saved take ---- */
+/* ---- opening a saved take ---- */
 async function openTake(id,keep){
   let d; try{ d=await (await fetch('api/take?take='+encodeURIComponent(id))).json(); }catch(e){ toast('Could not reach the relay.'); return; }
   if(d.error){ toast('That take is gone.'); showSheet('list'); return; }
   sheet.view='take'; sheet.take=d;
-  if(!keep){ sheet.open=0; sheet.edited={}; }
+  if(!keep){ sheet.open=0; sheet.edited={}; sheet.pps=null; sheet.scrollX=0; tStop(); }
   renderTakeView();
 }
+/* ---- a saved take: the timeline ----
+   A ruler, a music row and a voice row. Every line is a clip on the voice
+   row, where it was sung: drag one sideways to move it (api/take/line/move,
+   which needs no singing), click one to open its notes underneath. Play
+   starts from the playhead; click the ruler to put the playhead somewhere. */
 function renderTakeView(){
   const t=sheet.take, body=$('shBody'); body.textContent='';
-  const lines=t.phrases||[], length=t.length||t.seconds||0;
-  setTitle('Take',clock(length),false);
-  const chips=el('div','chips');
-  chips.append(el('span','',plural(lines.length,'line')));
-  const when=new Date(t.created);
-  const date=el('span','',isNaN(when)?t.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'}));
-  date.style.setProperty('--dot','var(--faint)'); chips.append(date);
-  const fixed=lines.filter(l=>l.edited).length;
-  if(fixed){ const f=el('span','',plural(fixed,'line')+' edited'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
-  body.append(chips);
-
-  const svg=sv('svg',{class:'takeroll'}); body.append(svg);
-  const axis=el('div','axis'), play=el('button','mini');
-  play.title='Play the take'; play.setAttribute('aria-label','Play the take');
-  axis.append(el('span','','0:00'),play,el('span','',clock(length))); body.append(axis);
-  const draw=()=>drawRoll(svg,lines,{total:length,selected:sheet.open,onPick:n=>toggleLine(n),
-    head:(!player.paused&&player.dataset.what==='take')?player.currentTime:null});
-  requestAnimationFrame(draw);
-  setPlayIcon(play,player.dataset.what==='take'&&!player.paused);
-  play.onclick=()=>{
-    if(player.dataset.what==='take'&&!player.paused){ player.pause(); return; }
-    playFile(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0),'take');
-  };
-  sheet.redraw=()=>{ draw(); setPlayIcon(play,player.dataset.what==='take'&&!player.paused);
-    if(sheet.ed&&sheet.ed.head) sheet.ed.head(); };
-
-  body.append(el('p','sh-sec','Lines'));
-  const ul=el('ul','lines');
+  const lines=t.phrases||[];
+  const length=()=>sheet.take.length||sheet.take.seconds||0;
   sheet.ed=null;
-  lines.forEach((l,i)=>ul.append(lineItem(t,l,i+1)));
-  body.append(ul);
+  const chips=el('div','chips'); body.append(chips);
+
+  const bar=el('div','transport');
+  const tool=(icon,title,fn)=>{ const b=el('button','mini'); b.type='button'; b.title=title;
+    b.setAttribute('aria-label',title); if(icon) b.append(iconEl(icon,15)); b.onclick=fn; return b; };
+  const home=tool('tostart','Back to the start',()=>tSeek(0));
+  const play=tool('','Play',()=>{ transport.playing?tPause():tPlay(sheet.take); }); play.classList.add('go');
+  const time=el('span','time');
+  const zoomOut=tool('zoomout','Zoom out',()=>sheet.tl&&sheet.tl.zoom(1/1.5));
+  const zoomIn=tool('zoomin','Zoom in',()=>sheet.tl&&sheet.tl.zoom(1.5));
+  bar.append(home,play,time,el('span','grow'),zoomOut,zoomIn); body.append(bar);
+
+  const host=el('div'); body.append(host);
+  body.append(el('p','hint tl-hint','Drag a clip to move it. Click one to edit its notes.'));
+  function sync(){
+    setPlayIcon(play,transport.playing);
+    play.title=transport.playing?'Stop':'Play'; play.setAttribute('aria-label',play.title);
+    time.textContent=''; time.append(stamp(tTime()),el('s','',' / '+stamp(length())));
+    if(sheet.tl) sheet.tl.setHead(tTime(),transport.playing);
+    if(sheet.ed&&sheet.ed.head) sheet.ed.head();
+  }
+  /* The title, the chips and the timeline: all that a moved clip changes. */
+  function drawTimeline(){
+    const now=sheet.take, ls=now.phrases||[];
+    setTitle('Take',clock(length()),false);
+    chips.textContent='';
+    chips.append(el('span','',plural(ls.length,'line')));
+    const when=new Date(now.created);
+    const date=el('span','',isNaN(when)?now.id:when.toLocaleString([],{dateStyle:'medium',timeStyle:'short'}));
+    date.style.setProperty('--dot','var(--faint)'); chips.append(date);
+    const fixed=ls.filter(l=>l.edited).length;
+    if(fixed){ const f=el('span','',plural(fixed,'line')+' edited'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
+    host.textContent='';
+    const tl=timeline({lines:ls,length:length(),selected:sheet.open,editable:true,
+      onPick:n=>toggleLine(n),onMove:moveClip,onSeek:tSeek});
+    host.append(tl.root); sheet.tl=tl; tl.layout();
+    const tile=body.querySelector('.tile span'); if(tile) tile.textContent='teto.wav · '+clock(length());
+    sync();
+  }
+  sheet.redraw=sync; sheet.retime=drawTimeline;
+  drawTimeline();
+
+  // The clip that was clicked: its notes, as a small OpenUtau.
+  const open=lines.find(l=>l.n===sheet.open);
+  if(open){
+    const box=el('div','line open'), row=el('div','lrow still');
+    row.append(el('span','num',lines.indexOf(open)+1),el('span','txt',open.text));
+    if(open.edited) row.append(el('span','fixed','edited'));
+    const shut=tool('close','Close',()=>toggleLine(open.n));
+    row.append(shut); box.append(row,lineEditor(t,open)); body.append(box);
+  }
 
   // The take out: drag the tile into a DAW, or one of the three downloads
   // beside it - her singing, the OpenUtau project, everything in a .zip.
@@ -1728,21 +1789,36 @@ function renderTakeView(){
   save('teto.wav','download','Download her singing (.wav)');
   if((t.files||[]).includes('teto.ustx')) save('teto.ustx','roll','Download for OpenUtau (.ustx)');
   save('zip','archive','Download everything (.zip)');
-  out.append(dragTile(t,length),saves);
+  out.append(dragTile(t,length()),saves);
   body.append(out);
 
   const foot=el('div','sh-foot');
-  const open=el('button','ghost','Open folder'); open.prepend(iconEl('open'));
-  open.onclick=async()=>{ try{ const r=await api('api/take/open?take='+encodeURIComponent(t.id)); if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); } };
+  const openBtn=el('button','ghost','Open folder'); openBtn.prepend(iconEl('open'));
+  openBtn.onclick=async()=>{ try{ const r=await api('api/take/open?take='+encodeURIComponent(t.id)); if(r&&r.ok===false) toast(r.error); }catch(e){ toast('Could not reach the relay.'); } };
   const discard=el('button','danger','Discard'); discard.prepend(iconEl('trash'));
   discard.onclick=async()=>{
     if(!await ask('Delete this take?','Its singing and files are deleted for good.','Delete')) return;
-    player.pause();
+    player.pause(); tStop();
     try{ const r=await api('api/take/delete?take='+encodeURIComponent(t.id)); if(r&&r.ok===false){ toast(r.error); return; } }
     catch(e){ toast('Could not reach the relay.'); return; }
     toast('Take discarded.'); showSheet('list'); refreshCount();
   };
-  foot.append(open,discard); body.append(foot);
+  foot.append(openBtn,discard); body.append(foot);
+}
+/* A clip was dropped somewhere else: the take is put together again with
+   the line there. An open line keeps its unsung edits, so then only the
+   timeline is drawn again. */
+async function moveClip(l,at){
+  const t=sheet.take;
+  tPause(); sheet.busy=true;
+  try{
+    const r=await api('api/take/line/move?take='+encodeURIComponent(t.id),{line:l.n,at:Math.round(at*1000)/1000});
+    if(!r.ok) toast(r.error||'Could not move it.');
+    else if(sheet.take&&sheet.take.id===t.id){ r.take.version=(sheet.take.version||0)+1; sheet.take=r.take; }
+  }catch(e){ toast('Could not reach the relay.'); }
+  sheet.busy=false;
+  if(sheet.view!=='take') return;
+  if(sheet.open&&sheet.retime) sheet.retime(); else renderTakeView();
 }
 function setPlayIcon(btn,playing){
   btn.textContent='';
@@ -1750,7 +1826,9 @@ function setPlayIcon(btn,playing){
   s.append(sv('path',{d:playing?'M7 5h4v14H7zM13 5h4v14h-4z':'M8 5v14l11-7z'}));
   btn.append(s);
 }
+/* One line on its own (the note editor's play button). */
 function playFile(url,what){
+  tPause();
   player.src=url; player.dataset.what=what; player.play().catch(()=>{});
   const tick=()=>{ if(sheet.redraw) sheet.redraw(); if(!player.paused) requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
@@ -1758,28 +1836,212 @@ function playFile(url,what){
 player.addEventListener('pause',()=>{ if(sheet.redraw) sheet.redraw(); });
 player.addEventListener('ended',()=>{ if(sheet.redraw) sheet.redraw(); });
 
+/* ---- the transport: the whole take, played with Web Audio ----
+   The take is decoded once and started on the audio clock, so the playhead
+   can be put anywhere and playing starts there at once. */
+const transport={ctx:null,key:'',buffer:null,src:null,playing:false,offset:0,t0:0};
+function tContext(){
+  if(!transport.ctx) transport.ctx=new (window.AudioContext||window.webkitAudioContext)();
+  return transport.ctx;
+}
+async function tLoad(t){
+  const key=t.id+':'+(t.version||0);
+  if(transport.key!==key||!transport.buffer){
+    const data=await (await fetch(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0))).arrayBuffer();
+    transport.buffer=await tContext().decodeAudioData(data); transport.key=key;
+  }
+  return transport.buffer;
+}
+function tTime(){
+  return transport.playing?transport.offset+transport.ctx.currentTime-transport.t0:transport.offset;
+}
+function tHalt(){
+  const src=transport.src; transport.src=null;
+  if(src){ src.onended=null; try{ src.stop(); }catch(e){} }
+}
+async function tPlay(t){
+  player.pause();
+  const ctx=tContext();
+  let buffer;
+  try{ await ctx.resume(); buffer=await tLoad(t); }catch(e){ toast('Could not play the take.'); return; }
+  if(sheet.take!==t||sheet.view!=='take') return;   // moved on while it loaded
+  tHalt();
+  if(transport.offset>=buffer.duration-0.05) transport.offset=0;
+  const src=ctx.createBufferSource(); src.buffer=buffer; src.connect(ctx.destination);
+  // Played to the end: the playhead goes back to the start.
+  src.onended=()=>{ if(transport.src!==src) return; transport.src=null; transport.playing=false; transport.offset=0;
+    if(sheet.redraw) sheet.redraw(); };
+  src.start(0,transport.offset);
+  transport.src=src; transport.t0=ctx.currentTime; transport.playing=true;
+  const tick=()=>{ if(!transport.playing) return; if(sheet.redraw) sheet.redraw(); requestAnimationFrame(tick); };
+  tick();
+}
+function tPause(){
+  if(!transport.playing) return;
+  transport.offset=tTime(); transport.playing=false; tHalt();
+  if(sheet.redraw) sheet.redraw();
+}
+function tStop(){
+  transport.playing=false; transport.offset=0; tHalt();
+}
+function tSeek(sec){
+  const was=transport.playing;
+  transport.playing=false; tHalt();
+  transport.offset=Math.max(0,sec||0);
+  if(was&&sheet.take) tPlay(sheet.take); else if(sheet.redraw) sheet.redraw();
+}
+
+/* ---- the timeline itself ----
+   timeline(o) draws o.lines as clips. o.editable lets them be dragged
+   (o.onMove(line, at)) and picked (o.onPick(n)); o.onSeek(seconds) is a click
+   on the ruler or an empty row; o.live is a take still being recorded. */
+const TL={minPps:2,maxPps:400,tail:8,steps:[0.1,0.25,0.5,1,2,5,10,15,30,60,120,300,600]};
+/* 0:03.4 - tenths, where clock() gives whole seconds. */
+function stamp(sec){
+  sec=Math.round(Math.max(0,sec||0)*10)/10;
+  const m=Math.floor(sec/60), s=sec-m*60;
+  return m+':'+(s<10?'0':'')+s.toFixed(1);
+}
+/* A line's clip: where her singing starts on the timeline and how long it is. */
+function clipSpan(l){
+  const origin=+l.origin||0;
+  let len=+l.length||0;
+  if(!(len>0)) len=Math.max(0.05,...(l.notes||[]).map(n=>n.start+n.dur))-origin;
+  return {start:Math.max(0,l.at+origin),len:Math.max(0.05,len)};
+}
+/* The start nearest to `want` where a clip `len` long fits: not before 0:00
+   and not over another clip. What the server does too (takes.free_spot). */
+function freeSpot(want,len,others){
+  const busy=[];
+  for(const o of others.map(o=>[o.start,o.start+o.len]).sort((a,b)=>a[0]-b[0])){
+    const last=busy[busy.length-1];
+    if(last&&o[0]<=last[1]+1e-9) last[1]=Math.max(last[1],o[1]); else busy.push(o);
+  }
+  let best=null, from=0;
+  for(const [a,b] of busy.concat([[Infinity,Infinity]])){
+    if(a-from>=len-1e-6){
+      const spot=Math.min(Math.max(want,from),a-len);
+      if(best===null||Math.abs(spot-want)<Math.abs(best-want)) best=spot;
+    }
+    from=Math.max(from,b);
+  }
+  return Math.max(0,best===null?from:best);
+}
+/* The line's melody, small, along the bottom of its clip. */
+function noteSketch(l,span){
+  const notes=l.notes||[];
+  if(!notes.length) return null;
+  const tones=notes.map(n=>n.tone), lo=Math.min(...tones)-1, hi=Math.max(...tones)+1, origin=+l.origin||0;
+  const svg=sv('svg',{viewBox:'0 0 '+span.len.toFixed(3)+' '+(hi-lo+1),preserveAspectRatio:'none','aria-hidden':'true'});
+  for(const n of notes) svg.append(sv('rect',{x:(n.start-origin).toFixed(3),y:hi-n.tone,width:Math.max(0.01,n.dur).toFixed(3),height:1}));
+  return svg;
+}
+function timeline(o){
+  const root=el('div','tl'), side=el('div','tl-side'), scroll=el('div','tl-scroll'), inner=el('div','tl-inner');
+  const ruler=el('div','tl-ruler'), music=el('div','tl-row tl-music'), voice=el('div','tl-row tl-voice');
+  const head=el('div','tl-head'+(o.live?' glide':''));
+  const label=(icon,text,cls)=>{ const d=el('div','tl-lab '+cls,text); d.prepend(iconEl(icon,14)); return d; };
+  side.append(el('div','tl-corner'),label('note','Music','on-music'),label('mic','Voice','on-voice'));
+  music.append(el('span','tl-empty','No music yet'));
+  inner.append(ruler,music,voice,head); scroll.append(inner); root.append(side,scroll);
+  let pps=40, total=1, headAt=null, drag=null;
+  const spans=()=>o.lines.map(l=>({n:l.n,...clipSpan(l)}));
+  const view=()=>scroll.clientWidth||900;
+  const timeAt=e=>Math.max(0,(e.clientX-inner.getBoundingClientRect().left)/pps);
+
+  /* Sizes everything. Unless zoomed by hand, a saved take fits the width
+     (within reason: a long one scrolls); a take being recorded runs at 40
+     px a second. `keep` leaves the scroll position alone. */
+  function layout(keep){
+    const w=view(), end=Math.max(o.length||0,1,...spans().map(s=>s.start+s.len));
+    const fit=Math.min(160,Math.max(12,w/(end*1.05)));
+    pps=Math.min(TL.maxPps,Math.max(TL.minPps,sheet.pps||(o.live?40:fit)));
+    total=Math.max(end+(o.editable?TL.tail:2),w/pps);
+    inner.style.width=Math.ceil(total*pps)+'px';
+    ruler.textContent='';
+    const step=TL.steps.find(s=>s*pps>=64)||600;
+    for(let i=0;i*step<total;i++){
+      const mark=el('span','',step<1?stamp(i*step):clock(i*step)); mark.style.left=(i*step*pps)+'px'; ruler.append(mark);
+    }
+    inner.style.setProperty('--step',(step*pps)+'px');
+    for(const old of [...voice.children]) old.remove();
+    if(!o.lines.length) voice.append(el('span','tl-empty',o.live?'Waiting for the first line…':'No lines'));
+    for(const l of o.lines){
+      const s=clipSpan(l), c=el('div','clip'+(o.selected===l.n?' sel':''));
+      c.dataset.n=l.n; c.style.left=(s.start*pps)+'px'; c.style.width=Math.max(8,s.len*pps-1)+'px';
+      c.title=l.text+' · '+stamp(s.start);
+      const sketch=noteSketch(l,s); if(sketch) c.append(sketch);
+      c.append(el('span','clip-t',l.text)); voice.append(c);
+    }
+    placeHead();
+    if(!keep) scroll.scrollLeft=sheet.scrollX||0;
+  }
+  function placeHead(){
+    head.hidden=headAt==null;
+    if(headAt!=null) head.style.transform='translateX('+(headAt*pps).toFixed(1)+'px)';
+  }
+  /* The playhead; with `follow` the view scrolls to keep it in sight. */
+  function setHead(sec,follow){
+    headAt=sec;
+    if(sec!=null&&o.live&&sec>total-2){ o.length=sec+6; layout(true); }
+    placeHead();
+    if(!follow||sec==null||drag) return;
+    const x=sec*pps, w=view();
+    if(x<scroll.scrollLeft||x>scroll.scrollLeft+w-40) scroll.scrollLeft=Math.max(0,x-w*0.2);
+  }
+  /* Zooms about the middle of what is in view. */
+  function zoom(factor){
+    const w=view(), mid=(scroll.scrollLeft+w/2)/pps;
+    sheet.pps=Math.min(TL.maxPps,Math.max(TL.minPps,pps*factor));
+    layout(true);
+    scroll.scrollLeft=Math.max(0,mid*pps-w/2);
+  }
+  scroll.addEventListener('scroll',()=>{ sheet.scrollX=scroll.scrollLeft; });
+  const seek=e=>{ if(e.button===0&&o.onSeek) o.onSeek(timeAt(e)); };
+  ruler.addEventListener('pointerdown',seek);
+  music.addEventListener('pointerdown',seek);
+
+  // ---- the pointer on the voice row: click a clip to pick it, drag to move it
+  voice.addEventListener('pointerdown',e=>{
+    if(e.button!==0) return;
+    const c=e.target.closest('.clip');
+    if(!c){ seek(e); return; }
+    const l=o.lines.find(x=>String(x.n)===c.dataset.n); if(!l) return;
+    const s=clipSpan(l);
+    drag={c,l,s,x:e.clientX,grab:timeAt(e)-s.start,start:s.start,moved:false,others:spans().filter(x=>x.n!==l.n)};
+    voice.setPointerCapture(e.pointerId);
+  });
+  voice.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    if(!drag.moved&&Math.abs(e.clientX-drag.x)<4) return;
+    if(!o.editable||!o.onMove||sheet.busy) return;
+    drag.moved=true; drag.c.classList.add('dragging');
+    // Near either edge of the view, the timeline scrolls along.
+    const box=scroll.getBoundingClientRect();
+    if(e.clientX>box.right-28) scroll.scrollLeft+=14; else if(e.clientX<box.left+28) scroll.scrollLeft-=14;
+    drag.start=freeSpot(timeAt(e)-drag.grab,drag.s.len,drag.others);
+    drag.c.style.left=(drag.start*pps)+'px';
+    drag.c.title=stamp(drag.start);
+  });
+  const drop=()=>{
+    if(!drag) return;
+    const d=drag; drag=null;
+    d.c.classList.remove('dragging');
+    if(!d.moved){ if(o.onPick) o.onPick(d.l.n); return; }
+    if(Math.abs(d.start-d.s.start)<0.005){ d.c.style.left=(d.s.start*pps)+'px'; return; }
+    o.onMove(d.l,d.start-(+d.l.origin||0));
+  };
+  voice.addEventListener('pointerup',drop);
+  voice.addEventListener('pointercancel',drop);
+  return {root,layout,setHead,zoom};
+}
+addEventListener('resize',()=>{ if(sheet.tl&&mode==='studio') sheet.tl.layout(true); });
+
 function toggleLine(n){
   sheet.open=sheet.open===n?0:n;
   renderTakeView();
   const open=$('shBody').querySelector('.line.open .pscroll');
   if(open) open.focus({preventScroll:true});
-}
-function lineItem(t,l,number){
-  const li=el('li','line'+(sheet.open===l.n?' open':''));
-  const row=el('div','lrow');
-  row.append(el('span','num',number),el('span','txt',l.text));
-  if(l.edited) row.append(el('span','fixed','edited'));
-  // The pencil only says what a click on the row does; the row handles it.
-  const edit=el('button','mini'); edit.title='Edit'; edit.setAttribute('aria-label','Edit line '+number);
-  edit.append(iconEl('pencil',14));
-  const play=el('button','mini'); play.title='Play this line'; play.setAttribute('aria-label','Play line '+number);
-  setPlayIcon(play,false);
-  play.onclick=e=>{ e.stopPropagation(); playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+(t.version||0),'line'+l.n); };
-  row.append(edit,play);
-  row.onclick=()=>toggleLine(l.n);
-  li.append(row);
-  if(sheet.open===l.n) li.append(lineEditor(t,l));
-  return li;
 }
 
 /* ---- the line editor: a small OpenUtau ----
@@ -2098,7 +2360,7 @@ function lineEditor(t,l){
     try{
       const r=await api(url,body);
       if(!r.ok){ toast(r.error||'Could not sing it.'); return; }
-      r.take.version=(t.version||0)+1;
+      r.take.version=(sheet.take.version||0)+1;
       sheet.take=r.take; renderTakeView();
       playFile(fileUrl(t.id,'lines/'+pad2(l.n)+'.wav')+'&v='+r.take.version,'line'+l.n);
       if(after) after();
@@ -2125,7 +2387,7 @@ function lineEditor(t,l){
       const r=await api('api/take/line/delete?take='+encodeURIComponent(t.id),{line:l.n});
       if(!r.ok){ toast(r.error||'Could not delete it.'); return; }
       if(r.gone){ toast('That was its only line, so the take is gone'); showSheet('list'); refreshCount(); return; }
-      r.take.version=(t.version||0)+1;
+      r.take.version=(sheet.take.version||0)+1;
       sheet.take=r.take; sheet.open=0; renderTakeView(); toast('Line deleted');
     }catch(e){ toast('Could not reach the relay.'); }
   };
@@ -2133,34 +2395,6 @@ function lineEditor(t,l){
   requestAnimationFrame(draw);
   return box;
 }
-function drawRoll(svg,lines,opts){
-  svg.textContent='';
-  const W=svg.clientWidth||400, H=84;
-  svg.setAttribute('viewBox','0 0 '+W+' '+H);
-  let t1=opts.total||0,lo=127,hi=0;
-  for(const l of lines) for(const n of l.notes||[]){ t1=Math.max(t1,l.at+n.start+n.dur); lo=Math.min(lo,n.tone); hi=Math.max(hi,n.tone); }
-  if(!t1) return;
-  if(lo>hi){ lo=60; hi=72; }
-  lo-=2; hi+=2;
-  const x=t=>6+t/t1*(W-12), rowH=(H-10)/(hi-lo+1), y=tone=>5+(hi-tone)*rowH;
-  for(const l of lines){
-    const notes=l.notes||[];
-    const g=sv('g',{class:(opts.selected===l.n?'sel':'')+(opts.selected&&opts.selected!==l.n?' dim':'')});
-    if(opts.onPick&&notes.length){
-      const a=Math.min(...notes.map(n=>n.start)), b=Math.max(...notes.map(n=>n.start+n.dur));
-      const hit=sv('rect',{class:'hit',x:x(l.at+a)-2,y:0,width:Math.max(6,x(l.at+b)-x(l.at+a)+4),height:H,rx:6});
-      hit.addEventListener('click',()=>opts.onPick(l.n));
-      const tip=sv('title',{}); tip.textContent=l.n+'. '+l.text; hit.append(tip);
-      g.append(hit);
-    }
-    for(const n of notes)
-      g.append(sv('rect',{class:'n',x:x(l.at+n.start),y:y(n.tone),width:Math.max(2,x(l.at+n.start+n.dur)-x(l.at+n.start)-1),
-        height:Math.max(2,rowH-1),rx:Math.min(2,rowH/2),'pointer-events':'none'}));
-    svg.append(g);
-  }
-  if(opts.head!=null) svg.append(sv('line',{class:'head',x1:x(opts.head),x2:x(opts.head),y1:2,y2:H-2}));
-}
-
 /* ---- the drag tile: teto.wav out as a file. In the app window that is a
    real file drag (window.PanelApi.drag_take), which FL Studio and every
    DAW take; in a browser tab, a download-link drag; a click downloads. ---- */

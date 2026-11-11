@@ -8,6 +8,16 @@
   the page above the settings instead of in a sheet floating over it.
   Pressing Record in Live takes you to Studio. The app opens in the mode you
   left it in. While a take records she still isn't sent to CABLE Input.
+- **A timeline in Studio.** A take is shown on a timeline: a time ruler, a
+  music row and a voice row. Every line you sang is a clip on the voice row,
+  where you sang it, with its words on it. **Drag a clip left or right** to
+  put it somewhere else: her singing (.wav), the OpenUtau project and your
+  guide voice all follow, and nothing has to be sung again. A clip stops at
+  0:00 and never lands on top of another. **Click a clip** to open its notes
+  in the small OpenUtau underneath. Play starts from the playhead (click the
+  ruler to move it), and the timeline scrolls sideways and zooms. Lines show
+  up as clips while you record, too. The take list, deleting, the downloads
+  and the DAW tile are where they were.
 
 ## 0.3.2 beta (2026-11-04)
 

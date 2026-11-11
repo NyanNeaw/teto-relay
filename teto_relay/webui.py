@@ -489,6 +489,16 @@ class Controller:
         self.takes_changed += 1
         return out
 
+    def move_line(self, folder, line_no: int, new_at) -> dict:
+        """Move a line along the take's timeline; needs no relay, because
+        nothing is sung again."""
+        from . import takes as takes_mod
+
+        with takes_mod.edit_lock(folder):
+            out = takes_mod.move_line(folder, line_no, new_at)
+        self.takes_changed += 1
+        return out
+
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
         relay = self.relay
@@ -973,6 +983,18 @@ def make_handler(controller: Controller):
                         take = controller.delete_line(folder, int(body.get("line") or 0))
                         self._json({"ok": True, "take": take, "gone": take is None})
                 except (ValueError, TypeError, KeyError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/line/move":
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    else:
+                        take = controller.move_line(folder, int(body.get("line") or 0), body.get("at"))
+                        self._json({"ok": True, "take": take})
+                except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/take/delete":
                 from .takes import discard

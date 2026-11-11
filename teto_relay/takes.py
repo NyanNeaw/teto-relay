@@ -19,7 +19,8 @@ what the microphone heard and its pitch - so a word whisper got wrong can be
 fixed afterwards: the line is built again from the corrected words, with the
 timing and the pitch it was sung with, sung again, and the whole take is put
 together again from the lines (`assemble`). Its notes can be edited too, as
-in a small OpenUtau (`edit_notes`), and a line can be dropped (`delete_line`).
+in a small OpenUtau (`edit_notes`), and a line can be dropped (`delete_line`)
+or moved along the timeline (`move_line`), which needs no singing at all.
 
 Takes are kept in the data folder's ``takes`` directory.
 """
@@ -121,7 +122,11 @@ class Take:
         """The lines so far, for the panel while recording."""
         with self._lock:
             phrases = sorted(self.phrases, key=lambda p: p.offset)
-        return [{"n": n, "at": round(p.offset, 3), "text": p.text, "notes": doc_notes(p.doc)}
+        # origin and length: where her singing sits in the line's recording,
+        # so the panel's timeline can draw the line as a clip.
+        return [{"n": n, "at": round(p.offset, 3), "text": p.text, "notes": doc_notes(p.doc),
+                 "origin": round(p.sung_origin, 3),
+                 "length": round(len(p.sung) / p.sung_rate, 3) if p.sung_rate else 0.0}
                 for n, p in enumerate(phrases, 1)]
 
     # ------------------------------------------------------------------ write
@@ -183,10 +188,16 @@ def assemble(folder: Path, info: dict | None = None) -> dict:
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         sung.append((line["at"] + float(line.get("origin", 0.0)), audio))
+        # How long her singing is: with "at" and "origin", the line's clip on
+        # the timeline (line_span).
+        line["length"] = round(len(audio) / rate, 3)
         heard = lines / f"{stem}-voice.wav"
         if heard.is_file():
             audio, voice_rate = sf.read(str(heard), dtype="float32", always_2d=False)
-            voice.append((line["at"], audio))
+            # A line moved so its singing starts at 0:00 has a recording that
+            # starts before it; that much of the guide is cut, not shifted.
+            early = int(round(-min(0.0, float(line["at"])) * voice_rate))
+            voice.append((max(0.0, float(line["at"])), audio[early:]))
         parts.append((line["at"], line["text"], _read_doc(lines / f"{stem}.ustx")))
     mixed, rate = mix(sung, rate)
     sf.write(str(folder / "teto.wav"), mixed, rate, subtype="PCM_16")
@@ -269,7 +280,7 @@ def write_project(parts: list, path: Path) -> Path:
         for part in doc["voice_parts"]:
             part = copy.deepcopy(part)
             part["track_no"] = singers[key]
-            part["position"] = int(part["position"]) + int(round(offset * ticks_per_second))
+            part["position"] = max(0, int(part["position"]) + int(round(offset * ticks_per_second)))
             part["name"] = f"{number}. {text}"[:60]
             voice_parts.append(part)
     project["tracks"] = tracks
@@ -526,6 +537,78 @@ def delete_line(folder: Path, line_no: int) -> dict | None:
     return detail(folder)
 
 
+# ------------------------------------------------------- moving lines about
+def _sung_seconds(folder: Path, line: dict) -> float:
+    """How long a line's singing is, for a take saved before that was kept."""
+    try:
+        import soundfile as sf
+
+        return round(float(sf.info(str(Path(folder) / LINES / f"{int(line['n']):02d}.wav")).duration), 3)
+    except Exception:  # noqa: BLE001 - no file to measure: go by the notes
+        notes = line.get("notes") or []
+        end = max((n["start"] + n["dur"] for n in notes), default=0.0)
+        return round(max(0.05, end - float(line.get("origin", 0.0))), 3)
+
+
+def line_span(folder: Path, line: dict) -> tuple[float, float]:
+    """Where a line's singing starts and ends on the take's timeline, in
+    seconds: its clip. ("at" is where its recording starts, which is earlier
+    by the quiet before the first sound.)"""
+    length = line.get("length")
+    if length is None:
+        length = _sung_seconds(folder, line)
+    start = float(line["at"]) + float(line.get("origin", 0.0))
+    return start, start + float(length)
+
+
+def free_spot(start: float, length: float, others: list[tuple[float, float]]) -> float:
+    """The start nearest to `start` at which a clip `length` long fits: not
+    before 0:00 and not over any of `others` (start, end). Clips may touch.
+    The panel's timeline does the same while a clip is dragged."""
+    busy: list[list[float]] = []
+    for a, b in sorted((float(a), float(b)) for a, b in others):
+        if busy and a <= busy[-1][1] + 1e-9:
+            busy[-1][1] = max(busy[-1][1], b)
+        else:
+            busy.append([a, b])
+    best: float | None = None
+    gap_from = 0.0
+    for a, b in busy + [[math.inf, math.inf]]:
+        if a - gap_from >= length - 1e-6:
+            spot = min(max(start, gap_from), a - length)
+            if best is None or abs(spot - start) < abs(best - start):
+                best = spot
+        gap_from = max(gap_from, b)
+    return max(0.0, best if best is not None else gap_from)
+
+
+def move_line(folder: Path, line_no: int, new_at: float) -> dict:
+    """Put one line somewhere else on the take's timeline and put the take
+    together again. `new_at` is where the line's recording should start (its
+    "at"); it lands as near to that as it can without its singing starting
+    before 0:00 or running over another line. Nothing is sung again: only
+    teto.wav, your-voice.wav and teto.ustx are rebuilt. Returns the take's
+    detail, its lines in the order they are now heard."""
+    folder = Path(folder)
+    info = read_info(folder)
+    line = next((p for p in info["phrases"] if p.get("n") is not None and int(p["n"]) == int(line_no)), None)
+    if line is None:
+        raise ValueError(f"This take has no line {line_no}.")
+    try:
+        new_at = math.nan if isinstance(new_at, bool) else float(new_at)
+    except (TypeError, ValueError):
+        new_at = math.nan
+    if not math.isfinite(new_at):
+        raise ValueError("A line needs a time to move to.")
+    origin = float(line.get("origin", 0.0))
+    start, end = line_span(folder, line)
+    others = [line_span(folder, p) for p in info["phrases"] if p is not line]
+    line["at"] = round(free_spot(new_at + origin, end - start, others) - origin, 3)
+    info["phrases"].sort(key=lambda p: line_span(folder, p)[0])
+    assemble(folder, info)
+    return detail(folder)
+
+
 _EDIT_LOCKS: dict[str, threading.Lock] = {}
 _EDIT_LOCKS_GUARD = threading.Lock()
 
@@ -548,6 +631,8 @@ def detail(folder: Path) -> dict:
             line["pitch"] = doc_pitch(doc)
         except (OSError, KeyError, ValueError, TypeError):
             line["notes"], line["pitch"] = [], []
+        if line.get("length") is None:
+            line["length"] = _sung_seconds(folder, line)
         line.pop("context", None)
     return info
 
