@@ -18,6 +18,12 @@
   ruler to move it), and the timeline scrolls sideways and zooms. Lines show
   up as clips while you record, too. The take list, deleting, the downloads
   and the DAW tile are where they were.
+- **Recording hears a quiet microphone.** While a take records, a line is
+  told from a pause by how loud it is, and that level was fixed. A headset
+  microphone that came in very quietly sat under it most of the time, so a
+  whole verse was saved as two or three scraps. The level now starts just
+  above the room and follows your voice; with a microphone at a normal level
+  it ends up where it always was.
 
 ## 0.3.2 beta (2026-11-04)
 

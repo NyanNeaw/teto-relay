@@ -266,5 +266,82 @@ class TestTimelineMoves(unittest.TestCase):
             self.assertIn(needle, page)
 
 
+class TestHandsFreeOnAQuietMicrophone(unittest.TestCase):
+    """Recording a take hears lines by their level. A headset whose singing
+    arrived at 0.013-0.019 (a normal microphone: 0.1 and up) was under the
+    fixed 0.015 level most of the time, and 13 s of singing came out as three
+    scraps. The level now follows the voice."""
+
+    def setUp(self):
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config
+
+        self.cfg = Config()
+        self.chunker = PushToTalkChunker(self.cfg)
+
+    def tone(self, level):
+        """One frame of a sung note whose RMS is `level`."""
+        import numpy as np
+
+        t = np.arange(self.cfg.frame_samples) / self.cfg.sample_rate
+        return (level * np.sqrt(2) * np.sin(2 * np.pi * 250 * t)).astype(np.float32)
+
+    def feed(self, level, seconds):
+        out = []
+        for _ in range(int(seconds * 1000 / self.cfg.frame_ms)):
+            chunk = self.chunker.push(self.tone(level))
+            if chunk is not None:
+                out.append(chunk)
+        return out
+
+    def test_quiet_singing_is_one_line_not_scraps(self):
+        self.feed(0.001, 1.0)                      # the room, before Record
+        self.chunker.set_hands_free(True)
+        # A line as that headset delivered it: hovering around the old level.
+        got = []
+        for level in (0.016, 0.013, 0.018, 0.012, 0.017, 0.014):
+            got += self.feed(level, 0.5)
+        got += self.feed(0.003, 0.3)               # a breath
+        got += self.feed(0.015, 1.5)
+        self.assertEqual(got, [], "the line is still being sung")
+        got = self.feed(0.001, 1.0)
+        self.assertEqual(len(got), 1)
+        self.assertGreater(got[0].duration, 4.8)
+        self.assertLess(got[0].duration, 5.6)
+        # The next line, after a real pause, is a line of its own.
+        got = self.feed(0.014, 1.0) + self.feed(0.001, 1.0)
+        self.assertEqual(len(got), 1)
+        self.assertLess(got[0].duration, 1.8)
+
+    def test_a_normal_microphone_is_heard_as_before(self):
+        from teto_relay.capture import HANDS_FREE_MIN_LEVEL
+
+        self.feed(0.001, 1.0)
+        self.chunker.set_hands_free(True)
+        self.assertAlmostEqual(self.chunker._vad.threshold, HANDS_FREE_MIN_LEVEL)
+        self.feed(0.2, 1.0)
+        # Her voice has been heard: the level is back where it always was.
+        self.assertAlmostEqual(self.chunker._vad.threshold, self.cfg.rms_threshold)
+        self.assertEqual(len(self.feed(0.001, 1.0)), 1)
+        # Music leaking from the headphones, well under the voice, is no line...
+        self.assertEqual(self.feed(0.01, 3.0), [])
+        self.assertFalse(self.chunker.busy)
+        # ...and the voice is remembered for the next take.
+        self.chunker.set_hands_free(False)
+        self.chunker.set_hands_free(True)
+        self.assertAlmostEqual(self.chunker._vad.threshold, self.cfg.rms_threshold)
+        self.assertEqual(self.feed(0.01, 3.0), [])
+
+    def test_a_loud_room_still_sets_the_level(self):
+        self.feed(0.03, 1.0)                       # music playing in the room
+        self.chunker.set_hands_free(True)
+        self.assertAlmostEqual(self.chunker._vad.threshold, 0.09, places=3)
+        self.assertEqual(self.feed(0.03, 2.0), [])
+        # Singing over it is heard, and does not pull the level under the room.
+        self.feed(0.2, 1.0)
+        self.assertAlmostEqual(self.chunker._vad.threshold, 0.09, places=3)
+        self.assertEqual(len(self.feed(0.03, 1.0)), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

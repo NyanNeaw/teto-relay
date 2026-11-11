@@ -54,6 +54,21 @@ def rms(frame: np.ndarray) -> float:
 
 #: Hands-free, a line ends after this much quiet: longer than a breath.
 HANDS_FREE_PAUSE_MS = 700
+#: Hands-free, how loud counts as singing. It starts this many times above
+#: the room (and never below MIN_LEVEL: digital silence has no room to
+#: measure), then follows the voice: once singing has been heard, anything
+#: under VOICE_SHARE of its usual level is a pause. It never goes above what
+#: it always was, cfg.rms_threshold (or the room's level, when that is
+#: higher). A fixed 0.015 was right for a microphone at a normal level and
+#: deaf to a quiet one: a headset whose singing arrived at 0.013-0.019 had
+#: 13 s of it heard as three scraps.
+HANDS_FREE_ROOM_MARGIN = 3.0
+HANDS_FREE_MIN_LEVEL = 0.004
+HANDS_FREE_VOICE_SHARE = 0.3
+#: How much singing the usual level is taken over, and how much is needed
+#: before it is believed.
+HANDS_FREE_VOICE_SECONDS = 5.0
+HANDS_FREE_VOICE_MIN_SECONDS = 0.2
 
 
 def max_frames(cfg) -> int | None:
@@ -180,6 +195,11 @@ class PushToTalkChunker:
         # sets how loud singing has to be.
         self._vad: Chunker | None = None
         self._levels: deque[float] = deque(maxlen=max(1, 1000 // cfg.frame_ms))
+        # The levels of the singing heard lately, and the lowest and highest
+        # the hands-free level may be (HANDS_FREE_ROOM_MARGIN and after). The
+        # voice is remembered from one take to the next.
+        self._sung: deque[float] = deque(maxlen=max(1, int(HANDS_FREE_VOICE_SECONDS * 1000) // cfg.frame_ms))
+        self._level_range: tuple[float, float] = (0.0, 0.0)
 
     @property
     def recording(self) -> bool:
@@ -209,13 +229,24 @@ class PushToTalkChunker:
                 vad_cfg = copy.copy(self.cfg)
                 vad_cfg.silence_ms = max(int(self.cfg.silence_ms), HANDS_FREE_PAUSE_MS)
                 floor = float(np.median(self._levels)) if self._levels else 0.0
-                self._vad = Chunker(vad_cfg, max(float(self.cfg.rms_threshold), floor * 3.0))
-                log.info("Hands-free: listening for lines (level %.4f)", self._vad.threshold)
+                room = floor * HANDS_FREE_ROOM_MARGIN
+                highest = max(float(self.cfg.rms_threshold), room)
+                self._level_range = (min(highest, max(room, HANDS_FREE_MIN_LEVEL)), highest)
+                self._vad = Chunker(vad_cfg, self._hands_free_level())
+                log.info("Hands-free: listening for lines (level %.4f, room %.4f)", self._vad.threshold, floor)
             elif not on and self._vad is not None:
                 vad, self._vad = self._vad, None
                 chunk = vad.flush()
                 if chunk is not None:
                     self._pending.append(chunk)
+
+    def _hands_free_level(self) -> float:
+        """How loud counts as singing right now: a share of the voice's usual
+        level once it has been heard, within the take's limits."""
+        lowest, highest = self._level_range
+        if len(self._sung) * self.cfg.frame_ms < HANDS_FREE_VOICE_MIN_SECONDS * 1000:
+            return lowest
+        return min(highest, max(lowest, float(np.median(self._sung)) * HANDS_FREE_VOICE_SHARE))
 
     def start(self) -> None:
         live = None
@@ -263,9 +294,14 @@ class PushToTalkChunker:
                 if self._vad is None:
                     self._levels.append(rms(frame))
                 else:
+                    level = rms(frame)
+                    if level >= self._vad.threshold:
+                        self._sung.append(level)
+                        self._vad.threshold = self._hands_free_level()
                     chunk = self._vad.push(frame)
                     if chunk is not None:
-                        log.info("Heard a line: %.2fs (hands-free)", chunk.duration)
+                        log.info("Heard a line: %.2fs (hands-free, level %.4f)", chunk.duration,
+                                 self._vad.threshold)
                         self._pending.append(chunk)
             else:
                 self._frames.append(frame)
