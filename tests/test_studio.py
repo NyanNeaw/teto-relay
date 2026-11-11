@@ -778,5 +778,332 @@ class TestSingingAlong(unittest.TestCase):
             self.assertIn(needle, page)
 
 
+class TestRecordingDelay(unittest.TestCase):
+    """Studio's delay fix: a line sung on the beat is stamped late by the
+    sound's round trip; that is measured with clicks and taken off."""
+
+    def heard(self, seconds, gain=0.05, noise=0.01, total=5.0, rate=None, seed=1):
+        """The clicks as a poor microphone hears them `seconds` late: quiet,
+        upside down, dull, and in a noisy room."""
+        import numpy as np
+
+        from teto_relay import delay
+
+        rng = np.random.default_rng(seed)
+        clicks = delay.click_track()
+        recorded = rng.normal(0, noise, int(total * delay.RATE))
+        start = int(round(seconds * delay.RATE))
+        if start >= 0:
+            recorded[start:start + len(clicks)] -= gain * clicks[:len(recorded) - start]
+        else:
+            recorded[:len(clicks) + start] -= gain * clicks[-start:]
+        return np.convolve(recorded, np.ones(4) / 4, mode="same")
+
+    def test_the_clicks_are_short_and_unevenly_spaced(self):
+        import numpy as np
+
+        from teto_relay import delay
+
+        clicks = delay.click_track()
+        self.assertEqual(clicks.dtype, np.float32)
+        self.assertLessEqual(float(np.abs(clicks).max()), 0.6)
+        self.assertEqual(len(clicks), int(round((2.66 + 0.03 + 0.5) * delay.RATE)))
+        # No two clicks the same distance apart: only one delay lines them all up.
+        times = delay.CLICK_TIMES
+        gaps = [round(b - a, 3) for i, a in enumerate(times) for b in times[i + 1:]]
+        self.assertEqual(len(gaps), len(set(gaps)))
+
+    def test_the_delay_is_found_by_lining_the_clicks_up(self):
+        import numpy as np
+
+        from teto_relay import delay
+
+        clicks = delay.click_track()
+        for seconds in (0.0, 0.037, 0.137, 0.412, 1.2, -0.05):
+            found, strength = delay.estimate_delay(clicks, self.heard(seconds), delay.RATE)
+            self.assertAlmostEqual(found, seconds, delta=0.001, msg=seconds)
+            self.assertGreater(strength, delay.HEARD, seconds)
+        # Clicks five times quieter, under the room's noise, are still found.
+        found, strength = delay.estimate_delay(clicks, self.heard(0.137, gain=0.01), delay.RATE)
+        self.assertAlmostEqual(found, 0.137, delta=0.001)
+        self.assertGreater(strength, delay.HEARD)
+        # A room with no clicks in it, or a steady note, is not mistaken for them.
+        rng = np.random.default_rng(7)
+        for trial in range(5):
+            _, strength = delay.estimate_delay(clicks, rng.normal(0, 0.02, 5 * delay.RATE), delay.RATE)
+            self.assertLess(strength, delay.HEARD)
+        note = 0.3 * np.sin(2 * np.pi * 440 * np.arange(5 * delay.RATE) / delay.RATE)
+        self.assertLess(delay.estimate_delay(clicks, note, delay.RATE)[1], delay.HEARD)
+        self.assertEqual(delay.estimate_delay(clicks, np.zeros(0), delay.RATE), (0.0, 0.0))
+        self.assertEqual(delay.estimate_delay(clicks, np.zeros(8000), delay.RATE), (0.0, 0.0))
+
+    def test_the_two_clocks_are_lined_up_first(self):
+        import numpy as np
+
+        from teto_relay import delay
+        from teto_relay.playback import _resample
+
+        # Blocks of 20 ms arriving in fits and starts: the middle one counts.
+        stamps = [100.02, 100.04, 100.09, 100.08, 100.10]
+        self.assertAlmostEqual(delay.recording_start(stamps, [320] * 5, 16000), 100.0, places=6)
+        # A 48 kHz microphone that began recording 0.25 s before the clicks
+        # were handed to the headphones, and heard them 90 ms after that.
+        recorded = _resample(self.heard(0.25 + 0.09)[:, None].astype(np.float32), delay.RATE, 48000)[:, 0]
+        ms, strength = delay.solve(recorded, 48000, started=500.0, heard_at=500.25)
+        self.assertAlmostEqual(ms, 90.0, delta=1.5)
+        self.assertGreater(strength, delay.HEARD)
+        # The driver said later than it was: the clicks are found before "zero".
+        ms, _ = delay.solve(self.heard(0.25 - 0.04), delay.RATE, started=500.0, heard_at=500.25)
+        self.assertAlmostEqual(ms, -40.0, delta=1.5)
+
+    def measure(self, true_delay, mic_latency=0.0, gain=0.05, device="Headphones (Nubwo X700)"):
+        """delay.measure in a made-up world: headphones that sound
+        `true_delay` s after the driver says, a microphone `mic_latency` late."""
+        import types
+        import unittest.mock
+
+        import numpy as np
+
+        from teto_relay import capture, delay, devices, music, playback
+        from teto_relay.config import Config
+
+        world = types.SimpleNamespace(now=1000.0, callback=None, clicks_at=None)
+        clicks = delay.click_track()
+        rng = np.random.default_rng(3)
+
+        def sound(at, frames):
+            """What reaches the microphone from `at` on."""
+            out = rng.normal(0, 0.01, frames)
+            if world.clicks_at is not None:
+                first = int(round((at - world.clicks_at) * delay.RATE))
+                a, b = max(0, first), min(len(clicks), first + frames)
+                if b > a:
+                    out[a - first:b - first] += gain * clicks[a:b]
+            return out.astype(np.float32)
+
+        def sleep(seconds):
+            for _ in range(int(round(seconds / 0.02))):
+                world.now += 0.02
+                if world.callback is not None:
+                    block = sound(world.now - 0.02 - mic_latency, 320)
+                    world.callback(block[:, None], 320, None, None)
+
+        class Input:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def __enter__(self):
+                world.callback = self.kwargs["callback"]
+
+            def __exit__(self, *exc):
+                world.callback = None
+
+        class Backing:
+            def __init__(self, audio, rate, device_index):
+                world.played = (audio.shape, rate, device_index)
+
+            def start(self):
+                world.clicks_at = world.now + 0.05 + true_delay    # 50 ms: the latency the driver admits to
+                return world.now + 0.05
+
+            def stop(self):
+                world.stopped = True
+
+        fake_sd = types.SimpleNamespace(
+            InputStream=Input, check_input_settings=lambda **k: None,
+            query_devices=lambda *a: {"name": device, "default_samplerate": 48000, "max_output_channels": 2})
+        with unittest.mock.patch.object(delay, "time", types.SimpleNamespace(monotonic=lambda: world.now, sleep=sleep)), \
+                unittest.mock.patch.object(devices, "sd", lambda: fake_sd), \
+                unittest.mock.patch.object(capture, "sd", lambda: fake_sd), \
+                unittest.mock.patch.object(playback, "sd", lambda: fake_sd), \
+                unittest.mock.patch.object(playback, "monitor_device", lambda c: 4), \
+                unittest.mock.patch.object(devices, "resolve_input", lambda c: None), \
+                unittest.mock.patch.object(devices, "default_input", lambda: None), \
+                unittest.mock.patch.object(music, "Backing", Backing):
+            return delay.measure(Config()), world
+
+    def test_measuring_plays_clicks_and_hears_them_back(self):
+        from teto_relay import delay, music
+
+        found, world = self.measure(true_delay=0.085, mic_latency=0.04)
+        # What a take is off by: the headphones' own lag and the microphone's.
+        self.assertAlmostEqual(found["ms"], 125, delta=2)
+        self.assertGreater(found["strength"], delay.HEARD)
+        self.assertEqual(found["output"], "Headphones (Nubwo X700)")
+        # The clicks went to the Hear myself device, at its rate, on both ears.
+        self.assertEqual(world.played, ((len(delay.click_track()) * 3, 2), 48000, 4))
+        self.assertTrue(world.stopped)
+        # Bluetooth: a long delay is measured just the same.
+        found, _ = self.measure(true_delay=0.31)
+        self.assertAlmostEqual(found["ms"], 310, delta=2)
+
+        # A microphone that cannot hear the headphones: said, with what to do.
+        with self.assertRaises(delay.DelayError) as caught:
+            self.measure(true_delay=0.085, gain=0.0)
+        self.assertIn("Hold one side of your headphones against the microphone", str(caught.exception))
+        # And never into the cable.
+        with self.assertRaises(music.MusicError):
+            self.measure(true_delay=0.085, device="CABLE Input (VB-Audio Virtual C")
+
+    def test_a_new_line_is_placed_earlier_by_the_delay(self):
+        import tempfile
+        import types
+
+        import numpy as np
+        import soundfile as sf
+        import yaml
+
+        from teto_relay.takes import Take
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wav, ustx = Path(tmp) / "p.wav", Path(tmp) / "p.ustx"
+            sf.write(str(wav), np.zeros(100, np.float32), 1000)
+            ustx.write_text(yaml.safe_dump(_phrase_doc()), encoding="utf-8")
+            take = Take(Path(tmp) / "takes")
+            take.delay = 0.12
+
+            def job(start):
+                return types.SimpleNamespace(audio_start=start, wav_path=wav, ustx_path=ustx, text="x",
+                                             wav_origin=0.0, input_audio=np.zeros(10, np.float32),
+                                             input_rate=16000)
+
+            take.add(job(take.started + 2.0))
+            take.add(job(take.started + 0.05))      # sung at once: not before 0:00
+            self.assertAlmostEqual(take.phrases[0].offset, 1.88)
+            self.assertEqual(take.phrases[1].offset, 0.0)
+
+    def test_the_delay_is_a_setting_the_next_take_uses(self):
+        import queue
+        import types
+
+        from test_production import _bare_relay
+
+        from teto_relay.capture import PushToTalkChunker
+        from teto_relay.config import Config, ConfigError
+
+        self.assertEqual(Config().studio_offset_ms, 0.0)
+        self.assertEqual(Config.from_dict({"studio_offset_ms": "85"}).studio_offset_ms, 85.0)
+        with self.assertRaises(ConfigError) as caught:
+            Config.from_dict({"studio_offset_ms": 5000})
+        self.assertIn("studio_offset_ms", str(caught.exception))
+
+        with _TempHome():
+            relay = _bare_relay(Config(studio_offset_ms=85))
+            relay._capture = types.SimpleNamespace(chunker=PushToTalkChunker(relay.cfg))
+            relay.chunk_q, relay.ustx_q = queue.Queue(), queue.Queue()
+            relay._busy_phrases = 0
+            self.assertAlmostEqual(relay.start_take().delay, 0.085)
+            relay.stop_take(wait=0.5)
+
+        with _PanelServer() as s:
+            status, body = s.request("POST", "/api/config", {"studio_offset_ms": -30}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(s.controller.cfg.studio_offset_ms, -30.0)
+            _, body = s.request("GET", "/api/config")
+            data = json.loads(body)
+            self.assertEqual(data["config"]["studio_offset_ms"], -30.0)
+            # It lives in Studio, beside Calibrate: not a row in the settings.
+            listed = set(data["meta"]["essentials"]) | {k for keys in data["meta"]["groups"].values() for k in keys}
+            self.assertNotIn("studio_offset_ms", listed)
+            status, _ = s.request("POST", "/api/config", {"studio_offset_ms": 99999}, TOKEN)
+            self.assertEqual(status, 400)
+
+    def test_calibrate_saves_what_it_measured(self):
+        import types
+        import unittest.mock
+
+        from teto_relay import delay
+        from teto_relay.config import Config
+
+        with _PanelServer() as s:
+            found = {"ms": 112, "strength": 6.2, "output": "Headphones", "input": "Microphone"}
+            with unittest.mock.patch.object(delay, "measure", lambda cfg: dict(found)):
+                status, body = s.request("POST", "/api/studio/calibrate", None, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body), {"ok": True, **found})
+            self.assertEqual(Config.load().studio_offset_ms, 112.0)
+            self.assertEqual(s.controller.cfg.studio_offset_ms, 112.0)
+
+            # It could not be measured: said, and the setting is left alone.
+            def unheard(cfg):
+                raise delay.DelayError("The microphone did not hear the clicks.")
+
+            with unittest.mock.patch.object(delay, "measure", unheard):
+                status, body = s.request("POST", "/api/studio/calibrate", None, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("did not hear", json.loads(body)["error"])
+            with unittest.mock.patch.object(delay, "measure", lambda cfg: {**found, "ms": 9000}):
+                status, body = s.request("POST", "/api/studio/calibrate", None, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertEqual(Config.load().studio_offset_ms, 112.0)
+            # Not while a take records: the clicks would be a line of it.
+            s.controller.relay = types.SimpleNamespace(_take=object(), stop=lambda: None, stop_take=lambda **k: None)
+            with unittest.mock.patch.object(delay, "measure", lambda cfg: self.fail("measured during a take")):
+                status, body = s.request("POST", "/api/studio/calibrate", None, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("Stop recording first", json.loads(body)["error"])
+            s.controller.relay = None
+            status, _ = s.request("POST", "/api/studio/calibrate")
+            self.assertEqual(status, 403)
+
+    def test_all_the_clips_of_a_take_shift_together(self):
+        import tempfile
+
+        import soundfile as sf
+
+        from teto_relay.takes import read_info, shift_lines
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = _take(tmp, [_phrase(0.5, "one"), _phrase(2.0, "two", origin=0.1)])
+            out, moved = shift_lines(folder, -120)
+            self.assertEqual(moved, -120.0)
+            self.assertEqual([p["at"] for p in out["phrases"]], [0.38, 1.88])
+            sung, _ = sf.read(str(folder / "teto.wav"))
+            self.assertEqual(float(sung[370]), 0.0)
+            self.assertAlmostEqual(float(sung[390]), 0.5, places=3)
+            self.assertAlmostEqual(float(sung[1990]), 0.5, places=3)      # 1.88 + its 0.1 lead-in
+            # Later is the same, the other way.
+            out, moved = shift_lines(folder, 70)
+            self.assertEqual(moved, 70.0)
+            self.assertEqual([p["at"] for p in out["phrases"]], [0.45, 1.95])
+            # Further left than there is room: all of them go as far as the
+            # first can, so they stay the same distance apart.
+            out, moved = shift_lines(folder, -5000)
+            self.assertEqual(moved, -450.0)
+            self.assertEqual([p["at"] for p in out["phrases"]], [0.0, 1.5])
+            out, moved = shift_lines(folder, -50)
+            self.assertEqual(moved, 0.0)
+            for bad in (None, "soon", float("nan"), True, 10 ** 9):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    shift_lines(folder, bad)
+            self.assertEqual([p["at"] for p in read_info(folder)["phrases"]], [0.0, 1.5])
+
+    def test_the_panel_shifts_a_take(self):
+        from teto_relay.takes import read_info
+
+        with _TempHome() as home, _PanelServer() as s:
+            folder = _take(home / "takes", [_phrase(0.5, "one"), _phrase(2.0, "two")])
+            url = f"/api/take/shift?take={folder.name}"
+            status, body = s.request("POST", url, {"ms": -100}, TOKEN)
+            self.assertEqual(status, 200, body)
+            data = json.loads(body)
+            self.assertEqual((data["ok"], data["moved"]), (True, -100.0))
+            self.assertEqual([p["at"] for p in data["take"]["phrases"]], [0.4, 1.9])
+            self.assertEqual([p["at"] for p in read_info(folder)["phrases"]], [0.4, 1.9])
+            for bad, code in (({"ms": "x"}, 400), ({}, 400)):
+                status, _ = s.request("POST", url, bad, TOKEN)
+                self.assertEqual(status, code)
+            status, _ = s.request("POST", "/api/take/shift?take=take_nope", {"ms": 5}, TOKEN)
+            self.assertEqual(status, 404)
+            status, _ = s.request("POST", url, {"ms": 5})
+            self.assertEqual(status, 403)
+
+    def test_the_page_has_the_delay_box(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/studio/calibrate", "api/take/shift?take=", "studio_offset_ms", "Calibrate",
+                       "Bluetooth", "function delayBox("):
+            self.assertIn(needle, page)
+
+
 if __name__ == "__main__":
     unittest.main()

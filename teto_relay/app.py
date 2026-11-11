@@ -936,6 +936,7 @@ class TetoRelay:
         with self._take_lock:
             if getattr(self, "_take", None) is None:
                 take = Take(paths.data_dir() / "takes")
+                take.delay = float(getattr(self.cfg, "studio_offset_ms", 0.0) or 0.0) / 1000.0
                 if backing is not None:
                     take.started = backing.start()
                     take.music_from, take.music_id = Path(music), music_id

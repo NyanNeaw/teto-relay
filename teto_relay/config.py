@@ -84,6 +84,11 @@ class Config:
     # the main screen (talk, she sings into the output), "studio" the
     # recording workspace, where takes are made and edited.
     panel_mode: str = "live"
+    # Studio: how late a line sung on the beat is stamped, in milliseconds -
+    # the round trip of the music to your ears and of your voice back through
+    # the microphone. Every new line of a take is placed this much earlier.
+    # Calibrate in Studio measures it (teto_relay.delay).
+    studio_offset_ms: float = 0.0
     beam_size: int = 5
     # Whisper's word timings come from attention and are systematically early -
     # measured at +0.06 to +0.20s per word against a forced aligner, and too
@@ -563,6 +568,7 @@ RANGES: dict[str, tuple[float, float]] = {
     "vibrato_period_ms": (40.0, 1000.0),
     "final_hold_seconds": (0.0, 5.0),
     "queue_size": (1, 64),
+    "studio_offset_ms": (-2000.0, 2000.0),
 }
 
 #: Settings of features that were removed. The RVC voice engine ("Voice"

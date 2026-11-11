@@ -29,6 +29,15 @@
   you record, or the microphone records the music too. Studio now opens on a
   **New take** page, where the music is added before recording; the list of
   takes is behind the clock button.
+- **A delay fix, so clips land on the beat.** When you sing along, the music
+  reaches your ears a little late and your voice reaches the app a little
+  late, so every clip landed slightly behind. The timer button in Studio
+  opens **Recording delay**: press **Calibrate**, hold one side of your
+  headphones against the microphone, and a few clicks measure the delay and
+  save it; or type the number of milliseconds yourself. New clips are placed
+  that much earlier. **Shift all clips** moves a whole take you already
+  recorded. Bluetooth headphones have a delay that keeps changing: wired
+  ones keep time.
 - **Recording hears a quiet microphone.** While a take records, a line is
   told from a pause by how loud it is, and that level was fixed. A headset
   microphone that came in very quietly sat under it most of the time, so a

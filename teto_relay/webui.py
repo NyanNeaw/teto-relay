@@ -79,8 +79,9 @@ GROUP_INFO: dict[str, dict] = {
 }
 
 # Shown elsewhere on the page, so not in "Other" either: the voicebank has its
-# picker, and the mode is the Live | Studio switch in the top bar.
-SHOWN_ELSEWHERE = {"voicebank", "panel_mode"}
+# picker, the mode is the Live | Studio switch in the top bar, and the
+# recording delay is in Studio, beside the button that measures it.
+SHOWN_ELSEWHERE = {"voicebank", "panel_mode", "studio_offset_ms"}
 
 HIDE = {"out_dir", "log_file", "queue_size", "keep_files"}
 
@@ -507,6 +508,33 @@ class Controller:
             out = takes_mod.move_line(folder, line_no, new_at)
         self.takes_changed += 1
         return out
+
+    def shift_lines(self, folder, milliseconds) -> tuple[dict, float]:
+        """Move all of a take's lines earlier or later; needs no relay."""
+        from . import takes as takes_mod
+
+        with takes_mod.edit_lock(folder):
+            out = takes_mod.shift_lines(folder, milliseconds)
+        self.takes_changed += 1
+        return out
+
+    def calibrate(self) -> dict:
+        """Measure Studio's recording delay with clicks (teto_relay.delay)
+        and save it as studio_offset_ms. About five seconds."""
+        from . import delay
+
+        relay = self.relay
+        if relay is not None and getattr(relay, "_take", None) is not None:
+            raise TetoRelayError("Stop recording first: the clicks would be recorded as a line.")
+        found = delay.measure(Config.load(self.config_path))
+        if abs(found["ms"]) > delay.LIMIT_MS:
+            raise TetoRelayError(f"That came out as {found['ms']} ms, which cannot be right. Try again.")
+        cfg = Config.load(self.config_path)
+        cfg.studio_offset_ms = float(found["ms"])
+        cfg.save(self.config_path)
+        # The running relay reads this object when the next take starts.
+        self.cfg.studio_offset_ms = float(found["ms"])
+        return found
 
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
@@ -1100,6 +1128,26 @@ def make_handler(controller: Controller):
                         self._json({"ok": True, "take": take})
                 except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/shift":
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    else:
+                        take, moved = controller.shift_lines(folder, body.get("ms"))
+                        self._json({"ok": True, "take": take, "moved": moved})
+                except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/studio/calibrate":
+                try:
+                    self._json({"ok": True, **controller.calibrate()})
+                except TetoRelayError as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+                except Exception as exc:  # noqa: BLE001 - say it on the page
+                    log.exception("could not measure the delay")
+                    self._json({"ok": False, "error": describe(exc, controller.cfg.log_file)}, 500)
             elif route == "api/take/delete":
                 from .takes import discard
 

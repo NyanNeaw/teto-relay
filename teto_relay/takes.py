@@ -84,6 +84,9 @@ class Take:
         # the music's first sample was heard.
         self.music_from: Path | None = None
         self.music_id = ""
+        # How late a line sung on the beat is stamped, s (the Studio delay,
+        # cfg.studio_offset_ms): each line is placed that much earlier.
+        self.delay = 0.0
         self._lock = threading.Lock()
 
     @property
@@ -112,7 +115,7 @@ class Take:
                  for w in (getattr(job, "words", None) or [])]
         heard = getattr(job, "input_audio", None)
         phrase = Phrase(
-            offset=max(0.0, start - self.started),
+            offset=max(0.0, start - self.started - self.delay),
             text=" ".join(w["text"] for w in words) or job.text, doc=doc,
             sung=sung, sung_rate=int(rate), sung_origin=float(getattr(job, "wav_origin", 0.0)),
             heard=np.asarray(heard if heard is not None else np.zeros(0), dtype=np.float32),
@@ -617,6 +620,30 @@ def move_line(folder: Path, line_no: int, new_at: float) -> dict:
     info["phrases"].sort(key=lambda p: line_span(folder, p)[0])
     assemble(folder, info)
     return detail(folder)
+
+
+def shift_lines(folder: Path, milliseconds: float) -> tuple[dict, float]:
+    """Move every line of a take earlier (negative) or later by the same
+    amount, and put the take together again: for a take recorded before the
+    delay was set right. The lines keep their distances, so if the first one
+    would start before 0:00 they all go only as far as that allows. Returns
+    the take's detail and how far they went, in milliseconds."""
+    folder = Path(folder)
+    info = read_info(folder)
+    try:
+        milliseconds = math.nan if isinstance(milliseconds, bool) else float(milliseconds)
+    except (TypeError, ValueError):
+        milliseconds = math.nan
+    if not math.isfinite(milliseconds) or abs(milliseconds) > 600_000:
+        raise ValueError("Shift needs a number of milliseconds.")
+    if not info["phrases"]:
+        raise ValueError("This take has no lines to shift.")
+    first = min(line_span(folder, p)[0] for p in info["phrases"])
+    seconds = max(milliseconds / 1000.0, -max(0.0, first))
+    for line in info["phrases"]:
+        line["at"] = round(float(line["at"]) + seconds, 3)
+    assemble(folder, info)
+    return detail(folder), round(seconds * 1000.0, 1)
 
 
 _EDIT_LOCKS: dict[str, threading.Lock] = {}

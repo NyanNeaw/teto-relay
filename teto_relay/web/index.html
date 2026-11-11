@@ -223,6 +223,17 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .musicctl .ghost span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .transport .musicctl .mini{width:28px;height:28px;background-color:transparent}
 .transport .spin{margin:0}
+/* The recording delay, under the timeline when its button is on. */
+.transport .mini[aria-pressed=true]{background-color:var(--accent-weak);color:var(--accent-text)}
+.delaybox{margin-top:12px;padding:12px 14px;border-radius:12px;background:var(--sink);display:grid;gap:8px}
+.delaybox[hidden]{display:none}
+.drow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.drow label{display:inline-flex;align-items:center;gap:7px;font-weight:600;min-width:160px}
+.drow label .ic{color:var(--accent-text)}
+.drow input[type=number]{width:96px;background:var(--card);padding:7px 10px}
+.drow .unit{color:var(--muted);font-size:13px;margin-right:6px}
+.drow .ghost{background-color:var(--card);padding:7px 14px}
+.delaybox .hint{margin:0}
 .lrow.still{cursor:default}
 .lrow.still:hover{background:none}
 .line{border-radius:12px;margin-top:12px}
@@ -1756,11 +1767,11 @@ function renderTakeView(){
   sheet.ed=null;
   const chips=el('div','chips'); body.append(chips);
 
-  const {bar,sync}=transportBar(()=>Math.max(length(),sheet.music?sheet.music.seconds:0));
+  const {bar,sync,delay}=transportBar(()=>Math.max(length(),sheet.music?sheet.music.seconds:0));
   body.append(bar);
 
   const host=el('div'); body.append(host);
-  body.append(el('p','hint tl-hint','Drag a clip to move it. Click one to edit its notes.'));
+  body.append(el('p','hint tl-hint','Drag a clip to move it. Click one to edit its notes.'),delay);
   /* The title, the chips and the timeline: all that a moved clip changes. */
   function drawTimeline(){
     const now=sheet.take, ls=now.phrases||[];
@@ -1939,7 +1950,12 @@ function transportBar(length){
   const bar=el('div','transport');
   const play=barTool('','Play',()=>{ transport.playing?tPause():tPlay(); }); play.classList.add('go');
   const time=el('span','time');
-  bar.append(barTool('tostart','Back to the start',()=>tSeek(0)),play,time,musicControl(),el('span','grow'),
+  // The recording delay: its box sits under the timeline, behind this button.
+  const delay=delayBox();
+  const timing=barTool('timer','Recording delay',()=>{
+    sheet.delayOpen=!sheet.delayOpen; delay.hidden=!sheet.delayOpen; timing.setAttribute('aria-pressed',String(!!sheet.delayOpen)); });
+  timing.setAttribute('aria-pressed',String(!!sheet.delayOpen));
+  bar.append(barTool('tostart','Back to the start',()=>tSeek(0)),play,time,musicControl(),el('span','grow'),timing,
     barTool('zoomout','Zoom out',()=>sheet.tl&&sheet.tl.zoom(1/1.5)),
     barTool('zoomin','Zoom in',()=>sheet.tl&&sheet.tl.zoom(1.5)));
   let shown='';
@@ -1955,7 +1971,7 @@ function transportBar(length){
     if(sheet.tl) sheet.tl.setHead(tTime(),transport.playing);
     if(sheet.ed&&sheet.ed.head) sheet.ed.head();
   }
-  return {bar,sync};
+  return {bar,sync,delay};
 }
 function tContext(){
   if(!transport.ctx) transport.ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -2024,6 +2040,91 @@ function tSeek(sec){
   if(was) tPlay(); else if(sheet.redraw) sheet.redraw();
 }
 
+/* ---- the recording delay ----
+   A line sung on the beat is stamped late by the sound's round trip: the
+   music reaching your ears, your voice coming back through the microphone.
+   studio_offset_ms is that delay, taken off every new clip. The box (the
+   timer button in the transport bar opens it) holds the number, Calibrate,
+   which measures it with clicks (api/studio/calibrate), and - for a take
+   recorded before it was right - a shift for all of its clips at once. */
+function delayBox(){
+  const box=el('div','delaybox'); box.hidden=!sheet.delayOpen;
+  const field=(id,value)=>{ const i=el('input'); i.type='number'; i.step='1'; i.id=id; i.value=value; return i; };
+  const label=(icon,text,id)=>{ const l=el('label','',text); l.htmlFor=id; l.prepend(iconEl(icon)); return l; };
+
+  const row=el('div','drow'), ms=field('f-delay',Math.round(+cfg.studio_offset_ms||0));
+  ms.min=-2000; ms.max=2000;
+  ms.onchange=async()=>{
+    const value=Math.max(-2000,Math.min(2000,Math.round(+ms.value||0))); ms.value=value;
+    try{
+      const d=await api('api/config',{studio_offset_ms:value});
+      if(d&&d.ok===false){ toast('Could not save: '+d.error); return; }
+      cfg.studio_offset_ms=value; toast('Recording delay: '+value+' ms');
+    }catch(e){ toast('Could not reach the relay.'); }
+  };
+  const measure=el('button','ghost','Calibrate'); measure.type='button'; measure.prepend(iconEl('timer',15));
+  measure.title='Measure it: clicks play in your headphones and the microphone listens';
+  measure.onclick=()=>calibrate(ms);
+  row.append(label('timer','Recording delay','f-delay'),ms,el('span','unit','ms'),measure);
+  box.append(row,el('p','hint','New clips are placed this much earlier, to make up for the time the music '+
+    'takes to reach your ears and your voice to come back. Bluetooth headphones have a delay that keeps '+
+    'changing, so use wired ones.'));
+
+  if(sheet.view==='take'&&sheet.take){
+    const row2=el('div','drow'), by=field('f-shift',''), go=el('button','ghost','Shift'); go.type='button';
+    by.placeholder='0'; by.title='Negative is earlier';
+    go.onclick=()=>shiftClips(by);
+    by.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go.click(); } };
+    row2.append(label('shorter','Shift all clips','f-shift'),by,el('span','unit','ms'),go);
+    box.append(row2,el('p','hint','For a take recorded before the delay was right. Negative is earlier.'));
+  }
+  return box;
+}
+/* Clicks in the headphones, the microphone listening: the popup says what to
+   do, shows that it is measuring, and then what it found (and saved). */
+function calibrate(input){
+  const again=[['Cancel',closeAdd,true],['Start',run]];
+  addDialog({icon:'timer',title:'Measure the delay',
+    text:'Hold one side of your headphones against the microphone and keep quiet. A few clicks will play. '+
+      'It takes about five seconds.',buttons:again});
+  async function run(){
+    adding={abort(){}};      // not closed with Escape while it measures
+    addDialog({icon:'timer',title:'Listening for the clicks…',text:'Keep the headphones on the microphone.',progress:-1});
+    let d;
+    try{ d=await api('api/studio/calibrate'); }
+    catch(e){ d={ok:false,error:'Could not reach the relay.'}; }
+    adding=null;
+    if(!d.ok){
+      addDialog({kind:'bad',title:'Could not measure it',text:d.error||'',buttons:[['Close',closeAdd,true],['Try again',run]]});
+      return;
+    }
+    cfg.studio_offset_ms=d.ms; if(input) input.value=d.ms;
+    addDialog({kind:'ok',title:'The delay is '+d.ms+' ms',
+      text:'Saved. New clips will be placed '+Math.abs(d.ms)+' ms '+(d.ms<0?'later':'earlier')+'.'+
+        (d.ms>180?' That is a long delay, which usually means Bluetooth: it changes from one minute to the next, so wired headphones keep better time.':''),
+      buttons:[['Measure again',run,true],['OK',closeAdd]]});
+  }
+}
+async function shiftClips(input){
+  const t=sheet.take, ms=Math.round(+input.value||0);
+  if(!t||!ms){ toast('Type how many ms: negative is earlier'); return; }
+  tPause(); sheet.busy=true;
+  try{
+    const r=await api('api/take/shift?take='+encodeURIComponent(t.id),{ms});
+    if(!r.ok) toast(r.error||'Could not shift them.');
+    else if(sheet.take&&sheet.take.id===t.id){
+      r.take.version=(sheet.take.version||0)+1; sheet.take=r.take; input.value='';
+      const moved=Math.round(r.moved);
+      toast(!moved?'The first clip is already at 0:00'
+        :'All clips '+Math.abs(moved)+' ms '+(moved<0?'earlier':'later')+(moved!==ms?': the first clip is at 0:00':''));
+    }
+  }catch(e){ toast('Could not reach the relay.'); }
+  sheet.busy=false;
+  if(sheet.view!=='take') return;
+  // An open line keeps its unsung edits: only the timeline is drawn again.
+  if(sheet.open&&sheet.retime) sheet.retime(); else renderTakeView();
+}
+
 /* ---- a new take: the music row to fill, then Record ---- */
 async function renderNewView(){
   setTitle('New take','',false);
@@ -2031,13 +2132,13 @@ async function renderNewView(){
   const draw=()=>{
     const body=$('shBody'); body.textContent='';
     const m=sheet.music;
-    const {bar,sync}=transportBar(()=>sheet.music?sheet.music.seconds:0);
+    const {bar,sync,delay}=transportBar(()=>sheet.music?sheet.music.seconds:0);
     body.append(bar);
     const tl=timeline({lines:[],length:m?m.seconds:30,music:m,onSeek:tSeek,
       empty:'Press Start, then the round Record button, and sing'});
     body.append(tl.root); sheet.tl=tl; tl.layout();
     sheet.redraw=sync; sync();
-    body.append(el('p','hint tl-hint',m?HEADPHONES:'Add your song to sing along to, or just record.'));
+    body.append(el('p','hint tl-hint',m?HEADPHONES:'Add your song to sing along to, or just record.'),delay);
   };
   draw();
   // The music waiting for the next take, as the program has it.
