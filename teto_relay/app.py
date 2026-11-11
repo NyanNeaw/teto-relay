@@ -419,6 +419,7 @@ class TetoRelay:
         hotkey = getattr(self, "_hotkey", None)
         capture = getattr(self, "_capture", None)
         player = getattr(self, "_player", None)
+        attempt("music", self._stop_backing)
         if hotkey:
             attempt("push-to-talk", hotkey.stop)
         if capture:
@@ -916,16 +917,49 @@ class TetoRelay:
         with self._take_lock:
             self._busy_phrases = max(0, getattr(self, "_busy_phrases", 0) + change)
 
-    def start_take(self):
-        """Start recording a take (teto_relay.takes)."""
+    def start_take(self, music: Path | None = None, music_id: str = ""):
+        """Start recording a take (teto_relay.takes).
+
+        With `music` (a folder that holds a music track, teto_relay.music) it
+        plays on the Hear myself device from its first sample, to sing along
+        to, and the take's clock starts when that sample is heard, so a line
+        sung on the beat is placed on the beat. Raises (and starts nothing) if
+        the music cannot be played where only you hear it.
+        """
         from .takes import Take
 
+        if getattr(self, "_take", None) is not None:
+            return self._take
+        # Decoded before the lock: a song takes a second, and the lock is
+        # the one every phrase passing through the pipeline takes.
+        backing = self._backing_for(music) if music is not None else None
         with self._take_lock:
             if getattr(self, "_take", None) is None:
-                self._take = Take(paths.data_dir() / "takes")
-                log.info("Recording a take")
+                take = Take(paths.data_dir() / "takes")
+                if backing is not None:
+                    take.started = backing.start()
+                    take.music_from, take.music_id = Path(music), music_id
+                    self._backing = backing
+                self._take = take
+                log.info("Recording a take%s", " over its music" if backing is not None else "")
                 self._hands_free(True)
             return self._take
+
+    # The music playing under the take being recorded (teto_relay.music.Backing).
+    _backing = None
+
+    def _backing_for(self, music: Path):
+        from . import music as music_mod
+
+        return music_mod.backing_for(music, self.cfg)
+
+    def _stop_backing(self) -> None:
+        backing, self._backing = getattr(self, "_backing", None), None
+        if backing is not None:
+            try:
+                backing.stop()
+            except Exception:  # noqa: BLE001 - the take is what matters
+                log.debug("stopping the music failed", exc_info=True)
 
     def stop_take(self, wait: float = 30.0) -> dict | None:
         """Stop the take, let the phrases already said finish, write it out."""
@@ -933,6 +967,7 @@ class TetoRelay:
         if take is None:
             return None
         take.stopped = time.monotonic()
+        self._stop_backing()
         # A line still being sung hands-free is finished and kept.
         self._hands_free(False)
         deadline = time.monotonic() + wait

@@ -78,6 +78,12 @@ class Take:
         self.folder = Path(root) / self.created.strftime("take_%Y%m%d_%H%M%S")
         self.phrases: list[Phrase] = []
         self.stopped: float | None = None
+        # The music it is recorded over (teto_relay.music): the folder it is
+        # played from, which the saved take copies, and what the panel calls
+        # that folder ("next", or a take's id). `started` is then the moment
+        # the music's first sample was heard.
+        self.music_from: Path | None = None
+        self.music_id = ""
         self._lock = threading.Lock()
 
     @property
@@ -165,6 +171,10 @@ class Take:
                 "editable": bool(p.words) and p.track is not None and p.heard.size > 0,
                 "edited": False,
             })
+        if self.music_from is not None:
+            from . import music
+
+            music.copy_into(self.music_from, self.folder)
         info = assemble(self.folder, info)
         log.info("Take saved: %s (%d phrase(s))", self.folder, len(phrases))
         return info
@@ -634,7 +644,18 @@ def detail(folder: Path) -> dict:
         if line.get("length") is None:
             line["length"] = _sung_seconds(folder, line)
         line.pop("context", None)
+    info["music"] = _music(folder)
     return info
+
+
+def _music(folder: Path) -> dict | None:
+    """The take's music track, if it has one: {name, seconds, ...}."""
+    from . import music
+
+    try:
+        return music.info(folder)
+    except Exception:  # noqa: BLE001 - a music file that will not open is no music
+        return None
 
 
 # ------------------------------------------------------------------ the list
@@ -651,6 +672,7 @@ def listing(root: Path, limit: int = 20) -> list[dict]:
         for line in info.get("phrases", []):
             line.pop("context", None)
             line.pop("words", None)
+        info["music"] = _music(folder)
         out.append(info)
     return out
 
@@ -683,7 +705,10 @@ def zip_take(folder: Path) -> bytes:
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
-        for name in FILES + ("take.json",):
+        from .music import music_file
+
+        song = music_file(folder)
+        for name in FILES + ("take.json",) + ((song.name,) if song is not None else ()):
             if (folder / name).is_file():
                 z.write(folder / name, f"{folder.name}/{name}")
     return buffer.getvalue()

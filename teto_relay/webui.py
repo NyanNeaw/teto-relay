@@ -465,7 +465,16 @@ class Controller:
         take = getattr(relay, "_take", None) if relay is not None else None
         if take is None:
             return {"recording": False, "lines": []}
-        return {"recording": True, "seconds": round(take.seconds, 1), "lines": take.lines()}
+        # music: whose music is playing under it ("next", or a take's id).
+        return {"recording": True, "seconds": round(take.seconds, 1), "lines": take.lines(),
+                "music": getattr(take, "music_id", "") or ""}
+
+    def music_home(self, take_id: str) -> Path | None:
+        """The folder holding the music of `take_id` ("next": the music
+        waiting for the next take); None if there is no such take."""
+        from . import music
+
+        return music.home(self.takes_root(), take_id)
 
     def resing(self, folder, line_no: int, texts: list) -> dict:
         relay = self.relay
@@ -508,11 +517,28 @@ class Controller:
         (chunker.start if down else chunker.stop)()
         return True
 
-    def start_take(self) -> None:
+    def start_take(self, music_id: str = "") -> None:
+        """Start a take; with `music_id` ("next" or a take's id), over that
+        music, played where only you hear it."""
         relay = self.relay
         if relay is None or not self.running:
             raise TetoRelayError("Press Start first: a take records what Teto sings.")
-        relay.start_take()
+        if not music_id:
+            relay.start_take()
+            return
+        from . import music
+
+        folder = self.music_home(music_id)
+        if folder is None or music.music_file(folder) is None:
+            raise TetoRelayError("That music is gone. Add it again, or record without it.")
+        try:
+            relay.start_take(folder, music_id)
+        except TetoRelayError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a device that will not open: say so, record nothing
+            log.exception("could not play the music for the take")
+            raise TetoRelayError(f"The music could not be played ({describe(exc)}). "
+                                 "Check the Hear myself device, or record without music.") from exc
 
     def stop_take(self) -> None:
         """Finish the take in the background; the panel watches take_finishing."""
@@ -871,6 +897,30 @@ def make_handler(controller: Controller):
                     self._json(detail(folder))
             elif route == "api/take/current":
                 self._json(controller.current_take())
+            elif route in ("api/take/music", "api/take/music/sound"):
+                # The music row: what is on it and its waveform, or (sound)
+                # the music itself, decoded here so the panel's player hears
+                # exactly what the recording was sung over.
+                from urllib.parse import parse_qs, urlparse
+
+                from . import music
+
+                folder = controller.music_home((parse_qs(urlparse(self.path).query).get("take") or [""])[0])
+                try:
+                    found = music.info(folder) if folder is not None else None
+                    if folder is None:
+                        self._json({"error": "no such take"}, 404)
+                    elif route == "api/take/music":
+                        if found is not None:
+                            found["peaks"] = music.peaks(folder)
+                        self._json({"music": found})
+                    elif found is None:
+                        self._json({"error": "no music"}, 404)
+                    else:
+                        self._send(music.wav_bytes(folder), "audio/wav")
+                except Exception as exc:  # noqa: BLE001 - a file that stopped being readable
+                    log.exception("could not read the music")
+                    self._json({"error": str(exc)}, 500)
             elif route == "api/take/file":
                 from .takes import take_file, zip_take
 
@@ -880,6 +930,17 @@ def make_handler(controller: Controller):
                     self._json({"error": "no such take"}, 404)
                 elif name == "zip":
                     self._download(zip_take(folder), f"{folder.name}.zip", "application/zip")
+                elif name == "mix.wav":
+                    # Her singing over the take's music, made now, not kept.
+                    from . import music
+                    from .takes import edit_lock
+
+                    try:
+                        with edit_lock(folder):
+                            mixed = music.mix_wav(folder)
+                        self._download(mixed, f"{folder.name}-mix.wav", "audio/wav")
+                    except (ValueError, OSError) as exc:
+                        self._json({"error": str(exc)}, 404)
                 elif path is not None:
                     kind = "audio/wav" if name.endswith(".wav") else "application/octet-stream"
                     self._download(path.read_bytes(), f"{folder.name}-{name.replace('/', '-')}", kind)
@@ -930,11 +991,54 @@ def make_handler(controller: Controller):
                     down = False
                 self._json({"ok": controller.talk(down)})
             elif route == "api/take/start":
+                length = int(self.headers.get("Content-Length", 0))
                 try:
-                    controller.start_take()
+                    body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+                    music_id = body.get("music") if isinstance(body, dict) else None
+                    controller.start_take(music_id if isinstance(music_id, str) else "")
                     self._json({"ok": True})
-                except TetoRelayError as exc:
+                except (TetoRelayError, ValueError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/music":
+                # The raw file, its name in the query, as voicebanks arrive.
+                from urllib.parse import parse_qs, unquote, urlparse
+
+                from . import music
+
+                query = parse_qs(urlparse(self.path).query)
+                folder = controller.music_home((query.get("take") or [""])[0])
+                name = unquote((query.get("name") or ["music"])[0])
+                length = int(self.headers.get("Content-Length", 0))
+                if folder is None:
+                    self._json({"ok": False, "error": "no such take"}, 404)
+                elif length <= 0 or length > music.MAX_UPLOAD:
+                    self._json({"ok": False, "error": "That file is empty or too large."}, 400)
+                else:
+                    try:
+                        found = music.store(self.rfile.read(length), name, folder)
+                        found["peaks"] = music.peaks(folder)
+                        controller.takes_changed += 1
+                        self._json({"ok": True, "music": found})
+                    except ValueError as exc:
+                        self._json({"ok": False, "error": str(exc)}, 400)
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("could not add the music")
+                        self._json({"ok": False, "error": str(exc)}, 500)
+            elif route == "api/take/music/delete":
+                from urllib.parse import parse_qs, urlparse
+
+                from . import music
+
+                folder = controller.music_home((parse_qs(urlparse(self.path).query).get("take") or [""])[0])
+                if folder is None:
+                    self._json({"ok": False, "error": "no such take"}, 404)
+                else:
+                    try:
+                        music.remove(folder)
+                        controller.takes_changed += 1
+                        self._json({"ok": True})
+                    except OSError as exc:
+                        self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/take/stop":
                 controller.stop_take()
                 self._json({"ok": True})

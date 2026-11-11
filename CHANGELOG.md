@@ -18,6 +18,17 @@
   ruler to move it), and the timeline scrolls sideways and zooms. Lines show
   up as clips while you record, too. The take list, deleting, the downloads
   and the DAW tile are where they were.
+- **A music track.** In Studio, press **Add music** (or drop the file on the
+  window) to put your song's backing track on the music row: .wav, .mp3,
+  .flac or .ogg. It is drawn as a waveform, always from 0:00. Press Record
+  and it plays in your headphones from the start, so you can sing along,
+  and each line lands where you sang it against the music. Afterwards Play
+  plays the music and her singing together, and there is a new download,
+  **mix.wav**: her singing over the music. The music is never put into
+  teto.wav, and it is never played into CABLE Input. Wear headphones while
+  you record, or the microphone records the music too. Studio now opens on a
+  **New take** page, where the music is added before recording; the list of
+  takes is behind the clock button.
 - **Recording hears a quiet microphone.** While a take records, a line is
   told from a pause by how loud it is, and that level was fixed. A headset
   microphone that came in very quietly sat under it most of the time, so a

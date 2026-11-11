@@ -215,6 +215,14 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* While recording the playhead is told the time once a second, and glides. */
 .tl-head.glide{transition:transform 1s linear}
 .tl-hint{margin:8px 2px 0}
+/* The song on the music row: its waveform, and its name beside Play. */
+.tl-wave{position:absolute;left:0;top:0;height:100%;pointer-events:none}
+.tl-wave path{fill:var(--accent);opacity:.5}
+.musicctl{display:inline-flex;align-items:center;gap:2px;margin-left:6px;min-width:0}
+.musicctl .ghost{padding:7px 13px;font-size:13px;max-width:300px;background-color:var(--sink)}
+.musicctl .ghost span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.transport .musicctl .mini{width:28px;height:28px;background-color:transparent}
+.transport .spin{margin:0}
 .lrow.still{cursor:default}
 .lrow.still:hover{background:none}
 .line{border-radius:12px;margin-top:12px}
@@ -800,7 +808,7 @@ details.group>summary::before{transition:transform .45s var(--spring)}
 <div id="dropzone" hidden aria-hidden="true">
   <div>
     <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg>
-    <b>Drop to add voicebank</b>
+    <b id="droptext">Drop to add voicebank</b>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -858,6 +866,7 @@ const ICON_PATHS={
   undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   trash:'<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   close:'<path d="M6 6l12 12M18 6L6 18"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
   tostart:'<path d="M6 5v14"/><path d="M19 5.5v13L9.5 12z"/>',
   zoomin:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6M10.5 7.5v6"/>',
   zoomout:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6"/>',
@@ -960,7 +969,7 @@ function setMode(next,save){
   requestAnimationFrame(()=>placeThumb(seg));
   $('sheet').hidden=mode!=='studio';
   // Drawn again on the way in: a roll drawn while hidden has no width.
-  if(mode==='studio') showSheet(sheet.view||'list');
+  if(mode==='studio') showSheet(sheet.view||'new');
   else{ player.pause(); tPause(); }
   if(save&&cfg.panel_mode!==mode){
     cfg.panel_mode=mode;
@@ -1558,7 +1567,7 @@ $('toggle').onclick=async e=>{
    The tile drags teto.wav out as a real file, into FL Studio or any DAW.
    Pressing Record in Live goes to Studio. */
 const SVGNS='http://www.w3.org/2000/svg';
-const sheet={view:'',take:null,open:0,edited:{},busy:false,live:null,liveCount:-1};
+const sheet={view:'',take:null,music:null,open:0,edited:{},busy:false,live:null,liveCount:-1};
 let takesSeen=-1, lastTakeSeen='', takeCount=0;
 const player=new Audio();
 function clock(sec){
@@ -1582,12 +1591,15 @@ $('rec').onclick=async()=>{
   if(on){ $('rec').classList.remove('on'); $('rec').classList.add('saving'); $('rec').disabled=true;
     if(sheet.view==='live') savingTake(); }
   try{
-    const d=await api(on?'api/take/stop':'api/take/start');
+    const song=sheet.music&&sheet.view!=='live'?sheet.music.id:'';
+    if(!on) tStop();
+    const d=await (on?api('api/take/stop'):api('api/take/start',{music:song}));
     if(d&&d.ok===false) toast(d.error);
     else if(!on){
       sheet.view='live'; recordingSeen=true; setMode('studio',true);
       // A take is kept off the output, so Hear myself is the only way to hear it.
-      if(!cfg.hear_myself) toast('Turn on Hear myself to hear her while you record');
+      if(song) toast('The music is playing. Sing along, with headphones on.');
+      else if(!cfg.hear_myself) toast('Turn on Hear myself to hear her while you record');
     }
   }catch(err){toast('Could not reach the relay.');}
   poll();
@@ -1626,7 +1638,7 @@ function renderTake(d){
     if(!first&&d.take_notice) toast(d.take_notice);
     refreshCount();
     if(!first&&d.last_take&&d.last_take!==lastTakeSeen&&sheet.view==='live') openTake(d.last_take);
-    else if(!first&&sheet.view==='live'&&!t.recording) showSheet('list');
+    else if(!first&&sheet.view==='live'&&!t.recording) showSheet('new');
     else if(sheet.view==='list') showSheet('list');
     lastTakeSeen=d.last_take||'';
   }
@@ -1653,7 +1665,8 @@ function showSheet(view){
   tPause(); sheet.view=view; sheet.ed=null; sheet.tl=null; sheet.redraw=null; sheet.retime=null;
   if(view==='live'){ sheet.liveCount=-1; sheet.pps=null; sheet.scrollX=0; setTitle('Take','0:00',true); $('shBody').textContent=''; loadLive(); }
   else if(view==='take'&&sheet.take) renderTakeView();
-  else{ sheet.view='list'; showList(); }
+  else if(view==='list'){ sheet.music=null; showList(); }
+  else{ sheet.view='new'; renderNewView(); }
 }
 
 /* ---- recording: the lines so far, as clips arriving on the timeline ---- */
@@ -1661,13 +1674,20 @@ async function loadLive(){
   let d; try{ d=await (await fetch('api/take/current')).json(); }catch(e){ return; }
   if(sheet.view!=='live') return;
   const lines=d.lines||[];
+  // The music it is recorded over: drawn under the lines as they arrive.
+  let song=null;
+  if(d.music){
+    if(!sheet.music||sheet.music.id!==d.music) sheet.music=await loadMusic(d.music);
+    if(sheet.view!=='live') return;
+    song=sheet.music;
+  }
   sheet.liveCount=lines.length;
   const body=$('shBody'); body.textContent='';
   const chips=el('div','chips');
   chips.append(el('span','',plural(sheet.liveCount,'line')));
   const hint=el('span','','pause to end a line'); hint.style.setProperty('--dot','#30d158');
   chips.append(hint); body.append(chips);
-  const tl=timeline({lines,length:Math.max(d.seconds||0,4),live:true});
+  const tl=timeline({lines,length:Math.max(d.seconds||0,4),live:true,music:song});
   body.append(tl.root); sheet.tl=tl; sheet.redraw=null;
   tl.layout(); tl.setHead(d.seconds||0,true);
   const stop=el('button','stopbtn','Stop and save'); stop.onclick=()=>$('rec').click(); body.append(stop);
@@ -1681,7 +1701,11 @@ async function showList(){
   const takes=d.takes||[];
   if(sheet.view!=='list') return;   // moved on while the list was fetched
   body.textContent='';              // here, so two fetches at once draw one list
-  if(!takes.length){ body.append(el('p','empty','No takes yet. Press Start, then the round Record button, and sing.')); return; }
+  const fresh=el('button','ghost','New take'); fresh.prepend(iconEl('plus')); fresh.onclick=()=>showSheet('new');
+  if(!takes.length){
+    const foot=el('div','sh-foot'); foot.append(fresh);
+    body.append(el('p','empty','No takes yet.'),foot); return;
+  }
   const ul=el('ul','tlist');
   const remove=async ids=>{
     player.pause();
@@ -1708,14 +1732,15 @@ async function showList(){
     if(!await ask('Delete all '+plural(takes.length,'take')+'?','Every take and its files are deleted for good.','Delete all')) return;
     await remove(takes.map(t=>t.id)); toast('All takes deleted');
   };
-  foot.append(all); body.append(foot);
+  foot.append(fresh,all); body.append(foot);
 }
 
 /* ---- opening a saved take ---- */
 async function openTake(id,keep){
   let d; try{ d=await (await fetch('api/take?take='+encodeURIComponent(id))).json(); }catch(e){ toast('Could not reach the relay.'); return; }
   if(d.error){ toast('That take is gone.'); showSheet('list'); return; }
-  sheet.view='take'; sheet.take=d;
+  const music=d.music?await loadMusic(id):null;
+  sheet.view='take'; sheet.take=d; sheet.music=music;
   if(!keep){ sheet.open=0; sheet.edited={}; sheet.pps=null; sheet.scrollX=0; tStop(); }
   renderTakeView();
 }
@@ -1731,25 +1756,11 @@ function renderTakeView(){
   sheet.ed=null;
   const chips=el('div','chips'); body.append(chips);
 
-  const bar=el('div','transport');
-  const tool=(icon,title,fn)=>{ const b=el('button','mini'); b.type='button'; b.title=title;
-    b.setAttribute('aria-label',title); if(icon) b.append(iconEl(icon,15)); b.onclick=fn; return b; };
-  const home=tool('tostart','Back to the start',()=>tSeek(0));
-  const play=tool('','Play',()=>{ transport.playing?tPause():tPlay(sheet.take); }); play.classList.add('go');
-  const time=el('span','time');
-  const zoomOut=tool('zoomout','Zoom out',()=>sheet.tl&&sheet.tl.zoom(1/1.5));
-  const zoomIn=tool('zoomin','Zoom in',()=>sheet.tl&&sheet.tl.zoom(1.5));
-  bar.append(home,play,time,el('span','grow'),zoomOut,zoomIn); body.append(bar);
+  const {bar,sync}=transportBar(()=>Math.max(length(),sheet.music?sheet.music.seconds:0));
+  body.append(bar);
 
   const host=el('div'); body.append(host);
   body.append(el('p','hint tl-hint','Drag a clip to move it. Click one to edit its notes.'));
-  function sync(){
-    setPlayIcon(play,transport.playing);
-    play.title=transport.playing?'Stop':'Play'; play.setAttribute('aria-label',play.title);
-    time.textContent=''; time.append(stamp(tTime()),el('s','',' / '+stamp(length())));
-    if(sheet.tl) sheet.tl.setHead(tTime(),transport.playing);
-    if(sheet.ed&&sheet.ed.head) sheet.ed.head();
-  }
   /* The title, the chips and the timeline: all that a moved clip changes. */
   function drawTimeline(){
     const now=sheet.take, ls=now.phrases||[];
@@ -1762,7 +1773,7 @@ function renderTakeView(){
     const fixed=ls.filter(l=>l.edited).length;
     if(fixed){ const f=el('span','',plural(fixed,'line')+' edited'); f.style.setProperty('--dot','#30d158'); chips.append(f); }
     host.textContent='';
-    const tl=timeline({lines:ls,length:length(),selected:sheet.open,editable:true,
+    const tl=timeline({lines:ls,length:length(),selected:sheet.open,editable:true,music:sheet.music,
       onPick:n=>toggleLine(n),onMove:moveClip,onSeek:tSeek});
     host.append(tl.root); sheet.tl=tl; tl.layout();
     const tile=body.querySelector('.tile span'); if(tile) tile.textContent='teto.wav · '+clock(length());
@@ -1777,7 +1788,7 @@ function renderTakeView(){
     const box=el('div','line open'), row=el('div','lrow still');
     row.append(el('span','num',lines.indexOf(open)+1),el('span','txt',open.text));
     if(open.edited) row.append(el('span','fixed','edited'));
-    const shut=tool('close','Close',()=>toggleLine(open.n));
+    const shut=barTool('close','Close',()=>toggleLine(open.n));
     row.append(shut); box.append(row,lineEditor(t,open)); body.append(box);
   }
 
@@ -1788,6 +1799,7 @@ function renderTakeView(){
     a.setAttribute('aria-label',title); a.href=fileUrl(t.id,file); a.setAttribute('download',''); saves.append(a); };
   save('teto.wav','download','Download her singing (.wav)');
   if((t.files||[]).includes('teto.ustx')) save('teto.ustx','roll','Download for OpenUtau (.ustx)');
+  if(t.music) save('mix.wav','wave','Download the mix: her singing over the music (.wav)');
   save('zip','archive','Download everything (.zip)');
   out.append(dragTile(t,length()),saves);
   body.append(out);
@@ -1836,44 +1848,165 @@ function playFile(url,what){
 player.addEventListener('pause',()=>{ if(sheet.redraw) sheet.redraw(); });
 player.addEventListener('ended',()=>{ if(sheet.redraw) sheet.redraw(); });
 
-/* ---- the transport: the whole take, played with Web Audio ----
-   The take is decoded once and started on the audio clock, so the playhead
-   can be put anywhere and playing starts there at once. */
-const transport={ctx:null,key:'',buffer:null,src:null,playing:false,offset:0,t0:0};
+/* ---- the music row ----
+   sheet.music is what is on it: {id, name, seconds, peaks, stamp}, or null.
+   `id` says whose it is: a take's, or 'next' - the music waiting for the
+   take about to be recorded, which that take then keeps. It always starts
+   at 0:00; only voice clips move. */
+const HEADPHONES='Wear headphones while you record, so the music isn’t recorded with your voice.';
+const MUSIC_FILE=/\.(wav|mp3|flac|ogg)$/i;
+async function loadMusic(id){
+  try{
+    const d=await (await fetch('api/take/music?take='+encodeURIComponent(id))).json();
+    return d.music?{...d.music,id}:null;
+  }catch(e){ return null; }
+}
+/* The music a take started now is recorded over: the one on the music row. */
+function musicTarget(){ return sheet.view==='take'&&sheet.take?sheet.take.id:'next'; }
+async function addMusic(file){
+  if(!file) return;
+  if(!MUSIC_FILE.test(file.name)){
+    addDialog({kind:'bad',title:'Not music',text:'Use a .wav, .mp3, .flac or .ogg.',buttons:[['OK',closeAdd]]});
+    return;
+  }
+  if(sheet.view==='live'){ toast('Stop recording first'); return; }
+  if(mode!=='studio') setMode('studio',true);
+  if(sheet.view!=='take'&&sheet.view!=='new') showSheet('new');
+  const id=musicTarget();
+  tPause(); toast('Adding '+file.name+'…');
+  let d;
+  try{
+    d=await (await fetch('api/take/music?take='+encodeURIComponent(id)+'&name='+encodeURIComponent(file.name),
+      {method:'POST',body:file})).json();
+  }catch(e){ toast('Could not reach the relay.'); return; }
+  if(!d.ok){
+    addDialog({kind:'bad',title:'Could not add the music',text:d.error||'',buttons:[['OK',closeAdd]]});
+    return;
+  }
+  sheet.music={...d.music,id};
+  if(sheet.take&&sheet.take.id===id) sheet.take.music=d.music;
+  if(musicTarget()===id) showSheet(sheet.view);
+  toast('Music added. Wear headphones when you record.');
+}
+async function removeMusic(){
+  const m=sheet.music; if(!m) return;
+  if(!await ask('Remove the music?','Her singing stays as it is.','Remove')) return;
+  tStop();
+  try{ const r=await api('api/take/music/delete?take='+encodeURIComponent(m.id)); if(r&&r.ok===false){ toast(r.error); return; } }
+  catch(e){ toast('Could not reach the relay.'); return; }
+  sheet.music=null;
+  if(sheet.take&&sheet.take.id===m.id) sheet.take.music=null;
+  showSheet(sheet.view);
+}
+/* In the transport bar: "Add music", or the song's name (click to change it)
+   and a button to take it off. */
+function musicControl(){
+  const wrap=el('span','musicctl'), m=sheet.music;
+  const pick=el('input'); pick.type='file'; pick.accept='.wav,.mp3,.flac,.ogg'; pick.hidden=true;
+  pick.onchange=()=>{ addMusic(pick.files[0]); pick.value=''; };
+  const b=el('button','ghost'); b.type='button';
+  b.append(iconEl(m?'note':'upload',15),el('span','',m?m.name:'Add music'));
+  b.title=m?'Change the music':'Add your song: .wav, .mp3, .flac or .ogg (or drop it on the window)';
+  b.onclick=()=>pick.click();
+  wrap.append(pick,b);
+  if(m) wrap.append(barTool('close','Remove the music',removeMusic));
+  return wrap;
+}
+/* The waveform as one closed shape, mirrored about the middle of the row. */
+function wavePath(m){
+  if(m._d) return m._d;
+  const top=[], back=[];
+  m.peaks.forEach((v,i)=>{
+    const h=Math.max(0.6,v*0.46);
+    top.push('V'+(50-h).toFixed(1)+'H'+(i+1));
+    back.push('V'+(50+h).toFixed(1)+'H'+i);
+  });
+  return m._d='M0 50'+top.join('')+back.reverse().join('')+'Z';
+}
+
+/* ---- the transport: play, the time, the music, zoom ----
+   The take and its music are decoded once and started together on the audio
+   clock (Web Audio), so they stay in time with each other, the playhead can
+   be put anywhere, and playing starts there at once. */
+const transport={ctx:null,voiceKey:'',musicKey:'',voice:null,music:null,srcs:[],
+  playing:false,loading:false,offset:0,t0:0,length:0};
+function barTool(icon,title,fn){
+  const b=el('button','mini'); b.type='button'; b.title=title;
+  b.setAttribute('aria-label',title); if(icon) b.append(iconEl(icon,15)); b.onclick=fn; return b;
+}
+/* `length()` is how long what plays is, for the readout. */
+function transportBar(length){
+  const bar=el('div','transport');
+  const play=barTool('','Play',()=>{ transport.playing?tPause():tPlay(); }); play.classList.add('go');
+  const time=el('span','time');
+  bar.append(barTool('tostart','Back to the start',()=>tSeek(0)),play,time,musicControl(),el('span','grow'),
+    barTool('zoomout','Zoom out',()=>sheet.tl&&sheet.tl.zoom(1/1.5)),
+    barTool('zoomin','Zoom in',()=>sheet.tl&&sheet.tl.zoom(1.5)));
+  let shown='';
+  function sync(){
+    const state=transport.loading?'loading':transport.playing?'playing':'stopped';
+    if(state!==shown){
+      shown=state;
+      if(state==='loading'){ play.textContent=''; play.append(el('span','spin')); }
+      else setPlayIcon(play,state==='playing');
+      play.title=state==='playing'?'Stop':'Play'; play.setAttribute('aria-label',play.title);
+    }
+    time.textContent=''; time.append(stamp(tTime()),el('s','',' / '+stamp(length())));
+    if(sheet.tl) sheet.tl.setHead(tTime(),transport.playing);
+    if(sheet.ed&&sheet.ed.head) sheet.ed.head();
+  }
+  return {bar,sync};
+}
 function tContext(){
   if(!transport.ctx) transport.ctx=new (window.AudioContext||window.webkitAudioContext)();
   return transport.ctx;
 }
-async function tLoad(t){
-  const key=t.id+':'+(t.version||0);
-  if(transport.key!==key||!transport.buffer){
-    const data=await (await fetch(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0))).arrayBuffer();
-    transport.buffer=await tContext().decodeAudioData(data); transport.key=key;
-  }
-  return transport.buffer;
+/* What plays: the open take's singing, and the music on the music row. */
+async function tLoad(){
+  const t=sheet.view==='take'?sheet.take:null, m=sheet.music, ctx=tContext();
+  const voiceKey=t?t.id+':'+(t.version||0):'', musicKey=m?m.id+':'+m.stamp:'';
+  const get=async url=>{
+    const r=await fetch(url); if(!r.ok) throw new Error('no sound');
+    return ctx.decodeAudioData(await r.arrayBuffer());
+  };
+  const [voice,music]=await Promise.all([
+    voiceKey===transport.voiceKey?transport.voice:(t?get(fileUrl(t.id,'teto.wav')+'&v='+(t.version||0)):null),
+    musicKey===transport.musicKey?transport.music:(m?get('api/take/music/sound?take='+encodeURIComponent(m.id)+'&v='+m.stamp):null)]);
+  Object.assign(transport,{voice,music,voiceKey,musicKey,
+    length:Math.max(voice?voice.duration:0,music?music.duration:0)});
 }
 function tTime(){
-  return transport.playing?transport.offset+transport.ctx.currentTime-transport.t0:transport.offset;
+  return transport.playing?transport.offset+Math.max(0,transport.ctx.currentTime-transport.t0):transport.offset;
 }
 function tHalt(){
-  const src=transport.src; transport.src=null;
-  if(src){ src.onended=null; try{ src.stop(); }catch(e){} }
+  for(const src of transport.srcs.splice(0)){ try{ src.stop(); }catch(e){} }
 }
-async function tPlay(t){
+async function tPlay(){
   player.pause();
-  const ctx=tContext();
-  let buffer;
-  try{ await ctx.resume(); buffer=await tLoad(t); }catch(e){ toast('Could not play the take.'); return; }
-  if(sheet.take!==t||sheet.view!=='take') return;   // moved on while it loaded
+  const ctx=tContext(), view=sheet.view, take=sheet.take;
+  transport.loading=true; if(sheet.redraw) sheet.redraw();
+  try{ await ctx.resume(); await tLoad(); }
+  catch(e){ toast('Could not play it.'); return; }
+  finally{ transport.loading=false; if(sheet.redraw) sheet.redraw(); }
+  if(sheet.view!==view||sheet.take!==take) return;   // moved on while it loaded
   tHalt();
-  if(transport.offset>=buffer.duration-0.05) transport.offset=0;
-  const src=ctx.createBufferSource(); src.buffer=buffer; src.connect(ctx.destination);
-  // Played to the end: the playhead goes back to the start.
-  src.onended=()=>{ if(transport.src!==src) return; transport.src=null; transport.playing=false; transport.offset=0;
-    if(sheet.redraw) sheet.redraw(); };
-  src.start(0,transport.offset);
-  transport.src=src; transport.t0=ctx.currentTime; transport.playing=true;
-  const tick=()=>{ if(!transport.playing) return; if(sheet.redraw) sheet.redraw(); requestAnimationFrame(tick); };
+  if(!transport.length) return;
+  if(transport.offset>=transport.length-0.05) transport.offset=0;
+  // Both from the same moment on the audio clock, a little ahead of now.
+  const when=ctx.currentTime+0.06;
+  for(const buffer of [transport.music,transport.voice]){
+    if(!buffer||transport.offset>=buffer.duration) continue;
+    const src=ctx.createBufferSource(); src.buffer=buffer; src.connect(ctx.destination);
+    src.start(when,transport.offset); transport.srcs.push(src);
+  }
+  transport.t0=when; transport.playing=true;
+  const tick=()=>{
+    if(!transport.playing) return;
+    // Played to the end: the playhead goes back to the start.
+    if(tTime()>=transport.length){ transport.playing=false; transport.offset=0; tHalt(); }
+    if(sheet.redraw) sheet.redraw();
+    if(transport.playing) requestAnimationFrame(tick);
+  };
   tick();
 }
 function tPause(){
@@ -1888,7 +2021,29 @@ function tSeek(sec){
   const was=transport.playing;
   transport.playing=false; tHalt();
   transport.offset=Math.max(0,sec||0);
-  if(was&&sheet.take) tPlay(sheet.take); else if(sheet.redraw) sheet.redraw();
+  if(was) tPlay(); else if(sheet.redraw) sheet.redraw();
+}
+
+/* ---- a new take: the music row to fill, then Record ---- */
+async function renderNewView(){
+  setTitle('New take','',false);
+  if(sheet.music&&sheet.music.id!=='next') sheet.music=null;
+  const draw=()=>{
+    const body=$('shBody'); body.textContent='';
+    const m=sheet.music;
+    const {bar,sync}=transportBar(()=>sheet.music?sheet.music.seconds:0);
+    body.append(bar);
+    const tl=timeline({lines:[],length:m?m.seconds:30,music:m,onSeek:tSeek,
+      empty:'Press Start, then the round Record button, and sing'});
+    body.append(tl.root); sheet.tl=tl; tl.layout();
+    sheet.redraw=sync; sync();
+    body.append(el('p','hint tl-hint',m?HEADPHONES:'Add your song to sing along to, or just record.'));
+  };
+  draw();
+  // The music waiting for the next take, as the program has it.
+  const m=await loadMusic('next');
+  if(sheet.view!=='new') return;
+  if((m&&m.stamp)!==(sheet.music&&sheet.music.stamp)){ sheet.music=m; draw(); }
 }
 
 /* ---- the timeline itself ----
@@ -1942,7 +2097,6 @@ function timeline(o){
   const head=el('div','tl-head'+(o.live?' glide':''));
   const label=(icon,text,cls)=>{ const d=el('div','tl-lab '+cls,text); d.prepend(iconEl(icon,14)); return d; };
   side.append(el('div','tl-corner'),label('note','Music','on-music'),label('mic','Voice','on-voice'));
-  music.append(el('span','tl-empty','No music yet'));
   inner.append(ruler,music,voice,head); scroll.append(inner); root.append(side,scroll);
   let pps=40, total=1, headAt=null, drag=null;
   const spans=()=>o.lines.map(l=>({n:l.n,...clipSpan(l)}));
@@ -1953,7 +2107,8 @@ function timeline(o){
      (within reason: a long one scrolls); a take being recorded runs at 40
      px a second. `keep` leaves the scroll position alone. */
   function layout(keep){
-    const w=view(), end=Math.max(o.length||0,1,...spans().map(s=>s.start+s.len));
+    const w=view(), song=o.music&&o.music.peaks&&o.music.peaks.length?o.music:null;
+    const end=Math.max(o.length||0,1,song?song.seconds:0,...spans().map(s=>s.start+s.len));
     const fit=Math.min(160,Math.max(12,w/(end*1.05)));
     pps=Math.min(TL.maxPps,Math.max(TL.minPps,sheet.pps||(o.live?40:fit)));
     total=Math.max(end+(o.editable?TL.tail:2),w/pps);
@@ -1964,8 +2119,13 @@ function timeline(o){
       const mark=el('span','',step<1?stamp(i*step):clock(i*step)); mark.style.left=(i*step*pps)+'px'; ruler.append(mark);
     }
     inner.style.setProperty('--step',(step*pps)+'px');
-    for(const old of [...voice.children]) old.remove();
-    if(!o.lines.length) voice.append(el('span','tl-empty',o.live?'Waiting for the first line…':'No lines'));
+    for(const old of [...music.children,...voice.children]) old.remove();
+    if(song){
+      const wave=sv('svg',{class:'tl-wave',viewBox:'0 0 '+song.peaks.length+' 100',preserveAspectRatio:'none','aria-hidden':'true'});
+      wave.style.width=(song.seconds*pps)+'px';
+      wave.append(sv('path',{d:wavePath(song)})); music.append(wave);
+    }else if(!o.live) music.append(el('span','tl-empty','No music yet'));
+    if(!o.lines.length) voice.append(el('span','tl-empty',o.empty||(o.live?'Waiting for the first line…':'No lines')));
     for(const l of o.lines){
       const s=clipSpan(l), c=el('div','clip'+(o.selected===l.n?' sel':''));
       c.dataset.n=l.n; c.style.left=(s.start*pps)+'px'; c.style.width=Math.max(8,s.len*pps-1)+'px';
@@ -2518,14 +2678,16 @@ document.addEventListener('keydown',e=>{
    dragenter/leave fire for every element crossed, hence the count. */
 let dragDepth=0;
 const hasFiles=e=>e.dataTransfer&&[...(e.dataTransfer.types||[])].includes('Files');
-document.addEventListener('dragenter',e=>{ if(!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('dropzone').hidden=false; });
+document.addEventListener('dragenter',e=>{ if(!hasFiles(e)) return; e.preventDefault(); dragDepth++;
+  $('droptext').textContent=mode==='studio'?'Drop a voicebank or your song':'Drop to add voicebank';
+  $('dropzone').hidden=false; });
 document.addEventListener('dragleave',e=>{ if(!hasFiles(e)) return; dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) $('dropzone').hidden=true; });
 document.addEventListener('dragover',e=>{ if(!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect='copy'; });
 document.addEventListener('drop',e=>{
   if(!hasFiles(e)) return;
   e.preventDefault(); dragDepth=0; $('dropzone').hidden=true;
   const file=e.dataTransfer.files[0];
-  if(file) addVoicebank(file);
+  if(file) (MUSIC_FILE.test(file.name)?addMusic:addVoicebank)(file);
 });
 
 $('advtoggle').onclick=()=>{
