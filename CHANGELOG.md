@@ -59,6 +59,20 @@
   internet the list that came with the app is shown. The list is checked
   before it is used: https links only, text only, and an installed preset
   goes through the same checks as one you import.
+- **A Cover style, for singing a real song.** *Style* now has three places:
+  Speak, Sing and **Cover**. Sing turns talking into a tune: it moves her
+  onto the voicebank's own pitch, widens the melody and gives each word one
+  note, which is right for speech and wrong for a song (a cover of *Fly Me
+  to the Moon* came out a fourth below the music, with its intervals
+  stretched). In Cover she sings **the notes you sing**: a note for every
+  pitch you hold, even several inside one word ("a-no-ther"), in **your
+  key**, moved only by whole octaves, so she is in tune with the music.
+  *Key* and *Scale* still pull stray notes into a key if you set them, and
+  *Keep your inflection* says how much of your own bends she copies. Two new
+  settings under Singing, **New note when pitch moves** and **Shortest sung
+  note**, say how closely she follows your voice; both travel in a preset.
+  Recording over music in another style now suggests Cover. The Store's
+  *Cover song* preset uses it.
 - **Recording hears a quiet microphone.** While a take records, a line is
   told from a pause by how loud it is, and that level was fixed. A headset
   microphone that came in very quietly sat under it most of the time, so a

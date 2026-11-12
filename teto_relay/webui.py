@@ -41,6 +41,7 @@ ESSENTIALS: list[str] = [
 GROUPS: dict[str, list[str]] = {
     "Singing": [
         "legato", "expressive", "double_voice", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
+        "melody_step", "melody_min_note_seconds",
         "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
         "final_hold_seconds", "emit_contour",
     ],
@@ -178,6 +179,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "f0_max": (400, 2000, 10),
     "sung_contour_amount": (0, 1, 0.05),
     "sung_melody_range": (0.5, 3, 0.1),
+    "melody_step": (0.5, 3, 0.1),
+    "melody_min_note_seconds": (0.06, 0.4, 0.01),
     "double_voice": (0, 1, 0.05),
     "stream_block_ms": (100, 1000, 10),
     "stream_context_ms": (0, 2000, 50),
@@ -191,7 +194,7 @@ RANGES: dict[str, tuple[float, float, float]] = {
 # Settings whose value is a duration in seconds, shown as ms on the slider
 # readout because that is how they are discussed everywhere else.
 SECONDS = {
-    "vibrato_min_seconds", "final_hold_seconds",
+    "vibrato_min_seconds", "final_hold_seconds", "melody_min_note_seconds",
     "min_note_seconds", "seconds_per_syllable", "min_mora_seconds", "max_mora_seconds",
 }
 
@@ -239,13 +242,16 @@ LABELS: dict[str, list[str]] = {
     "contour_smooth_ms": ["Intonation smoothing", ""],
     "contour_points": ["Intonation detail", ""],
     "contour_range_cents": ["Intonation range", ""],
-    "singing_style": ["Style", "Speak follows your voice. Sing puts it in a key, with vibrato."],
-    "scale": ["Scale", "Sing style only."],
-    "scale_key": ["Key", "Sing style only."],
+    "singing_style": ["Style", "Speak follows your voice. Sing turns talking into a tune, in a key. "
+                               "Cover is for singing a real song: she sings your notes, in your key."],
     "double_voice": ["Double her voice", "0 is off."],
     "double_when": ["Double voice", "A fuller, layered sound in Sing style."],
+    "scale": ["Scale", "Sing and Cover. Chromatic leaves every note where it was."],
+    "scale_key": ["Key", "Sing and Cover. Notes outside the key are pulled into it."],
     "sung_melody_range": ["Melody range", "Sing style only."],
-    "sung_contour_amount": ["Keep your inflection", "Sing style only."],
+    "sung_contour_amount": ["Keep your inflection", "Sing and Cover. 0 is dead straight notes."],
+    "melody_step": ["New note when pitch moves", "Cover style only. Semitones. Lower follows every turn of your voice."],
+    "melody_min_note_seconds": ["Shortest sung note", "Cover style only. Shorter ones join their neighbour."],
     "vibrato_min_seconds": ["Vibrato from", "Notes this long get vibrato."],
     "vibrato_depth_cents": ["Vibrato depth", "100 cents is a semitone."],
     "vibrato_period_ms": ["Vibrato speed", ""],
@@ -867,7 +873,7 @@ def _meta(cfg: Config) -> dict:
         "seconds": sorted(SECONDS),
         "labels": LABELS,
         "option_labels": {
-            "singing_style": {"speech": "Speak", "sung": "Sing"},
+            "singing_style": {"speech": "Speak", "sung": "Sing", "cover": "Cover"},
             "double_when": {"off": "Off", "singing": "On"},
             "panel_window": {"app": "Its own window", "browser": "Browser tab"},
             "language": {"en": "English", "th": "ไทย", "ja": "日本語"},
@@ -880,7 +886,7 @@ def _meta(cfg: Config) -> dict:
             "lyric_mode": ["auto", "native", "japanese"],
             "renderer_backend": ["openutau", "null"],
             "shift_mode": ["semitone", "octave"],
-            "singing_style": ["speech", "sung"],
+            "singing_style": ["speech", "sung", "cover"],
             "double_when": ["off", "singing"],
             "panel_window": ["app", "browser"],
             "scale": ["major", "minor", "pentatonic", "chromatic"],

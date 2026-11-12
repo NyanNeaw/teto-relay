@@ -9,6 +9,8 @@
     "scale_key": "auto",
     "sung_melody_range": 1.0,
     "sung_contour_amount": 0.35,
+    "melody_step": 1.5,
+    "melody_min_note_seconds": 0.14,
     "vibrato_min_seconds": 0.35,
     "vibrato_depth_cents": 25.0,
     "vibrato_period_ms": 175.0,

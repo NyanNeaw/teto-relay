@@ -1672,5 +1672,179 @@ class TestStore(unittest.TestCase):
         self.assertNotIn("innerHTML", body)
 
 
+def _sung_track(notes, glide=0.04, wobble=0.0, vibrato=0.0, lead=0.0):
+    """A pitch track of someone singing `notes` ((MIDI, seconds) each), one
+    after another, gliding between them: 10 ms frames, as the tracker makes."""
+    import numpy as np
+
+    from teto_relay.pitch import F0Track, midi_to_hz
+
+    midi = []
+    for index, (tone, seconds) in enumerate(notes):
+        frames = int(round(seconds * 100))
+        start = len(midi)
+        for k in range(frames):
+            value = float(tone)
+            if index and k < glide * 100:
+                value = notes[index - 1][0] + (tone - notes[index - 1][0]) * (k + 1) / (glide * 100 + 1)
+            t = (start + k) / 100.0
+            value += wobble * np.sin(2 * np.pi * 1.7 * t) + vibrato * np.sin(2 * np.pi * 5.5 * t)
+            midi.append(value)
+    midi = np.array(midi)
+    times = lead + np.arange(len(midi)) / 100.0
+    return F0Track(times=times, f0=np.asarray(midi_to_hz(midi)), voiced=np.ones(len(midi), bool),
+                   sample_rate=16000, method="test")
+
+
+class TestCoverStyle(unittest.TestCase):
+    """Singing a real song: she sings the notes that were sung, in the
+    singer's key. A cover of Fly Me to the Moon in the Sing style came out a
+    fourth low with its intervals stretched and one note for each word, so it
+    was a different tune from the music under it."""
+
+    def test_a_held_pitch_is_one_note_and_a_step_is_two(self):
+        from teto_relay.pitch import melody_segments
+
+        track = _sung_track([(60, 0.5), (64, 0.5)])
+        pieces = melody_segments(track, 0.0, 1.0)
+        self.assertEqual(len(pieces), 2)
+        self.assertEqual((pieces[0][0], pieces[-1][1]), (0.0, 1.0))
+        self.assertAlmostEqual(pieces[0][1], 0.5, delta=0.06)
+        self.assertEqual(pieces[0][1], pieces[1][0], "the pieces cover the span with no gap")
+        self.assertAlmostEqual(pieces[0][2], 60.0, delta=0.15)
+        self.assertAlmostEqual(pieces[1][2], 64.0, delta=0.15)
+        # Three notes in one word, as "a-no-ther" was sung.
+        tones = [round(p[2]) for p in melody_segments(_sung_track([(55, 0.3), (60, 0.3), (66, 0.4)]), 0.0, 1.0)]
+        self.assertEqual(tones, [55, 60, 66])
+        # One pitch, however long: one note, at that pitch.
+        self.assertEqual([round(p[2]) for p in melody_segments(_sung_track([(62, 1.5)]), 0.0, 1.5)], [62])
+
+    def test_a_waver_or_a_vibrato_is_not_a_new_note(self):
+        from teto_relay.pitch import melody_segments
+
+        self.assertEqual(len(melody_segments(_sung_track([(62, 1.5)], wobble=0.6), 0.0, 1.5)), 1)
+        self.assertEqual(len(melody_segments(_sung_track([(62, 1.5)], vibrato=0.9), 0.0, 1.5)), 1)
+        # A wavering voice still changing note: two notes, not a string of them.
+        pieces = melody_segments(_sung_track([(60, 0.7), (65, 0.7)], wobble=0.5, vibrato=0.4), 0.0, 1.4)
+        self.assertEqual([round(p[2]) for p in pieces], [60, 65])
+        # A slip to another pitch too short to be a note joins its neighbour.
+        pieces = melody_segments(_sung_track([(60, 0.5), (63, 0.06), (60, 0.5)]), 0.0, 1.06)
+        self.assertEqual(len(pieces), 1)
+
+    def test_how_far_a_step_must_be_is_a_setting(self):
+        from teto_relay.pitch import melody_segments
+
+        track = _sung_track([(60, 0.6), (61, 0.6)])       # a semitone apart
+        self.assertEqual(len(melody_segments(track, 0.0, 1.2)), 1, "the default follows clear steps only")
+        self.assertEqual([round(p[2]) for p in melody_segments(track, 0.0, 1.2, step=0.6)], [60, 61])
+        # And how short a note may be.
+        quick = _sung_track([(60, 0.5), (64, 0.18), (67, 0.5)])
+        self.assertEqual([round(p[2]) for p in melody_segments(quick, 0.0, 1.18, shortest=0.1)], [60, 64, 67])
+        self.assertEqual([round(p[2]) for p in melody_segments(quick, 0.0, 1.18, shortest=0.3)], [60, 67])
+
+    def test_nothing_voiced_or_too_little_is_left_whole(self):
+        import numpy as np
+
+        from teto_relay.pitch import F0Track, melody_segments
+
+        silent = F0Track(times=np.arange(50) / 100.0, f0=np.full(50, np.nan), voiced=np.zeros(50, bool),
+                         sample_rate=16000)
+        self.assertEqual(melody_segments(silent, 0.0, 0.5), [(0.0, 0.5, 0.0)])
+        brief = melody_segments(_sung_track([(60, 0.03), (65, 0.03)]), 0.0, 0.06)
+        self.assertEqual(len(brief), 1)
+
+    def notes(self, track, words, **settings):
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(**{"emit_contour": False, **settings})
+        return build_notes([Word(*w) for w in words], track, cfg, None, 61.0, None, False, None, {})
+
+    def test_a_word_sung_over_several_notes_gets_them(self):
+        # "la" on one note, then "la" carried up over two more.
+        track = _sung_track([(60, 0.5), (62, 0.4), (67, 0.5)])
+        words = [("la", 0.0, 0.5), ("la", 0.5, 1.4)]
+        cover = self.notes(track, words, singing_style="cover")
+        self.assertEqual([n.lyric for n in cover], ["la", "la", "+"])
+        self.assertEqual([n.tone for n in cover], [60, 62, 67])
+        # The held part is joined to its word, and starts where the pitch stepped.
+        self.assertTrue(cover[2].legato)
+        self.assertAlmostEqual(cover[2].start, 0.9, delta=0.06)
+        self.assertEqual(cover[1].end, cover[2].start)
+        # The Sing style still makes one note of a word, as it always did.
+        self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="sung")], ["la", "la"])
+        self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="speech")], ["la", "la"])
+
+    def test_she_stays_in_the_singers_key(self):
+        # Sung around F4; the voicebank was recorded a fourth higher (A#4).
+        track = _sung_track([(65, 0.5), (67, 0.5), (69, 0.5), (65, 0.5)])
+        words = [("one", 0.0, 0.5), ("two", 0.5, 1.0), ("three", 1.0, 1.5), ("four", 1.5, 2.0)]
+
+        def built(style, target, **more):
+            from teto_relay.config import Config
+            from teto_relay.notes import build_notes
+            from teto_relay.stt import Word
+
+            cfg = Config(singing_style=style, emit_contour=False, scale="chromatic", **more)
+            return build_notes([Word(*w) for w in words], track, cfg, None, target, None, False, None, {})
+
+        # Sing moves her onto the voicebank's pitch: a different key from the music.
+        self.assertEqual(built("sung", 70.0)[0].shift, 4)
+        # Cover moves her by whole octaves only, whatever the voicebank's pitch...
+        for target, shift in ((70.0, 0), (61.0, 0), (78.0, 12), (52.0, -12)):
+            cover = built("cover", target)
+            self.assertEqual(cover[0].shift, shift, target)
+            self.assertEqual([n.tone for n in cover], [65 + shift, 67 + shift, 69 + shift, 65 + shift])
+        # ...and does not stretch the tune, even with a wide Melody range set.
+        self.assertEqual([n.tone for n in built("cover", 61.0, sung_melody_range=2.5)], [65, 67, 69, 65])
+        self.assertNotEqual([n.tone for n in built("sung", 65.0, sung_melody_range=2.5)], [65, 67, 69, 65])
+        # A shift left over from another style is not an octave: it is not kept.
+        from teto_relay.config import Config
+        from teto_relay.notes import build_notes
+        from teto_relay.stt import Word
+
+        cfg = Config(singing_style="cover", emit_contour=False)
+        kept = build_notes([Word(*w) for w in words], track, cfg, -5, 61.0, None, False, None, {})
+        self.assertEqual(kept[0].shift % 12, 0)
+
+    def test_a_key_still_pulls_stray_notes_in(self):
+        # C major: the F# that was sung is moved to a note of the key.
+        track = _sung_track([(60, 0.5), (66, 0.5), (67, 0.5)])
+        words = [("one", 0.0, 0.5), ("two", 0.5, 1.0), ("three", 1.0, 1.5)]
+        self.assertEqual([n.tone for n in self.notes(track, words, singing_style="cover", scale="chromatic")],
+                         [60, 66, 67])
+        tuned = self.notes(track, words, singing_style="cover", scale="major", scale_key="C")
+        self.assertEqual((tuned[0].tone, tuned[2].tone), (60, 67))
+        self.assertIn(tuned[1].tone, (65, 67))
+
+    def test_cover_is_a_style_with_its_own_settings(self):
+        from teto_relay import presets, store
+        from teto_relay.config import Config, ConfigError
+
+        self.assertEqual(Config.from_dict({"singing_style": "Cover"}).singing_style, "cover")
+        self.assertEqual((Config().melody_step, Config().melody_min_note_seconds), (1.5, 0.14))
+        with self.assertRaises(ConfigError):
+            Config.from_dict({"melody_step": 0})
+        # They travel in a preset, and the Store's Cover song uses the style.
+        self.assertIn("melody_step", presets.SETTINGS)
+        self.assertIn("melody_min_note_seconds", presets.SETTINGS)
+        song = presets.parse((store.bundled_folder() / "presets" / "cover-song.tetostyle").read_bytes())
+        self.assertEqual((song["settings"]["singing_style"], song["settings"]["sung_melody_range"],
+                          song["settings"]["final_hold_seconds"]), ("cover", 1.0, 0.0))
+        with _PanelServer() as s:
+            meta = json.loads(s.request("GET", "/api/config")[1])["meta"]
+            self.assertEqual(meta["choices"]["singing_style"], ["speech", "sung", "cover"])
+            self.assertEqual(meta["option_labels"]["singing_style"]["cover"], "Cover")
+            self.assertIn("melody_step", meta["groups"]["Singing"])
+            status, _ = s.request("POST", "/api/config", {"singing_style": "cover"}, TOKEN)
+            self.assertEqual(status, 200)
+
+    def test_the_page_points_a_take_over_music_at_cover(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("singing_style!=='cover'", page)
+        self.assertIn("Set Style to Cover", page)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1837,7 +1837,9 @@ $('rec').onclick=async()=>{
     else if(!on){
       sheet.view='live'; recordingSeen=true; setMode('studio',true);
       // A take is kept off the output, so Hear myself is the only way to hear it.
-      if(song) toast('The music is playing. Sing along, with headphones on.');
+      if(song) toast(cfg.singing_style!=='cover'
+        ?'Singing a real song? Set Style to Cover, so she sings your notes in the song’s key.'
+        :'The music is playing. Sing along, with headphones on.');
       else if(!cfg.hear_myself) toast('Turn on Hear myself to hear her while you record');
     }
   }catch(err){toast('Could not reach the relay.');}

@@ -41,6 +41,7 @@ MAX_NAME, MAX_AUTHOR, MAX_DESCRIPTION = 60, 60, 300
 #: What a preset may hold: the settings that only change how she sings.
 SETTINGS: tuple[str, ...] = (
     "singing_style", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
+    "melody_step", "melody_min_note_seconds",
     "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms", "final_hold_seconds",
     "double_voice", "double_when", "legato", "expressive",
     "emit_contour", "contour_range_cents", "contour_smooth_ms",
@@ -62,24 +63,28 @@ BUILTIN: dict[str, dict] = {
     "just-like-you": _preset(
         "Just like you", "She follows your voice exactly: your rhythm, your ups and downs. Good for talking.",
         singing_style="speech", scale="major", scale_key="auto", sung_melody_range=1.0,
+        melody_step=1.5, melody_min_note_seconds=0.14,
         sung_contour_amount=0.35, vibrato_min_seconds=0.35, vibrato_depth_cents=25.0,
         vibrato_period_ms=175.0, final_hold_seconds=0.3, double_voice=0.5, double_when="singing",
         legato=True, expressive=True, emit_contour=True, contour_range_cents=300.0, contour_smooth_ms=60.0),
     "pop-singer": _preset(
         "Pop singer", "What you say becomes a tune in a major key, with a light vibrato and a doubled voice.",
         singing_style="sung", scale="major", scale_key="auto", sung_melody_range=1.4,
+        melody_step=1.5, melody_min_note_seconds=0.14,
         sung_contour_amount=0.3, vibrato_min_seconds=0.35, vibrato_depth_cents=30.0,
         vibrato_period_ms=170.0, final_hold_seconds=0.5, double_voice=0.5, double_when="singing",
         legato=True, expressive=True, emit_contour=True, contour_range_cents=200.0, contour_smooth_ms=60.0),
     "robot": _preset(
         "Robot", "Flat, even notes with no bends, no vibrato and a gap between words. A machine reading aloud.",
         singing_style="sung", scale="chromatic", scale_key="auto", sung_melody_range=0.6,
+        melody_step=1.5, melody_min_note_seconds=0.14,
         sung_contour_amount=0.0, vibrato_min_seconds=10.0, vibrato_depth_cents=0.0,
         vibrato_period_ms=175.0, final_hold_seconds=0.0, double_voice=0.0, double_when="off",
         legato=False, expressive=False, emit_contour=False, contour_range_cents=0.0, contour_smooth_ms=60.0),
     "diva": _preset(
         "Diva", "A wide, dramatic melody in a minor key, a deep slow vibrato, and a last note held long.",
         singing_style="sung", scale="minor", scale_key="auto", sung_melody_range=2.2,
+        melody_step=1.5, melody_min_note_seconds=0.14,
         sung_contour_amount=0.15, vibrato_min_seconds=0.2, vibrato_depth_cents=70.0,
         vibrato_period_ms=200.0, final_hold_seconds=1.2, double_voice=0.8, double_when="singing",
         legato=True, expressive=True, emit_contour=True, contour_range_cents=300.0, contour_smooth_ms=90.0),

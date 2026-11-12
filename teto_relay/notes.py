@@ -468,6 +468,44 @@ def join_kanji_compounds(words: list[Word], max_gap: float = 0.1) -> list[Word]:
     return out
 
 
+def _follow_melody(words, spans, joined, hints, track, cfg):
+    """Cover style: the notes that were sung, not one note a word.
+
+    A word sung over several pitches (`pitch.melody_segments`) becomes that
+    many notes: the first carries the word, the rest are "+", which the
+    voicebank's phonemizer sings as the word's next syllables and then as its
+    held vowel - how a melisma is written in OpenUtau. Returns the lists
+    again, longer where words were split, and each new note's own pitch
+    (None for a word left whole, which is measured as before).
+    """
+    out_words, out_spans, out_joined, out_hints, tones = [], [], [], [], []
+    for w, (spoken_start, spoken_end), touches, hint in zip(words, spans, joined, hints):
+        shortest = float(getattr(cfg, "melody_min_note_seconds", 0.14))
+        pieces = [] if w.text == REST else pitch_mod.melody_segments(
+            track, spoken_start, spoken_end, float(getattr(cfg, "melody_step", 1.5)), shortest)
+        # The note may start later than the word was sung (it was laid out to
+        # be singable): a first piece left too short to sing joins the second.
+        while len(pieces) > 1 and pieces[0][1] - w.start < shortest:
+            pieces = [(pieces[0][0], pieces[1][1], pieces[1][2])] + pieces[2:]
+        usable = len(pieces) > 1 and w.end - pieces[-1][0] >= MIN_BLOCK
+        if not usable:
+            out_words.append(w)
+            out_spans.append((spoken_start, spoken_end))
+            out_joined.append(touches)
+            out_hints.append(hint)
+            tones.append(None)
+            continue
+        for k, (start, end, midi) in enumerate(pieces):
+            first, last = k == 0, k == len(pieces) - 1
+            out_words.append(Word(text=w.text if first else EXTEND,
+                                  start=w.start if first else start, end=w.end if last else end))
+            out_spans.append((start, end))
+            out_joined.append(touches if first else True)
+            out_hints.append(hint if first else None)
+            tones.append(midi)
+    return out_words, out_spans, out_joined, out_hints, tones
+
+
 def build_notes(
     words: list[Word],
     track: pitch_mod.F0Track,
@@ -678,7 +716,16 @@ def build_notes(
     # covers audio belonging to the next word, so measuring over it would read
     # the wrong pitch.
     spans = [spoken for _, spoken, _ in adjusted]
+    style = (getattr(cfg, "singing_style", "speech") or "speech").lower()
+    cover = style == "cover"
+    sung_tones: list = []
+    if cover:
+        if len(word_hints) != len(words):
+            word_hints = [None] * len(words)
+        words, spans, joined, word_hints, sung_tones = _follow_melody(words, spans, joined, word_hints, track, cfg)
     raw = pitch_mod.assign_tones(spans, track, cfg)
+    if sung_tones:
+        raw = [own if own else measured for own, measured in zip(sung_tones, raw)]
 
     voiced_count = sum(1 for t in raw if t is not None)
     if voiced_count == 0:
@@ -687,9 +734,23 @@ def build_notes(
     filled = pitch_mod.fill_gaps(raw, cfg)
     # Before anything is derived from these, pull out octave detection errors -
     # a single stray word drags the median and swings the whole shift.
-    filled = pitch_mod.correct_octaves(filled, cfg, baseline)
+    # (Not in the cover style: there a note an octave from the rest is a
+    # leap the singer made, and the track's own slips are already mended.)
+    if not cover:
+        filled = pitch_mod.correct_octaves(filled, cfg, baseline)
     target = target_tone if target_tone is not None else float(cfg.target_tone or 60)
-    octaves = pitch_mod.compute_shift(filled, cfg, target, previous_shift)
+    if cover:
+        # The key of a song is the singer's key, so she may only move by
+        # whole octaves: any other shift puts her in a different key from
+        # the music (a take sung over a backing track came out a fourth low).
+        import copy
+
+        keyed = copy.copy(cfg)
+        keyed.shift_mode = "octave"
+        kept = previous_shift if previous_shift is not None and previous_shift % 12 == 0 else None
+        octaves = pitch_mod.compute_shift(filled, keyed, target, kept)
+    else:
+        octaves = pitch_mod.compute_shift(filled, cfg, target, previous_shift)
     shift = octaves + cfg.transpose
     if shift and octaves != previous_shift:
         log.info(
@@ -724,7 +785,7 @@ def build_notes(
             )
         )
 
-    if (getattr(cfg, "singing_style", "speech") or "speech").lower() == "sung":
+    if style in ("sung", "cover"):
         from .singing import musicalize
 
         musicalize(notes, cfg, singing_state)

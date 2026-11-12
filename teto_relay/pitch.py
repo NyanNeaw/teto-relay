@@ -510,6 +510,104 @@ def contour_points(
     return points
 
 
+#: Cover style: a sung note ends, and the next begins, where the pitch has
+#: moved `step` semitones from it (cfg.melody_step) and stayed away this long,
+#: s. Less is a wobble or the peak of a vibrato.
+MELODY_HOLD = 0.09
+#: Two stretches this much of a step apart, or less, are one note that wavered.
+MELODY_SAME = 0.75
+
+
+def melody_segments(track: F0Track, t0: float, t1: float, step: float = 1.5,
+                    shortest: float = 0.14) -> list[tuple[float, float, float]]:
+    """The notes that were sung between `t0` and `t1`: (start, end, MIDI) for
+    each stretch where the pitch held, in order, covering the whole span.
+
+    A sung word is often more than one note ("a-no-ther", or one syllable
+    carried over two pitches). One note at the word's middle pitch then sings
+    a different tune from the singer. Here the pitch track is cut where it
+    moves `step` semitones and stays (MELODY_HOLD); the glides between notes
+    go to the note they arrive at, and what is left shorter than `shortest`
+    seconds joins a neighbour. A span sung on one pitch, or with too
+    little voiced sound to say, comes back as a single piece (its MIDI the
+    median, 0.0 when unvoiced).
+    """
+    mask = (track.times >= t0) & (track.times < t1) & track.voiced
+    times = np.asarray(track.times)[mask]
+    values = np.asarray(track.f0)[mask]
+    if values.size == 0:
+        return [(t0, t1, 0.0)]
+    midi = np.asarray(hz_to_midi(values), dtype=np.float64)
+    whole = [(t0, t1, float(np.median(midi)))]
+    if values.size < 8:
+        return whole
+    smooth = _moving_average(_median_filter(midi, 5), 5)
+
+    # Cut where the pitch leaves the note being sung and stays away.
+    cuts = [0]
+    held = [smooth[0]]
+    i = 1
+    while i < len(smooth):
+        centre = float(np.median(held))
+        if abs(smooth[i] - centre) <= step:
+            held.append(smooth[i])
+            i += 1
+            continue
+        j = i
+        while j < len(smooth) and abs(smooth[j] - centre) > step and times[j] - times[i] < MELODY_HOLD:
+            j += 1
+        away = j < len(smooth) and abs(smooth[j] - centre) > step
+        if away or (j == len(smooth) and times[-1] - times[i] >= MELODY_HOLD * 0.6):
+            cuts.append(i)
+            held = [smooth[i]]
+            i += 1
+        else:
+            i = j  # a wobble: back within reach before it counted
+
+    bounds = cuts + [len(smooth)]
+    pieces = [[bounds[k], bounds[k + 1]] for k in range(len(cuts))]
+
+    def length(piece) -> float:
+        start = t0 if piece[0] == 0 else float(times[piece[0]])
+        end = t1 if piece[1] == len(smooth) else float(times[piece[1]])
+        return end - start
+
+    def tone(piece) -> float:
+        # The settled part: the first third is still arriving from the last note.
+        a, b = piece
+        settled = smooth[a + (b - a) // 3:b]
+        return float(np.median(settled if len(settled) else smooth[a:b]))
+
+    # A glide belongs to the note it reaches; a scrap at the end to the one before.
+    k = 0
+    while len(pieces) > 1 and k < len(pieces):
+        if length(pieces[k]) < shortest:
+            if k + 1 < len(pieces):
+                pieces[k + 1][0] = pieces[k][0]
+            else:
+                pieces[k - 1][1] = pieces[k][1]
+            del pieces[k]
+            k = max(0, k - 1)
+        else:
+            k += 1
+    # The same note twice over (a wide vibrato, a waver): one note.
+    k = 1
+    while k < len(pieces):
+        if abs(tone(pieces[k]) - tone(pieces[k - 1])) < step * MELODY_SAME:
+            pieces[k - 1][1] = pieces[k][1]
+            del pieces[k]
+        else:
+            k += 1
+    if len(pieces) <= 1:
+        return whole
+    out = []
+    for piece in pieces:
+        start = t0 if piece[0] == 0 else float(times[piece[0]])
+        end = t1 if piece[1] == len(smooth) else float(times[piece[1]])
+        out.append((start, end, tone(piece)))
+    return out
+
+
 def assign_tones(spans: list[tuple[float, float]], track: F0Track, cfg) -> list[int | None]:
     """Median MIDI per span, before any octave shift. None where unvoiced."""
     return [track.median_midi(t0, t1) for t0, t1 in spans]

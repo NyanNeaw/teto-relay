@@ -16,7 +16,14 @@ The sung style keeps your melody's shape but makes it musical:
 * **Vibrato** on notes long enough to carry it (`vibrato_min_seconds`).
 * **A held last note** (`final_hold_seconds`), the way a sung phrase ends.
 
-Nothing here runs unless `singing_style` is "sung". It works on the Note list
+The **cover** style (`singing_style: "cover"`) is for singing a real song:
+the notes are the ones that were sung (notes.build_notes cuts them where the
+pitch steps, and keeps the singer's key), so here nothing is widened - the
+tune is already a tune. The scale still applies (chromatic leaves every note
+where it was sung; a key pulls stray notes into it), as do the steadier
+notes, the vibrato and the held last note.
+
+Nothing here runs unless `singing_style` is "sung" or "cover". It works on the Note list
 only, so it is fully unit-testable; how OpenUtau renders the vibrato is the
 part that needs real hardware.
 """
@@ -106,7 +113,8 @@ def musicalize(notes: list, cfg, state: dict | None = None) -> list:
     # Speech moves in small steps - a spoken phrase spans a few semitones, a
     # sung one many more. Widen each interval around the phrase's centre
     # before snapping, so the tune has room to move (1.0 keeps your own).
-    widen = float(getattr(cfg, "sung_melody_range", 1.0))
+    cover = (getattr(cfg, "singing_style", "") or "").lower() == "cover"
+    widen = 1.0 if cover else float(getattr(cfg, "sung_melody_range", 1.0))
     if widen != 1.0 and len(exact) > 1:
         centre = float(sorted(exact)[len(exact) // 2])
         exact = [centre + (p - centre) * widen for p in exact]

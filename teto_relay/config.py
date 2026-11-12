@@ -235,7 +235,10 @@ class Config:
     #
     # "speech" - notes follow your spoken pitch exactly (the original sound).
     # "sung"   - notes snap to a key, hold steadier, long ones get vibrato,
-    #            and the last one is held.
+    #            and the last one is held: speech turned into a tune.
+    # "cover"  - for singing a real song: she sings the notes you sing, a
+    #            note for each pitch even inside one word, in your key (moved
+    #            only by whole octaves), so she is in tune with the music.
     singing_style: str = "speech"
     scale: str = "major"  # major | minor | pentatonic | chromatic
     scale_key: str = "auto"  # "auto", or a note name such as "C", "F#", "Bb"
@@ -243,6 +246,12 @@ class Config:
     # How much wider than you spoke the sung melody's intervals are: speech
     # moves within a few semitones, a song much further. 1.0 keeps yours.
     sung_melody_range: float = 1.0
+    # Cover style only: how the notes you sang are told apart. A new note
+    # starts where your pitch has moved `melody_step` semitones and stayed;
+    # lower follows every turn of the voice, higher only the clear steps. A
+    # note shorter than `melody_min_note_seconds` joins the one beside it.
+    melody_step: float = 1.5
+    melody_min_note_seconds: float = 0.14
     vibrato_min_seconds: float = 0.35  # notes this long or longer get vibrato
     vibrato_depth_cents: float = 25.0
     vibrato_period_ms: float = 175.0
@@ -508,7 +517,7 @@ CHOICES: dict[str, set[str]] = {
     "pitch_method": {"crepe", "pyin"},
     "crepe_model": {"full", "tiny"},
     "whisper_device": {"cpu", "cuda", "auto"},
-    "singing_style": {"speech", "sung"},
+    "singing_style": {"speech", "sung", "cover"},
     "scale": {"major", "minor", "pentatonic", "chromatic"},
     "double_when": {"off", "singing", "always"},
     "panel_window": {"app", "browser"},
@@ -562,6 +571,8 @@ RANGES: dict[str, tuple[float, float]] = {
     "render_timeout_seconds": (1.0, 600.0),
     "sung_contour_amount": (0.0, 1.0),
     "sung_melody_range": (0.5, 3.0),
+    "melody_step": (0.3, 6.0),
+    "melody_min_note_seconds": (0.05, 1.0),
     "double_voice": (0.0, 1.0),
     "vibrato_min_seconds": (0.05, 10.0),
     "vibrato_depth_cents": (0.0, 200.0),
