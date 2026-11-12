@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Cover song",
+  "author": "Teto Relay",
+  "description": "For singing a real song over its music: she keeps the notes and the timing you sing, with a little vibrato on long notes.",
+  "settings": {
+    "singing_style": "sung",
+    "scale": "chromatic",
+    "scale_key": "auto",
+    "sung_melody_range": 1.0,
+    "sung_contour_amount": 0.6,
+    "vibrato_min_seconds": 0.45,
+    "vibrato_depth_cents": 25.0,
+    "vibrato_period_ms": 180.0,
+    "final_hold_seconds": 0.0,
+    "double_voice": 0.4,
+    "double_when": "singing",
+    "legato": true,
+    "expressive": true,
+    "emit_contour": true,
+    "contour_range_cents": 200.0,
+    "contour_smooth_ms": 60.0
+  }
+}

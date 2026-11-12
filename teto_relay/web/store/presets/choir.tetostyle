@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Choir",
+  "author": "Teto Relay",
+  "description": "A big, layered sound in a major key: the doubled voice turned all the way up.",
+  "settings": {
+    "singing_style": "sung",
+    "scale": "major",
+    "scale_key": "auto",
+    "sung_melody_range": 1.2,
+    "sung_contour_amount": 0.25,
+    "vibrato_min_seconds": 0.3,
+    "vibrato_depth_cents": 35.0,
+    "vibrato_period_ms": 185.0,
+    "final_hold_seconds": 0.7,
+    "double_voice": 1.0,
+    "double_when": "singing",
+    "legato": true,
+    "expressive": true,
+    "emit_contour": true,
+    "contour_range_cents": 200.0,
+    "contour_smooth_ms": 80.0
+  }
+}

@@ -48,6 +48,17 @@
   vibrato, held last note, doubled voice): never a device, a folder, the talk
   key or the language. A file that isn't a preset, or has a value out of
   range, is refused with the reason and changes nothing.
+- **A Store.** A third place in the top switch. **Presets**: the four
+  built-in ones and three more (*Cover song*, *Lullaby*, *Choir*); press
+  **Install** and it is in your Preset list. **Voicebanks**: who owns each
+  one, what its licence allows, and a button that opens the owner's own
+  download page; get the .zip there and drop it on the window as before.
+  Teto Relay never hosts or downloads a voicebank itself. Everything is
+  free: no accounts, no payments. The list is fetched from the project's
+  site when you open the Store (nothing about you is sent), and with no
+  internet the list that came with the app is shown. The list is checked
+  before it is used: https links only, text only, and an installed preset
+  goes through the same checks as one you import.
 - **Recording hears a quiet microphone.** While a take records, a line is
   told from a pause by how loud it is, and that level was fixed. A headset
   microphone that came in very quietly sat under it most of the time, so a

@@ -561,6 +561,47 @@ class Controller:
         settings = self.apply_style(preset) if apply else {}
         return {"id": presets.save(preset), "name": preset["name"], "config": settings}
 
+    # -------------------------------------------------------------- store
+    def store_listing(self, refresh: bool = False) -> dict:
+        """The Store's list for the panel (teto_relay.store), each preset
+        marked with what this PC already has of it: "builtin" (it ships with
+        the app), "installed" (it is among your presets) or ""."""
+        from . import presets, store
+
+        listing = store.catalog(refresh)
+        mine = {s["name"].casefold(): s["id"] for s in presets.listing()["styles"] if not s["builtin"]}
+        shown = []
+        for entry in listing["presets"]:
+            if entry["id"] in presets.BUILTIN:
+                state, have = "builtin", f"builtin:{entry['id']}"
+            else:
+                have = mine.get(entry["name"].casefold(), "")
+                state = "installed" if have else ""
+            # The address stays here: the panel asks for a preset by its id.
+            shown.append({k: v for k, v in entry.items() if k != "url"} | {"state": state, "have": have})
+        return {"source": listing["source"], "problem": listing.get("problem", ""),
+                "updated": listing["updated"], "presets": shown, "voicebanks": listing["voicebanks"]}
+
+    def store_install(self, entry_id: str) -> dict:
+        """Install a preset from the Store: fetched by its id from the list
+        that was checked, then imported like a dropped .tetostyle file, with
+        the same checks. It joins your presets; it is not put on."""
+        from . import store
+
+        found = self.import_style(store.preset_file(store.catalog(), entry_id), apply=False)
+        log.info("Preset installed from the Store: %s", found["name"])
+        return found
+
+    def store_open(self, entry_id: str) -> str:
+        """Open a voicebank's official download page in the browser."""
+        import webbrowser
+
+        from . import store
+
+        url = store.official_page(store.catalog(), entry_id)
+        webbrowser.open(url)
+        return url
+
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
         relay = self.relay
@@ -950,6 +991,15 @@ def make_handler(controller: Controller):
                     self._json(detail(folder))
             elif route == "api/take/current":
                 self._json(controller.current_take())
+            elif route == "api/store":
+                from urllib.parse import parse_qs, urlparse
+
+                refresh = (parse_qs(urlparse(self.path).query).get("refresh") or ["0"])[0] == "1"
+                try:
+                    self._json(controller.store_listing(refresh))
+                except Exception as exc:  # noqa: BLE001 - even the bundled list failed
+                    log.exception("could not show the Store")
+                    self._json({"error": str(exc)}, 500)
             elif route == "api/styles":
                 from . import presets
 
@@ -1190,6 +1240,17 @@ def make_handler(controller: Controller):
                 except Exception as exc:  # noqa: BLE001 - say it on the page
                     log.exception("could not measure the delay")
                     self._json({"ok": False, "error": describe(exc, controller.cfg.log_file)}, 500)
+            elif route in ("api/store/install", "api/store/open"):
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    entry_id = str(body.get("id") or "") if isinstance(body, dict) else ""
+                    if route == "api/store/install":
+                        self._json({"ok": True, **controller.store_install(entry_id)})
+                    else:
+                        self._json({"ok": True, "url": controller.store_open(entry_id)})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif route in ("api/style/apply", "api/style/save", "api/style/delete", "api/style/import"):
                 from urllib.parse import parse_qs, urlparse
 

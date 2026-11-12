@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Robot",
+  "author": "Teto Relay",
+  "description": "Flat, even notes with no bends, no vibrato and a gap between words. A machine reading aloud.",
+  "settings": {
+    "singing_style": "sung",
+    "scale": "chromatic",
+    "scale_key": "auto",
+    "sung_melody_range": 0.6,
+    "sung_contour_amount": 0.0,
+    "vibrato_min_seconds": 10.0,
+    "vibrato_depth_cents": 0.0,
+    "vibrato_period_ms": 175.0,
+    "final_hold_seconds": 0.0,
+    "double_voice": 0.0,
+    "double_when": "off",
+    "legato": false,
+    "expressive": false,
+    "emit_contour": false,
+    "contour_range_cents": 0.0,
+    "contour_smooth_ms": 60.0
+  }
+}

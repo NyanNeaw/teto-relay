@@ -69,6 +69,9 @@ body{margin:0;color:var(--text);font-size:15px;line-height:1.5;
 /* Live | Studio, in the top bar. */
 .bar .switch{flex:none}
 .bar .switch button{padding:6px 14px;font-size:13px}
+/* Three places in the switch: in a narrow window the status pill makes room
+   (Start and the logo's colour say the same). */
+@media (max-width:640px){.bar .state{display:none} .bar .switch button{padding:6px 10px}}
 .state{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted)}
 .state i{width:7px;height:7px;border-radius:50%;background:var(--faint);font-style:normal}
 .live .state i{background:var(--accent)}
@@ -159,6 +162,25 @@ button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 /* Studio is for takes: the last live phrase steps aside, and the takes
    button is the workspace's own. */
 .studio .stage,.studio #takesBtn{display:none}
+/* ---------- the Store: a page of its own, cards in a grid ---------- */
+.storemode .wrap{display:none}
+.storepage{margin:24px max(24px,calc((100% - 1072px)/2)) 56px}
+.storepage[hidden]{display:none}
+@media(max-width:900px){.storepage{margin:16px 16px 48px}}
+.st-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.st-note{font-size:13px;color:var(--muted)}
+.storepage h2{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:700;margin:22px 0 2px}
+.storepage h2 .ic{color:var(--accent-text)}
+.storepage .hint{margin:0 0 12px}
+.st-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.st-card{padding:16px 16px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.st-card b{font-size:16px;overflow-wrap:anywhere}
+.st-card .by{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.st-card p{margin:6px 0 0;font-size:13.5px;line-height:1.45;color:var(--muted);flex:1;overflow-wrap:anywhere}
+.st-card .acts{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.st-card .acts button{display:inline-flex;align-items:center;gap:7px;padding:7px 16px}
+.st-card .acts .ghost{background-color:var(--sink)}
+.st-card .have{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:var(--muted)}
 @keyframes sheetIn{from{opacity:0;transform:translateY(-6px) scale(.985)}}
 .sh-head{display:flex;align-items:center;gap:4px;margin:-4px -6px 8px 0}
 .sh-title{font-size:15px;color:var(--muted);font-weight:600;margin-right:auto;display:flex;align-items:center;gap:8px}
@@ -732,7 +754,8 @@ details.group>summary::before{transition:transform .45s var(--spring)}
     aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></i>Teto Relay</span>
   <div class="tabs switch" id="modeSwitch" role="radiogroup" aria-label="Mode"><span class="thumb"></span><button
     type="button" role="radio" data-mode="live" aria-selected="true" title="Talk, and she sings into your output">Live</button><button
-    type="button" role="radio" data-mode="studio" aria-selected="false" title="Record and edit takes">Studio</button></div>
+    type="button" role="radio" data-mode="studio" aria-selected="false" title="Record and edit takes">Studio</button><button
+    type="button" role="radio" data-mode="store" aria-selected="false" title="Presets to install, and voicebanks to get">Store</button></div>
   <span class="spacer"></span>
   <span class="state"><i></i><span id="stateText">stopped</span></span>
   <span class="tools">
@@ -751,6 +774,21 @@ details.group>summary::before{transition:transform .45s var(--spring)}
     <button class="icon" id="shHistory" title="Your takes" aria-label="Your takes"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
   </div>
   <div id="shBody"></div>
+</section>
+
+<section class="storepage" id="store" hidden aria-label="Store">
+  <div class="st-head">
+    <p class="tag"><i data-icon="bag"></i>store</p>
+    <span class="st-note" id="storeNote"></span>
+    <span class="spacer"></span>
+    <button class="ghost" id="storeRefresh" title="Fetch the list again"><i data-icon="again"></i>Refresh</button>
+  </div>
+  <h2><i data-icon="bookmark" data-size="18"></i>Presets</h2>
+  <p class="hint">Ways of singing. Install one and it is in your Preset list.</p>
+  <div class="st-grid" id="storePresets"></div>
+  <h2><i data-icon="mic" data-size="18"></i>Voicebanks</h2>
+  <p class="hint">Teto Relay doesn't hand out voicebanks. Each one opens its owner's own page: download the .zip there, then drop it on this window.</p>
+  <div class="st-grid" id="storeBanks"></div>
 </section>
 
 <div class="wrap">
@@ -902,6 +940,8 @@ const ICON_PATHS={
   close:'<path d="M6 6l12 12M18 6L6 18"/>',
   plus:'<path d="M12 5v14M5 12h14"/>',
   bookmark:'<path d="M7 4h10v16l-5-3.5L7 20z"/>',
+  bag:'<path d="M6 8h12l1 12H5z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>',
+  out:'<path d="M14 5h5v5M19 5l-8.5 8.5"/><path d="M10 6H6a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4"/>',
   save:'<path d="M5 4h11l3 3v13H5z"/><path d="M8.5 4v5h6.5V4M8 20v-6h8v6"/>',
   tostart:'<path d="M6 5v14"/><path d="M19 5.5v13L9.5 12z"/>',
   zoomin:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L20 20M7.5 10.5h6M10.5 7.5v6"/>',
@@ -998,16 +1038,20 @@ async function load(){
    settings; while a take records she is kept off the output, as before. */
 let mode='live';
 function setMode(next,save){
-  mode=next==='studio'?'studio':'live';
+  mode=next==='studio'||next==='store'?next:'live';
   app().classList.toggle('studio',mode==='studio');
+  app().classList.toggle('storemode',mode==='store');
   const seg=$('modeSwitch');
   for(const b of seg.querySelectorAll('button')) b.setAttribute('aria-selected',String(b.dataset.mode===mode));
   requestAnimationFrame(()=>placeThumb(seg));
   $('sheet').hidden=mode!=='studio';
+  $('store').hidden=mode!=='store';
+  if(mode==='store') loadStore();
   // Drawn again on the way in: a roll drawn while hidden has no width.
   if(mode==='studio') showSheet(sheet.view||'new');
   else{ player.pause(); tPause(); }
-  if(save&&cfg.panel_mode!==mode){
+  // The Store is a page to visit, not a mode to open in next time.
+  if(save&&mode!=='store'&&cfg.panel_mode!==mode){
     cfg.panel_mode=mode;
     api('api/config',{panel_mode:mode}).then(d=>{ if(d&&d.ok===false) toast('Could not save: '+d.error); }).catch(()=>{});
   }
@@ -1293,6 +1337,81 @@ $('presetDelete').onclick=async()=>{
   catch(e){ toast('Could not reach the relay.'); return; }
   await loadStyles(); toast('Preset deleted');
 };
+
+/* ---------- the Store ----------
+   Presets to install and voicebanks to go and get, from a list the program
+   fetches (api/store) and checks; with no internet it is the list that came
+   with the app. Everything is free. A preset is installed by its id
+   (api/store/install: the same import as a dropped .tetostyle, with the same
+   checks) and then sits in the Preset list. A voicebank is only ever a link
+   to its owner's own page, which the program opens in the browser
+   (api/store/open); its .zip is then added the usual way. What the list
+   says is put on the page as text, never as markup. */
+let storeData=null;
+async function loadStore(refresh){
+  if(!storeData||refresh) $('storeNote').textContent='Loading…';
+  let d;
+  try{ d=await (await fetch('api/store'+(refresh?'?refresh=1':''))).json(); }
+  catch(e){ $('storeNote').textContent='Could not reach the relay.'; return; }
+  if(d.error){ $('storeNote').textContent=d.error; return; }
+  storeData=d; renderStore();
+}
+function renderStore(){
+  const d=storeData; if(!d) return;
+  $('storeNote').textContent=d.source==='online'?'Everything here is free.'
+    :'The online list couldn’t be reached, so this is the one that came with the app. Everything here is free.';
+  const presets=$('storePresets'), banks=$('storeBanks');
+  presets.textContent=''; banks.textContent='';
+  for(const p of d.presets){
+    const card=el('div','pane st-card'), acts=el('div','acts');
+    card.append(el('b','',p.name));
+    if(p.author) card.append(el('span','by','by '+p.author));
+    card.append(el('p','',p.description));
+    if(p.state){
+      const have=el('span','have',p.state==='builtin'?'Built in':'Installed'); have.prepend(iconEl('check',14));
+      acts.append(storeAct('Use','',true,()=>usePreset(p.have)),have);
+    }else acts.append(storeAct('Install','download',false,e=>installPreset(p,e.currentTarget)));
+    card.append(acts); presets.append(card);
+  }
+  for(const b of d.voicebanks){
+    const card=el('div','pane st-card'), acts=el('div','acts');
+    card.append(el('b','',b.name));
+    if(b.owner) card.append(el('span','by','by '+b.owner));
+    card.append(el('p','',b.licence));
+    let host=''; try{ host=new URL(b.url).hostname; }catch(e){}
+    const where=el('span','have',host);
+    acts.append(storeAct('Official page','out',true,()=>openBankPage(b)),where);
+    card.append(acts); banks.append(card);
+  }
+  if(!d.presets.length) presets.append(el('p','empty','No presets in the list.'));
+  if(!d.voicebanks.length) banks.append(el('p','empty','No voicebanks in the list.'));
+}
+function storeAct(label,iconName,ghost,fn){
+  const b=el('button',ghost?'ghost':'',label); b.type='button';
+  if(iconName) b.prepend(iconEl(iconName,15));
+  b.onclick=fn; return b;
+}
+async function installPreset(p,button){
+  button.disabled=true;
+  let d; try{ d=await api('api/store/install',{id:p.id}); }catch(e){ d={ok:false,error:'Could not reach the relay.'}; }
+  if(!d.ok){
+    button.disabled=false;
+    addDialog({kind:'bad',title:'Could not install '+p.name,text:d.error||'',buttons:[['OK',closeAdd]]});
+    return;
+  }
+  p.state='installed'; p.have=d.id;
+  renderStore(); loadStyles(); toast(d.name+' is in your presets');
+}
+async function usePreset(id){
+  let d; try{ d=await api('api/style/apply',{id}); }catch(e){ toast('Could not reach the relay.'); return; }
+  if(!d.ok){ toast('Could not use it: '+d.error); loadStore(); return; }
+  applySettings(d.config); toast('Preset: '+d.name);
+}
+async function openBankPage(b){
+  let d; try{ d=await api('api/store/open',{id:b.id}); }catch(e){ toast('Could not reach the relay.'); return; }
+  toast(d.ok?'Opened in your browser. Download the .zip there, then drop it here.':(d.error||'Could not open it.'));
+}
+$('storeRefresh').onclick=()=>loadStore(true);
 
 /* Each group folds. The ones most people never need start folded, and
    whatever you open or close is remembered. */

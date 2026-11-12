@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Pop singer",
+  "author": "Teto Relay",
+  "description": "What you say becomes a tune in a major key, with a light vibrato and a doubled voice.",
+  "settings": {
+    "singing_style": "sung",
+    "scale": "major",
+    "scale_key": "auto",
+    "sung_melody_range": 1.4,
+    "sung_contour_amount": 0.3,
+    "vibrato_min_seconds": 0.35,
+    "vibrato_depth_cents": 30.0,
+    "vibrato_period_ms": 170.0,
+    "final_hold_seconds": 0.5,
+    "double_voice": 0.5,
+    "double_when": "singing",
+    "legato": true,
+    "expressive": true,
+    "emit_contour": true,
+    "contour_range_cents": 200.0,
+    "contour_smooth_ms": 60.0
+  }
+}

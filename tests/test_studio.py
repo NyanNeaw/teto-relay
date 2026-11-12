@@ -1342,5 +1342,335 @@ class TestStylePresets(unittest.TestCase):
             self.assertIn(needle, page)
 
 
+class TestStore(unittest.TestCase):
+    """The Store: presets to install and voicebanks to go and get, from a
+    list on the internet that is treated as a stranger's."""
+
+    def setUp(self):
+        from teto_relay import store
+
+        store.forget()
+        self.addCleanup(store.forget)
+
+    def catalog(self, **changes):
+        base = {"format": 1, "updated": "2026-11-12",
+                "presets": [{"id": "soft", "name": "Soft", "author": "someone", "description": "quiet",
+                             "url": "https://example.org/store/soft.tetostyle"}],
+                "voicebanks": [{"id": "some-bank", "name": "Some Bank", "owner": "Its Maker",
+                                "licence": "Free to use.", "url": "https://example.org/bank/"}]}
+        return {**base, **changes}
+
+    def preset_bytes(self, name="Soft", **settings):
+        return json.dumps({"format": 1, "name": name, "author": "someone", "description": "quiet",
+                           "settings": settings or {"vibrato_depth_cents": 12}}).encode()
+
+    def test_only_plain_https_links_pass(self):
+        from teto_relay.store import safe_url
+
+        self.assertEqual(safe_url("https://example.org/a/b.tetostyle", ".tetostyle"),
+                         "https://example.org/a/b.tetostyle")
+        self.assertEqual(safe_url("https://example.org/Page"), "https://example.org/Page")
+        for bad in ("http://example.org/a.tetostyle", "javascript:alert(1)", "file:///C:/Windows/win.ini",
+                    "ftp://example.org/x", "//example.org/x", "example.org/x", "https://", "https:///x",
+                    "https://user:pass@example.org/x", "https://user@example.org/x",
+                    " https://example.org/x", "https://example.org/a b", "https://example.org/x\n",
+                    "https://example.org\\@evil.example/x", "https://example.org/" + "a" * 300,
+                    "", None, 7, ["https://example.org/x"]):
+            self.assertIsNone(safe_url(bad), repr(bad))
+        # A preset's link must be a preset's file.
+        self.assertIsNone(safe_url("https://example.org/setup.exe", ".tetostyle"))
+        self.assertIsNone(safe_url("https://example.org/setup.exe?as=x.tetostyle", ".tetostyle"))
+        self.assertIsNone(safe_url("https://example.org/setup.exe#x.tetostyle", ".tetostyle"))
+
+    def test_a_catalog_is_cut_down_to_what_can_be_trusted(self):
+        from teto_relay import store
+
+        read = store.validate(self.catalog(
+            presets=[
+                {"id": "soft", "name": "  Soft\x00\u202e<script>  ", "author": 5, "description": "d" * 999,
+                 "url": "https://example.org/store/soft.tetostyle", "run": "calc.exe", "html": "<b>hi</b>"},
+                {"id": "soft", "name": "A second one with the same id", "url": "https://example.org/2.tetostyle"},
+                {"id": "over-http", "name": "x", "url": "http://example.org/x.tetostyle"},
+                {"id": "an-exe", "name": "x", "url": "https://example.org/x.exe"},
+                {"id": "../up", "name": "x", "url": "https://example.org/x.tetostyle"},
+                {"id": "no-name", "name": "", "url": "https://example.org/x.tetostyle"},
+                {"id": "no-link", "name": "x"},
+                "not an entry", None, 3],
+            voicebanks=[
+                {"id": "some-bank", "name": "Some Bank", "owner": "Its Maker", "licence": "Free.",
+                 "url": "https://example.org/bank/", "download": "https://evil.example/bank.zip"},
+                {"id": "a-zip-by-http", "name": "x", "url": "http://example.org/bank.zip"},
+                {"id": "a-script", "name": "x", "url": "javascript:alert(1)"}],
+            extra="ignored"))
+        self.assertEqual(read["presets"], [{
+            "id": "soft", "url": "https://example.org/store/soft.tetostyle",
+            "name": "Soft <script>", "author": "", "description": "d" * 300}])
+        self.assertEqual(read["voicebanks"], [{"id": "some-bank", "url": "https://example.org/bank/",
+                                               "name": "Some Bank", "owner": "Its Maker", "licence": "Free."}])
+        self.assertEqual(set(read), {"format", "updated", "presets", "voicebanks"})
+        # Lists that are not lists are simply empty.
+        self.assertEqual(store.validate(self.catalog(presets="all of them", voicebanks=None))["presets"], [])
+        # Not a catalog at all, or one for another version.
+        for bad in ([], "catalog", None, {}, {"format": 2}, {"format": "1"}, {"format": True}):
+            with self.assertRaises(store.StoreError, msg=repr(bad)):
+                store.validate(bad)
+        for raw in (b"<html>404</html>", b"\xff\xfe", b"[]", b" " * 300_000):
+            with self.assertRaises(store.StoreError, msg=raw[:20]):
+                store.parse(raw)
+        # However many it lists, only so many are taken.
+        many = [{"id": f"p{i}", "name": "x", "url": "https://example.org/x.tetostyle"} for i in range(500)]
+        self.assertEqual(len(store.validate(self.catalog(presets=many))["presets"]), store.MAX_PRESETS)
+
+    def test_the_list_that_ships_is_the_published_one_and_is_sound(self):
+        from teto_relay import presets, store
+
+        docs = ROOT / "docs" / "store"
+        shipped = store.bundled_folder()
+        self.assertEqual(shipped, ROOT / "teto_relay" / "web" / "store")
+        names = sorted(p.relative_to(docs).as_posix() for p in docs.rglob("*") if p.is_file())
+        self.assertEqual(names, sorted(p.relative_to(shipped).as_posix() for p in shipped.rglob("*") if p.is_file()))
+        for name in names:
+            self.assertEqual((docs / name).read_bytes(), (shipped / name).read_bytes(),
+                             f"{name} differs: run tools/sync_store.py")
+
+        raw = json.loads((docs / "catalog.json").read_text(encoding="utf-8"))
+        listing = store.bundled()
+        self.assertEqual(listing["source"], "bundled")
+        # Nothing in it had to be dropped or cut.
+        self.assertEqual(len(listing["presets"]), len(raw["presets"]))
+        self.assertEqual(len(listing["voicebanks"]), len(raw["voicebanks"]))
+        ids = [p["id"] for p in listing["presets"]]
+        # The four built-in presets, and a few more.
+        self.assertEqual(ids[:4], list(presets.BUILTIN))
+        self.assertGreaterEqual(len(ids), 6)
+        for entry in listing["presets"]:
+            self.assertEqual(entry["url"], f"{store.CATALOG_URL.rsplit('/', 1)[0]}/presets/{entry['id']}.tetostyle")
+            preset = presets.parse((docs / "presets" / f"{entry['id']}.tetostyle").read_bytes())
+            self.assertEqual((preset["name"], preset["description"]), (entry["name"], entry["description"]))
+            self.assertEqual(set(preset["settings"]), set(presets.SETTINGS))
+        for key, preset in presets.BUILTIN.items():
+            self.assertEqual((docs / "presets" / f"{key}.tetostyle").read_text(encoding="utf-8"),
+                             presets.dumps(presets.validate(preset)))
+        # Voicebanks: a name, an owner, a licence note and a page - never a file.
+        self.assertGreaterEqual(len(listing["voicebanks"]), 2)
+        for bank in listing["voicebanks"]:
+            self.assertTrue(bank["name"] and bank["owner"] and bank["licence"], bank["id"])
+            self.assertFalse(bank["url"].lower().endswith((".zip", ".uar", ".rar", ".7z", ".exe")), bank["url"])
+        teto = next(b for b in listing["voicebanks"] if b["id"] == "kasane-teto")
+        self.assertEqual(teto["url"], "https://kasaneteto.jp/utau/")
+        # Nothing of a voicebank is in the Store's folders: only the list and presets.
+        self.assertEqual({Path(n).suffix for n in names}, {".json", ".tetostyle"})
+
+    def test_online_when_it_can_be_bundled_when_it_cannot(self):
+        import unittest.mock
+
+        from teto_relay import store
+
+        calls = []
+
+        def online(url, limit):
+            calls.append(url)
+            return json.dumps(self.catalog()).encode()
+
+        with unittest.mock.patch.object(store, "download", online):
+            first = store.catalog()
+            self.assertEqual((first["source"], [p["id"] for p in first["presets"]]), ("online", ["soft"]))
+            self.assertEqual(calls, [store.CATALOG_URL])
+            store.catalog()
+            self.assertEqual(len(calls), 1, "kept for a while, not fetched every time")
+            store.catalog(refresh=True)
+            self.assertEqual(len(calls), 2)
+        store.forget()
+
+        def offline(url, limit):
+            raise store.StoreError("Could not reach the Store (no internet).")
+
+        with unittest.mock.patch.object(store, "download", offline):
+            shown = store.catalog()
+        self.assertEqual(shown["source"], "bundled")
+        self.assertIn("no internet", shown["problem"])
+        self.assertGreaterEqual(len(shown["presets"]), 6)
+        # A page that is not a catalog (a captive portal, a 404 page): the same.
+        with unittest.mock.patch.object(store, "download", lambda url, limit: b"<html>Sign in to Wi-Fi</html>"):
+            self.assertEqual(store.catalog()["source"], "bundled")
+        self.assertTrue(store.CATALOG_URL.startswith("https://nyanneaw.github.io/teto-relay/store/"))
+
+    def test_fetching_is_https_only_and_bounded(self):
+        import io
+        import unittest.mock
+        import urllib.error
+        import urllib.request
+
+        from teto_relay import store
+
+        for bad in ("http://example.org/catalog.json", "file:///C:/Windows/win.ini", "https://u:p@example.org/"):
+            with self.assertRaises(store.StoreError, msg=bad):
+                store.download(bad, 100)
+        # A redirect off https is not followed.
+        handler = store._HttpsOnly()
+        request = urllib.request.Request("https://example.org/a")
+        with self.assertRaises(urllib.error.URLError):
+            handler.redirect_request(request, io.BytesIO(), 302, "Found", {}, "http://example.org/a")
+        self.assertIsNotNone(handler.redirect_request(request, io.BytesIO(), 302, "Found", {},
+                                                      "https://cdn.example.org/a"))
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        sent = {}
+
+        class Opener:
+            def open(self, request, timeout=None):
+                sent.update(url=request.full_url, agent=request.get_header("User-agent"), timeout=timeout)
+                return Response(b"x" * 500)
+
+        with unittest.mock.patch.object(urllib.request, "build_opener", lambda *handlers: Opener()):
+            self.assertEqual(store.download("https://example.org/catalog.json", 1000), b"x" * 500)
+            # Nothing about this PC or its user goes with the request.
+            self.assertEqual(sent, {"url": "https://example.org/catalog.json", "agent": "TetoRelay",
+                                    "timeout": store.TIMEOUT})
+            with self.assertRaises(store.StoreError):
+                store.download("https://example.org/catalog.json", 100)
+
+        class Down:
+            def open(self, request, timeout=None):
+                raise urllib.error.URLError("no route to host")
+
+        with unittest.mock.patch.object(urllib.request, "build_opener", lambda *handlers: Down()):
+            with self.assertRaises(store.StoreError) as caught:
+                store.download("https://example.org/catalog.json", 100)
+            self.assertIn("no route to host", str(caught.exception))
+
+    def test_a_preset_is_fetched_by_id_or_taken_from_the_copy_that_ships(self):
+        import unittest.mock
+
+        from teto_relay import presets, store
+
+        listing = store.validate(self.catalog())
+        asked = []
+
+        def online(url, limit):
+            asked.append((url, limit))
+            return self.preset_bytes()
+
+        with unittest.mock.patch.object(store, "download", online):
+            self.assertEqual(store.preset_file(listing, "soft"), self.preset_bytes())
+        self.assertEqual(asked, [("https://example.org/store/soft.tetostyle", presets.MAX_BYTES)])
+        for missing in ("nope", "", "../soft", "https://evil.example/x.tetostyle"):
+            with self.assertRaises(store.StoreError, msg=missing):
+                store.preset_file(listing, missing)
+
+        def offline(url, limit):
+            raise store.StoreError("Could not reach the Store.")
+
+        with unittest.mock.patch.object(store, "download", offline):
+            # Not one that ships with the app: it cannot be had offline.
+            with self.assertRaises(store.StoreError) as caught:
+                store.preset_file(listing, "soft")
+            self.assertIn("Could not download Soft", str(caught.exception))
+            # One that does: installed from the app's own copy.
+            shipped = store.preset_file(store.bundled(), "lullaby")
+            self.assertEqual(presets.parse(shipped)["name"], "Lullaby")
+        self.assertEqual(store.official_page(listing, "some-bank"), "https://example.org/bank/")
+        with self.assertRaises(store.StoreError):
+            store.official_page(listing, "soft")
+
+    def test_the_panel_lists_installs_and_opens(self):
+        import unittest.mock
+        import webbrowser
+
+        from teto_relay import presets, store
+        from teto_relay.config import Config
+
+        def offline(url, limit):
+            raise store.StoreError("Could not reach the Store (offline).")
+
+        with _TempHome(), _PanelServer() as s, unittest.mock.patch.object(store, "download", offline):
+            status, body = s.request("GET", "/api/store")
+            self.assertEqual(status, 200, body)
+            shown = json.loads(body)
+            self.assertEqual(shown["source"], "bundled")
+            self.assertIn("offline", shown["problem"])
+            states = {p["id"]: p["state"] for p in shown["presets"]}
+            self.assertEqual([states[k] for k in presets.BUILTIN], ["builtin"] * 4)
+            self.assertEqual(states["lullaby"], "")
+            # The panel is given no addresses for presets: it asks by id.
+            self.assertTrue(all("url" not in p for p in shown["presets"]))
+            self.assertEqual(next(p for p in shown["presets"] if p["id"] == "robot")["have"], "builtin:robot")
+
+            # The done-when: install one, and it is among the presets.
+            before = Config.load().vibrato_depth_cents
+            status, body = s.request("POST", "/api/store/install", {"id": "lullaby"}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body), {"ok": True, "id": "user:lullaby", "name": "Lullaby", "config": {}})
+            listed = json.loads(s.request("GET", "/api/styles")[1])
+            self.assertIn("user:lullaby", [p["id"] for p in listed["styles"]])
+            # Installed, not put on: she sings as she did until it is picked.
+            self.assertEqual(Config.load().vibrato_depth_cents, before)
+            shown = json.loads(s.request("GET", "/api/store")[1])
+            lullaby = next(p for p in shown["presets"] if p["id"] == "lullaby")
+            self.assertEqual((lullaby["state"], lullaby["have"]), ("installed", "user:lullaby"))
+
+            # A voicebank is a page to open, by id; nothing is downloaded.
+            opened = []
+            with unittest.mock.patch.object(webbrowser, "open", opened.append):
+                status, body = s.request("POST", "/api/store/open", {"id": "kasane-teto"}, TOKEN)
+                self.assertEqual((status, json.loads(body)), (200, {"ok": True, "url": "https://kasaneteto.jp/utau/"}))
+                for bad in ({"id": "https://evil.example/"}, {"id": "lullaby"}, {}, {"url": "https://evil.example/"}):
+                    status, _ = s.request("POST", "/api/store/open", bad, TOKEN)
+                    self.assertEqual(status, 400, bad)
+            self.assertEqual(opened, ["https://kasaneteto.jp/utau/"])
+            status, body = s.request("POST", "/api/store/install", {"id": "not-in-the-store"}, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("not in the Store", json.loads(body)["error"])
+            self.assertEqual(s.request("POST", "/api/store/install", {"id": "choir"})[0], 403)
+
+    def test_what_the_store_sends_is_checked_like_any_preset(self):
+        import unittest.mock
+
+        from teto_relay import store
+        from teto_relay.config import Config
+
+        with _TempHome() as home, _PanelServer() as s:
+            before = s.config_path.read_bytes()
+            for sent, reason in ((b"MZ\x90\x00 this is a program", "not a preset file"),
+                                 (self.preset_bytes(vibrato_depth_cents=900), "vibrato_depth_cents"),
+                                 (self.preset_bytes(output_device="CABLE Input", ptt_key="f1"), "no singing settings")):
+                store.forget()
+                with unittest.mock.patch.object(
+                        store, "download",
+                        lambda url, limit, sent=sent: json.dumps(self.catalog()).encode() if url == store.CATALOG_URL else sent):
+                    status, body = s.request("POST", "/api/store/install", {"id": "soft"}, TOKEN)
+                self.assertEqual(status, 400, body)
+                self.assertIn(reason, json.loads(body)["error"])
+            self.assertEqual(s.config_path.read_bytes(), before)
+            self.assertFalse((home / "styles").exists())
+            # A sound one from the same list goes in, and only its singing settings.
+            store.forget()
+            good = self.preset_bytes(vibrato_depth_cents=12, output_device="Someone else's speakers")
+            with unittest.mock.patch.object(
+                    store, "download",
+                    lambda url, limit: json.dumps(self.catalog()).encode() if url == store.CATALOG_URL else good):
+                status, body = s.request("POST", "/api/store/install", {"id": "soft"}, TOKEN)
+            self.assertEqual((status, json.loads(body)["id"]), (200, "user:soft"))
+            kept = json.loads((home / "styles" / "soft.tetostyle").read_text(encoding="utf-8"))
+            self.assertEqual(kept["settings"], {"vibrato_depth_cents": 12.0})
+            self.assertEqual(Config.load().output_device, "CABLE Input")
+
+    def test_the_page_has_the_store_tab(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ('data-mode="store"', 'id="store"', "api/store", "api/store/install", "api/store/open",
+                       "function renderStore(", "Official page"):
+            self.assertIn(needle, page)
+        # What the catalog says is shown as text, never as markup.
+        start = page.index("function renderStore(")
+        body = page[start:page.index("\nfunction ", start + 10)]
+        self.assertNotIn("innerHTML", body)
+
+
 if __name__ == "__main__":
     unittest.main()

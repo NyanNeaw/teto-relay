@@ -1,0 +1,24 @@
+{
+  "format": 1,
+  "name": "Just like you",
+  "author": "Teto Relay",
+  "description": "She follows your voice exactly: your rhythm, your ups and downs. Good for talking.",
+  "settings": {
+    "singing_style": "speech",
+    "scale": "major",
+    "scale_key": "auto",
+    "sung_melody_range": 1.0,
+    "sung_contour_amount": 0.35,
+    "vibrato_min_seconds": 0.35,
+    "vibrato_depth_cents": 25.0,
+    "vibrato_period_ms": 175.0,
+    "final_hold_seconds": 0.3,
+    "double_voice": 0.5,
+    "double_when": "singing",
+    "legato": true,
+    "expressive": true,
+    "emit_contour": true,
+    "contour_range_cents": 300.0,
+    "contour_smooth_ms": 60.0
+  }
+}

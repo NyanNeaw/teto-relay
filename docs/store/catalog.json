@@ -1,0 +1,71 @@
+{
+  "format": 1,
+  "updated": "2026-11-12",
+  "presets": [
+    {
+      "id": "just-like-you",
+      "name": "Just like you",
+      "author": "Teto Relay",
+      "description": "She follows your voice exactly: your rhythm, your ups and downs. Good for talking.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/just-like-you.tetostyle"
+    },
+    {
+      "id": "pop-singer",
+      "name": "Pop singer",
+      "author": "Teto Relay",
+      "description": "What you say becomes a tune in a major key, with a light vibrato and a doubled voice.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/pop-singer.tetostyle"
+    },
+    {
+      "id": "robot",
+      "name": "Robot",
+      "author": "Teto Relay",
+      "description": "Flat, even notes with no bends, no vibrato and a gap between words. A machine reading aloud.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/robot.tetostyle"
+    },
+    {
+      "id": "diva",
+      "name": "Diva",
+      "author": "Teto Relay",
+      "description": "A wide, dramatic melody in a minor key, a deep slow vibrato, and a last note held long.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/diva.tetostyle"
+    },
+    {
+      "id": "cover-song",
+      "name": "Cover song",
+      "author": "Teto Relay",
+      "description": "For singing a real song over its music: she keeps the notes and the timing you sing, with a little vibrato on long notes.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/cover-song.tetostyle"
+    },
+    {
+      "id": "lullaby",
+      "name": "Lullaby",
+      "author": "Teto Relay",
+      "description": "Soft and slow: a gentle five-note melody, a faint vibrato, long last notes and a single voice.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/lullaby.tetostyle"
+    },
+    {
+      "id": "choir",
+      "name": "Choir",
+      "author": "Teto Relay",
+      "description": "A big, layered sound in a major key: the doubled voice turned all the way up.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/choir.tetostyle"
+    }
+  ],
+  "voicebanks": [
+    {
+      "id": "kasane-teto",
+      "name": "Kasane Teto (重音テト)",
+      "owner": "TWINDRILL, the Kasane Teto official circle",
+      "licence": "Free for non-commercial use. Commercial use needs permission, and the voicebank may not be passed on: get it from the official site. Read the terms there before you use it.",
+      "url": "https://kasaneteto.jp/utau/"
+    },
+    {
+      "id": "namine-ritsu",
+      "name": "Namine Ritsu (波音リツ)",
+      "owner": "Canon (カノン)",
+      "licence": "Free for commercial and non-commercial use, with no credit needed. Read the terms on the official site before you use it.",
+      "url": "https://www.canon-voice.com/voicebanks/"
+    }
+  ]
+}
