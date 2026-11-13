@@ -2,101 +2,80 @@
 
 ## 0.4.0 beta (2026-11-14)
 
-- **Two modes: Live and Studio.** A switch in the top bar. *Live* is the main
-  screen as before: talk, and she sings into your output. *Studio* is the
-  recording workspace: the take you are recording, or a saved one, sits in
-  the page above the settings instead of in a sheet floating over it.
-  Pressing Record in Live takes you to Studio. The app opens in the mode you
-  left it in. While a take records she still isn't sent to CABLE Input.
-- **A timeline in Studio.** A take is shown on a timeline: a time ruler, a
-  music row and a voice row. Every line you sang is a clip on the voice row,
-  where you sang it, with its words on it. **Drag a clip left or right** to
-  put it somewhere else: her singing (.wav), the OpenUtau project and your
-  guide voice all follow, and nothing has to be sung again. A clip stops at
-  0:00 and never lands on top of another. **Click a clip** to open its notes
-  in the small OpenUtau underneath. Play starts from the playhead (click the
-  ruler to move it), and the timeline scrolls sideways and zooms. Lines show
-  up as clips while you record, too. The take list, deleting, the downloads
-  and the DAW tile are where they were.
-- **A music track.** In Studio, press **Add music** (or drop the file on the
-  window) to put your song's backing track on the music row: .wav, .mp3,
-  .flac or .ogg. It is drawn as a waveform, always from 0:00. Press Record
-  and it plays in your headphones from the start, so you can sing along,
-  and each line lands where you sang it against the music. Afterwards Play
-  plays the music and her singing together, and there is a new download,
-  **mix.wav**: her singing over the music. The music is never put into
-  teto.wav, and it is never played into CABLE Input. Wear headphones while
-  you record, or the microphone records the music too. Studio now opens on a
-  **New take** page, where the music is added before recording; the list of
-  takes is behind the clock button.
-- **A delay fix, so clips land on the beat.** When you sing along, the music
-  reaches your ears a little late and your voice reaches the app a little
-  late, so every clip landed slightly behind. The timer button in Studio
+A new look, a Studio for whole songs, tunings with effects, and a Market for
+sharing what you make.
+
+- **A new look, in three pages: Live, Studio and Tune.** *Live* is talking
+  and singing as before, with your voicebank on a card, a lyrics notepad,
+  the last phrase she sang, and the talk key in a quick strip. *Studio* is
+  for recording and arranging songs. *Tune* is how she sings. The technical
+  settings moved into the gear popup. The app opens on the page you left.
+  While you record she still isn't sent to CABLE Input.
+- **Studio: a playlist with lanes.** Every line you sang is a clip on a lane,
+  where you sang it, with its words on it: up to 16 lanes for her voice, plus
+  audio lanes. Drag a clip to move it (her singing, the OpenUtau project and
+  your guide voice all follow, nothing is sung again); click it to open its
+  notes in the piano roll. Drop music or audio files onto audio lanes. A dock
+  under the playlist holds the **piano roll**, a **mixer** and the **lyrics**.
+  A browser on the left lists your Library and the Market.
+- **Sing along to music.** **Add music** (or drop a .wav, .mp3, .flac or .ogg)
+  puts your backing track in. Record plays it in your headphones from the
+  start, each line lands where you sang it against it, and **mix.wav** is her
+  singing over the music. The music is never put into teto.wav or played
+  into CABLE Input. Wear headphones, or the microphone records it too.
+- **A delay fix, so clips land on the beat.** The timer button in Studio
   opens **Recording delay**: press **Calibrate**, hold one side of your
-  headphones against the microphone, and a few clicks measure the delay and
-  save it; or type the number of milliseconds yourself. New clips are placed
-  that much earlier. **Shift all clips** moves a whole take you already
-  recorded. Bluetooth headphones have a delay that keeps changing: wired
-  ones keep time.
-- **Presets: a way of singing you can save and share.** A **Preset** list
-  sits at the top of the quick settings, with four built in that sound
-  clearly different: *Just like you*, *Pop singer*, *Robot* and *Diva*. Pick
-  one and its settings go on at once. **Save as preset** keeps the way she
-  sings now under a name; **Export** makes a small `.tetostyle` file to
-  give to someone; **Import**, or dropping the file on the window, reads one.
-  A preset only holds settings that change how she sings (style, key, melody,
-  vibrato, held last note, doubled voice): never a device, a folder, the talk
-  key or the language. A file that isn't a preset, or has a value out of
-  range, is refused with the reason and changes nothing.
-- **A Store.** A third place in the top switch. **Presets**: the four
-  built-in ones and three more (*Cover song*, *Lullaby*, *Choir*); press
-  **Install** and it is in your Preset list. **Voicebanks**: who owns each
-  one, what its licence allows, and a button that opens the owner's own
-  download page; get the .zip there and drop it on the window as before.
-  Teto Relay never hosts or downloads a voicebank itself. Everything is
-  free: no accounts, no payments. The list is fetched from the project's
-  site when you open the Store (nothing about you is sent), and with no
-  internet the list that came with the app is shown. The list is checked
-  before it is used: https links only, text only, and an installed preset
-  goes through the same checks as one you import.
-- **A Cover style, for singing a real song.** *Style* now has three places:
-  Speak, Sing and **Cover**. Sing turns talking into a tune: it moves her
-  onto the voicebank's own pitch, widens the melody and gives each word one
-  note, which is right for speech and wrong for a song (a cover of *Fly Me
-  to the Moon* came out a fourth below the music, with its intervals
-  stretched). In Cover she sings **the notes you sing**: a note for every
-  pitch you hold, even several inside one word ("a-no-ther"), in **your
-  key**, moved only by whole octaves, so she is in tune with the music.
-  *Key* and *Scale* still pull stray notes into a key if you set them, and
-  *Keep your inflection* says how much of your own bends she copies. Two new
-  settings under Singing, **New note when pitch moves** and **Shortest sung
-  note**, say how closely she follows your voice; both travel in a preset.
-  Recording over music in another style now suggests Cover. The Store's
-  *Cover song* preset uses it.
-- **Recording hears a quiet microphone.** While a take records, a line is
-  told from a pause by how loud it is, and that level was fixed. A headset
-  microphone that came in very quietly sat under it most of the time, so a
-  whole verse was saved as two or three scraps. The level now starts just
-  above the room and follows your voice; with a microphone at a normal level
-  it ends up where it always was.
-- **Projects and recordings.** Studio's Library now has two lists. A
-  *project* is a song: its playlist, music and audio clips. A *recording* is
-  a part you sang: Record always makes one, kept with the voicebank and
-  tuning it was sung with. Drag a whole recording onto a project's playlist
-  (its lines keep their spacing), or open it and drag one line; press its
-  **+** to add it where you sang it. Recorded with a project open, it waits
-  in Recordings; with none open, a new project is started with it. Projects
-  and recordings can be renamed.
-- **Another voice for something you sang.** **Voice…** (on a recording, or
-  on a clip in the piano roll) sings it again with another voicebank and/or
-  tuning: the same words, pitch and timing. On a recording, *Sing a copy*
-  keeps the first one; on a clip, *Copy onto a free lane* stacks the new
-  voice beside it. Notes edited by hand are made again from your singing.
-- **A song keeps its voice.** Every line remembers its voicebank and tuning.
-  Fixing a word or a note sings it with that voice, not whichever one is
-  picked for Live, so a project sounds the same after a restart. Each lane
-  shows its voice. Lines recorded before this keep the voice picked when
-  they are first fixed.
+  headphones against the microphone, and a few clicks measure the delay; or
+  type it. New clips are placed that much earlier, and **Shift all clips**
+  moves a take you already recorded. Wired headphones keep time; Bluetooth
+  ones drift.
+- **Projects and recordings.** A *project* is a song: its playlist, music and
+  audio clips. A *recording* is a part you sang, kept with the voicebank and
+  tuning it was sung with. Drag a recording (or one line of it) onto a
+  project, or press its **+** to add it where you sang it. Both can be
+  renamed.
+- **Another voice for something you sang.** **Voice…** sings a recording or a
+  clip again with another voicebank or tuning: the same words, pitch and
+  timing. *Copy onto a free lane* stacks the new voice beside the old one.
+  Every line remembers its voice, so a song sounds the same after a restart.
+- **Tunings, with effects.** The Tune page shows tunings as cards, with
+  **12 built in** that sound clearly different: *Just like you*, *Pop
+  singer*, *Whisper*, *Metal scream*, *Robot*, *Diva*, *Choir*, *Lo-fi
+  radio*, *Kawaii*, *Demon*, *Lullaby* and *Rap*. Four **Character** knobs
+  (Grit, Air, Bright, Size) and sections for Voice, Shape, Effects, Singing,
+  Pitch and Timing: effects after she sings (octave, bright, drive, growl,
+  ring, crush, radio band, air, chorus, reverb), her tone through OpenUtau
+  (gender, tension, breath, voicing), and the shape of each note (scoop,
+  fall-off, consonant speed, attack, release). **Hear it** sings your last
+  phrase again with the change; *Play after every change* does it for you.
+  Every knob's number can be clicked to type a value. Save a tuning, export it
+  as a small `.tetostyle` file, or import one; a file that isn't a tuning, or
+  has a value out of range, is refused with the reason.
+- **Sing follows your notes or makes a tune.** *Style* is Speak or Sing, and
+  **Sing follows** is *Auto* (your notes when you sing, a made-up tune when
+  you talk), *My notes* (always yours, for covers: in your key, moved only by
+  whole octaves, so she is in tune with the music) or *Make a tune*. The old
+  Cover style is *My notes* now; old settings and presets still load.
+- **The Market.** Tunings, Voicebanks, Sounds and Favourites, each with a
+  picture, a play button for its demo, and **Get**. Make an account to
+  **Share** your own tunings, voicebanks and sounds, like things, and see
+  each creator's page. A shared voicebank installs in one click; a sound
+  drags straight onto an audio lane. Things with a price link to the
+  creator's own shop: the Market never takes payment. Kasane Teto's
+  voicebank is only ever a link to her official site. Shared things are
+  listed at once; anything that breaks the rules is taken down, and reports
+  from several people hide it until then.
+- **Voicebanks from .rar and .7z, or a folder.** Add one as a .zip, .rar,
+  .7z or .uar, or point at a folder. Voicebanks, Thai ones especially, are
+  often shared as .rar; 7-Zip is used if it is installed, otherwise the tar
+  built into Windows 10 and 11.
+- **Lyrics follow the song.** With the song's lyrics pasted in, speech
+  recognition used to be told only the end of a long song (it reads just the
+  last part of what it is given). It is now given the part being sung, and
+  moves on as each line is placed.
+- **Recording hears a quiet microphone.** A headset microphone that came in
+  very quietly used to cut a verse into scraps. The level now starts just
+  above the room and follows your voice.
 - **Fixed: closing after "reopening the microphone" on PCs with little
   memory.** The 1.6 GB syllable-timing model was loaded in the background
   just as the microphone opened, even when it was not downloaded yet and
