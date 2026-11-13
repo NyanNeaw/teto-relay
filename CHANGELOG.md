@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 beta
+## 0.4.0 beta (2026-11-14)
 
 - **Two modes: Live and Studio.** A switch in the top bar. *Live* is the main
   screen as before: talk, and she sings into your output. *Studio* is the
@@ -79,6 +79,35 @@
   whole verse was saved as two or three scraps. The level now starts just
   above the room and follows your voice; with a microphone at a normal level
   it ends up where it always was.
+- **Projects and recordings.** Studio's Library now has two lists. A
+  *project* is a song: its playlist, music and audio clips. A *recording* is
+  a part you sang: Record always makes one, kept with the voicebank and
+  tuning it was sung with. Drag a whole recording onto a project's playlist
+  (its lines keep their spacing), or open it and drag one line; press its
+  **+** to add it where you sang it. Recorded with a project open, it waits
+  in Recordings; with none open, a new project is started with it. Projects
+  and recordings can be renamed.
+- **Another voice for something you sang.** **Voice…** (on a recording, or
+  on a clip in the piano roll) sings it again with another voicebank and/or
+  tuning: the same words, pitch and timing. On a recording, *Sing a copy*
+  keeps the first one; on a clip, *Copy onto a free lane* stacks the new
+  voice beside it. Notes edited by hand are made again from your singing.
+- **A song keeps its voice.** Every line remembers its voicebank and tuning.
+  Fixing a word or a note sings it with that voice, not whichever one is
+  picked for Live, so a project sounds the same after a restart. Each lane
+  shows its voice. Lines recorded before this keep the voice picked when
+  they are first fixed.
+- **Fixed: closing after "reopening the microphone" on PCs with little
+  memory.** The 1.6 GB syllable-timing model was loaded in the background
+  just as the microphone opened, even when it was not downloaded yet and
+  would not be used. On a 6 GB laptop the PC stalled, the app took the stall
+  for a dead microphone, kept reopening it, and closed. Now that model is only
+  loaded ahead when it is already downloaded and memory is free (otherwise
+  when it is first needed). A busy moment no longer counts as a dead
+  microphone, and a microphone that really stops is cut off at once instead
+  of waited on.
+- **A crash log.** If the app ever closes by itself, `teto-relay-crash.log`
+  (beside `teto-relay.log`) says where it was.
 
 ## 0.3.2 beta (2026-11-04)
 
