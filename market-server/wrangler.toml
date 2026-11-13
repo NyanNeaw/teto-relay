@@ -1,0 +1,23 @@
+# The Teto Relay Market on Cloudflare Workers. See README.md before deploying.
+name = "teto-market"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+# "1": an upload is listed at once, and an admin takes down what breaks the
+# rules afterwards (tools/market_admin.py remove/ban; 5 reports hide it first).
+# "0": every upload waits in a queue until an admin lets it in.
+AUTO_APPROVE = "1"
+
+# Secrets, set with `npx wrangler secret put NAME` (never written here):
+#   ADMIN_TOKEN  at least 16 random characters; lets tools/market_admin.py review uploads
+#   SALT         any random text; makes the stored (hashed) addresses unguessable
+
+[[d1_databases]]
+binding = "DB"
+database_name = "teto-market"
+database_id = "PUT-THE-ID-FROM-wrangler-d1-create-HERE"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "teto-market-files"

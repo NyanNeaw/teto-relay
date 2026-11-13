@@ -1,0 +1,14 @@
+{
+  "name": "teto-market",
+  "private": true,
+  "type": "module",
+  "description": "The Teto Relay Market: a Cloudflare Worker (D1 + R2).",
+  "scripts": {
+    "local": "node dev/serve.mjs 8787",
+    "test": "node --test",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.161.0"
+  }
+}
