@@ -443,6 +443,8 @@ class MicCapture(threading.Thread):
     daemon = True
     #: No audio for this long means the stream has died, even if it did not say so.
     STALL_SECONDS = 2.0
+    #: This thread waking this late means the PC, not the microphone, stalled.
+    STARVED_SECONDS = 1.0
     FIRST_RETRY_SECONDS = 1.0
     MAX_RETRY_SECONDS = 10.0
 
@@ -533,14 +535,15 @@ class MicCapture(threading.Thread):
         rate = input_rate(self.cfg, self.device)
         convert = (RateConverter(rate, self.cfg.sample_rate, self.cfg.frame_samples)
                    if rate != self.cfg.sample_rate else None)
-        with sd().InputStream(
+        stream = sd().InputStream(
             samplerate=rate,
             channels=1,
             dtype="float32",
             blocksize=int(round(self.cfg.frame_samples * rate / self.cfg.sample_rate)),
             device=self.device,
             callback=callback,
-        ):
+        )
+        with stream:
             if self.last_error:
                 log.info("Microphone is back")
             if convert is None:
@@ -549,18 +552,36 @@ class MicCapture(threading.Thread):
                 log.info("Microphone open (%d Hz, converted to %d Hz, %d ms frames)",
                          rate, self.cfg.sample_rate, self.cfg.frame_ms)
             self.state, self.last_error = "listening", ""
-            last_frame = time.monotonic()
+            last_frame = last_tick = time.monotonic()
             while not self._stopping.is_set():
                 self._report_drops()
                 try:
                     frame = raw.get(timeout=0.2)
                 except queue.Empty:
-                    if time.monotonic() - last_frame > self.STALL_SECONDS:
+                    now = time.monotonic()
+                    if now - last_tick > self.STARVED_SECONDS:
+                        # This thread itself did not run for a while: the PC
+                        # was busy (a model loading, the memory swapping), and
+                        # the audio callback could not run either. That is not
+                        # a dead microphone, so the stall clock starts over.
+                        log.info("The PC was busy for %.1fs; the microphone is fine",
+                                 now - last_tick)
+                        last_frame = now
+                    last_tick = now
+                    if now - last_frame > self.STALL_SECONDS:
                         self.last_error = "the microphone stopped sending audio"
                         log.warning("The microphone stopped sending audio; reopening it")
+                        # Abort, not stop: stopping waits for buffers a stuck
+                        # driver never hands back, and hung the app there.
+                        abort = getattr(stream, "abort", None)
+                        if abort is not None:
+                            try:
+                                abort()
+                            except Exception:  # noqa: BLE001 - closing it is what matters
+                                log.debug("aborting the stalled stream failed", exc_info=True)
                         return flowed
                     continue
-                last_frame = time.monotonic()
+                last_frame = last_tick = time.monotonic()
                 flowed = True
                 for frame in (convert.push(frame) if convert is not None else (frame,)):
                     if self._paused.is_set():

@@ -51,6 +51,61 @@ def setup_logging(cfg: Config, verbose: bool, to_console: bool = True) -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
+_crash_file = None
+
+
+def record_crashes(cfg: Config) -> Path | None:
+    """Leave a trace when Python dies inside native code.
+
+    A crash in a sound driver, CUDA, cuDNN or .NET ends the process at once:
+    no exception, no log line, the window just closes. faulthandler writes
+    every thread's Python stack to `teto-relay-crash.log` beside the log at
+    that moment, so the crash says where it happened. An uncaught error in a
+    worker thread, which only ends that thread, goes into the normal log.
+
+    The file is started over once it passes 200 kB. Returns its path, or None
+    if it could not be opened (a read-only folder must not stop the app).
+    """
+    import faulthandler
+    import os
+    import threading
+    import time
+
+    global _crash_file
+    path = Path(cfg.log_file).with_name("teto-relay-crash.log")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        mode = "w" if path.exists() and path.stat().st_size > 200_000 else "a"
+        handle = open(path, mode, encoding="utf-8")  # noqa: SIM115 - open for the life of the process
+        handle.write(f"\n=== Teto Relay started {time.strftime('%Y-%m-%d %H:%M:%S')} (pid {os.getpid()}). "
+                     "A dump below is a crash only if the app closed at that moment.\n")
+        handle.flush()
+        faulthandler.enable(file=handle, all_threads=True)
+    except (OSError, ValueError, RuntimeError):
+        log.debug("could not open the crash log %s", path, exc_info=True)
+        return None
+    if _crash_file is not None:
+        try:
+            _crash_file.close()
+        except OSError:
+            pass
+    _crash_file = handle
+
+    previous = threading.excepthook
+
+    def thread_died(info) -> None:
+        if info.exc_type is not SystemExit:
+            name = info.thread.name if info.thread is not None else "?"
+            log.critical("A worker thread (%s) stopped on an uncaught error", name,
+                         exc_info=(info.exc_type, info.exc_value, info.exc_traceback))
+        previous(info)
+
+    if getattr(threading.excepthook, "__name__", "") != "thread_died":
+        threading.excepthook = thread_died
+    log.info("Crash log: %s", path)
+    return path
+
+
 def report(message: str, title: str = "Teto Relay") -> None:
     """Show a message to the person, wherever they can see it.
 
@@ -213,6 +268,9 @@ def _run(args, cfg: Config) -> int:
         if not banks:
             print("  (none - a voicebank is a folder with an oto.ini and .wav samples)")
         return 0
+
+    # Everything below runs the relay: native code (audio, CUDA, .NET) from here on.
+    record_crashes(cfg)
 
     if args.web:
         from .webui import serve

@@ -66,6 +66,32 @@ def _available_memory() -> int | None:
 _NEEDED_BYTES_MAPPED = 400_000_000
 
 
+#: Free memory wanted before the aligner is loaded *ahead of need*, in the
+#: background while the microphone opens. Whisper, pitch tracking and the
+#: OpenUtau host are loaded by then; on a laptop with 6 GB a download plus a
+#: full 2.5 GB load swapped the PC hard enough that the microphone seemed dead
+#: and the app fell over. The memory-mapped load needs far less, so this only
+#: keeps a margin. Loaded on first use instead, it is a one-off wait.
+_PRELOAD_FREE_BYTES = 1_500_000_000
+
+
+def preload_skip_reason(cfg) -> str | None:
+    """Why the aligner should not be loaded ahead of need now, or None if it
+    is safe: it is already loaded, or downloaded with plenty of memory free."""
+    if _bundle is not None:
+        return None
+    try:
+        path = _checkpoint()
+    except Exception:  # noqa: BLE001 - no torch hub cache to look in
+        path = None
+    if path is None:
+        return "it is not downloaded yet"
+    free = _available_memory()
+    if free is not None and free < _PRELOAD_FREE_BYTES:
+        return f"only {free / 1e9:.1f} GB of memory is free"
+    return None
+
+
 def _checkpoint():
     """The downloaded MMS_FA checkpoint, wherever torch's hub cache has it."""
     import torch

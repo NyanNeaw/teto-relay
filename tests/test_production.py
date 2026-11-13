@@ -1683,7 +1683,10 @@ class TestFasterReplies(unittest.TestCase):
                               (Config(align_morae=False, align_boundaries=False, use_alignment=False), False)):
             loaded.clear()
             relay.cfg = cfg
-            with unittest.mock.patch.object(align, "_load", lambda c: loaded.set()):
+            # Downloaded, memory to spare: whether it is safe is tested on its
+            # own (test_busy_pc); this is only about which settings want it.
+            with unittest.mock.patch.object(align, "_load", lambda c: loaded.set()), \
+                    unittest.mock.patch.object(align, "preload_skip_reason", lambda c: None):
                 relay._preload_in_background()
                 self.assertEqual(loaded.wait(2.0), expected)
 

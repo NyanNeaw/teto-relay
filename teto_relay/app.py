@@ -289,6 +289,11 @@ class TetoRelay:
         cfg = self.cfg
         if not (cfg.use_alignment or getattr(cfg, "align_boundaries", False) or cfg.align_morae):
             return
+        reason = align.preload_skip_reason(cfg)
+        if reason:
+            log.info("Syllable timing is not loaded ahead (%s); it loads when it is first needed",
+                     reason)
+            return
 
         def load() -> None:
             try:
