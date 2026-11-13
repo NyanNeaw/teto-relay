@@ -8,6 +8,9 @@ comes out of a virtual audio cable, so Discord, OBS or a game can use her as
 your microphone. It speaks English, ไทย and 日本語, and works with any UTAU
 voicebank.
 
+Sing a whole song in **Studio**, shape how she sounds in **Tune**, and get or
+share tunings, voicebanks and sounds in the **Market**.
+
 *Inspired by [Acrylic](https://www.youtube.com/@hi-im-acrylic)'s video [How I Made A Kasane Teto Voice Changer (kind of...)](https://www.youtube.com/watch?v=z4qr0D6cSmU)
 and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-to-teto).*
 
@@ -19,7 +22,7 @@ and project [speech-to-text-to-teto](https://github.com/acrylicc/speech-to-text-
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/panel-dark.png">
-  <img alt="The Teto Relay control panel: Teto's voicebank and the last phrase she sang, with its melody, on the left; style, language, microphone, output and Hear myself on the right" src="docs/images/panel-light.png">
+  <img alt="Teto Relay's Live page: Teto's voicebank card and the lyrics notepad on the left; the last phrase she sang with its melody, the delay, and the quick settings (talk key, style, transpose, volume, language, Hear myself) on the right" src="docs/images/panel-light.png">
 </picture>
 
 ## Download
@@ -44,15 +47,15 @@ before you download.** It shows the whole setup in pictures.
 
 | | |
 |---|---|
-| **A UTAU voicebank** | Her voice. Kasane Teto's 単独音 (tandoku) bank sounds best; any UTAU bank works. Drag its `.zip` onto the app. |
+| **A UTAU voicebank** | Her voice. Kasane Teto's 単独音 (tandoku) bank sounds best; any UTAU bank works. Press **Add voicebank** (or drag it onto the app): a `.zip`, `.rar`, `.7z` or `.uar`, or a folder. |
 | **[VB-Cable](https://vb-audio.com/Cable/)** | Only for Discord, OBS and other apps: the virtual cable she sings into. Restart after installing. |
 | **OpenUtau** | The installer gets it. With the portable zip, get [OpenUtau](https://github.com/stakira/OpenUtau/releases) yourself and unzip it anywhere. |
 | **An NVIDIA graphics card** | Optional. Listening is faster with one. |
 
-Then: open Teto Relay, press **Check setup** (it tells you anything that's
-missing), pick a voice, set **Output** to **CABLE Input**, press **Start**,
-and **hold F8 while you talk**. In Discord or OBS, choose **CABLE Output** as
-the microphone.
+Then: open Teto Relay, press **Check setup** in the settings (the gear; it
+tells you anything that's missing), pick a voice, set **Output** to
+**CABLE Input**, press **Start**, and **hold F8 while you talk**. In Discord
+or OBS, choose **CABLE Output** as the microphone.
 
 ## How it works
 
@@ -71,36 +74,64 @@ Turn on **Hear myself** to hear her in your headphones too. Minimize the
 window and a small player stays on top in the corner, with Start, Record,
 Hear myself and a hold-to-talk button.
 
-## Song covers
+## Studio: whole songs
 
-Press the round **Record** button next to Start and sing along to a song
-(headphones for the music). No key needed: each pause ends a line. While you
-record she isn't sent out as your microphone; turn on Hear myself to hear
-her. Press it again and the take opens:
+Press the round **Record** button and sing along to a song (headphones for the
+music). No key needed: each pause ends a line. While you record she isn't sent
+out as your microphone; turn on Hear myself to hear her.
 
-- **Play it back** on a piano roll.
-- **Fix a word she misheard**: click the line, type the right word, and she
-  sings that line again with the same timing and melody.
-- **Edit her notes, like a small OpenUtau**: drag a note up or down to change
-  its pitch, sideways to move it, drag its edge to make it longer or
-  shorter, split, join, rename or delete it. Her tuning follows the notes.
-- **Drag it straight into FL Studio** or any DAW. It lines up with the music
-  from where you pressed Record. Or download her singing (.wav), the OpenUtau
-  project (.ustx), or everything as a .zip.
+- **Every line is a clip on a lane**, where you sang it: up to 16 lanes for
+  her voice, plus audio lanes for music and sounds. Drag clips to move them.
+- **Add your backing track** and record over it. Press **Calibrate** once so
+  every line lands on the beat.
+- **Click a clip to edit it** in the piano roll underneath, like a small
+  OpenUtau: fix a misheard word, drag a note up or down, make it longer or
+  shorter, split or join notes. Her tuning follows the notes.
+- **Another voice for any part**: **Voice…** sings it again with another
+  voicebank or tuning, on its own lane for harmonies.
+- **Drag it into FL Studio** or any DAW, or download her singing (.wav), her
+  singing over the music (mix.wav), the OpenUtau project (.ustx), or
+  everything as a .zip.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/editor-dark.png">
-  <img width="640" alt="A take open in Teto Relay: a line's notes on a piano roll with her pitch line drawn over them, a note selected, the editing toolbar, the words of the line, and the DAW tile with its three download buttons" src="docs/images/editor-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/studio-dark.png">
+  <img width="720" alt="Teto Relay's Studio page: the Library of projects on the left; the playlist with a music lane and her lines as clips on several Teto lanes; the piano roll, mixer and lyrics tabs underneath" src="docs/images/studio-light.png">
 </picture>
 
-Singing a real song? Paste its lyrics into **Song lyrics** first, in any of
-the three languages, so every word is heard right.
+Singing a real song? Paste its lyrics into the **Lyrics** notepad first, in
+any of the three languages, so every word is heard right. Teto Relay follows
+along as you sing, even in a long song.
+
+## Tune: how she sounds
+
+Pick a tuning card: **12 are built in**, from *Just like you* to *Metal
+scream*, *Robot*, *Diva*, *Choir*, *Lo-fi radio*, *Kawaii*, *Demon* and
+*Rap*. Then turn the four **Character** knobs (Grit, Air, Bright, Size), or go
+deeper: effects such as drive, growl, radio, chorus and reverb, her tone, and
+the shape of every note. **Hear it** sings your last phrase again with the
+change. Save your own tuning, or export it as a small `.tetostyle` file to
+share.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/tune-dark.png">
+  <img width="720" alt="Teto Relay's Tune page: the 12 built-in tunings as cards, the four Character knobs underneath, and the Hear it button with the last phrase on the right" src="docs/images/tune-light.png">
+</picture>
+
+## The Market
+
+Get tunings, voicebanks and sounds that other people made, each with a demo
+to play first. Make an account to **Share** your own. A shared voicebank
+installs in one click, and a sound drags straight onto a Studio lane. Things
+with a price link to the creator's own shop; the Market never takes payment.
+Kasane Teto's voicebank is only ever a link to her official site.
 
 ## Known issues in this beta
 
 - About **2 seconds** pass between letting go of the key and hearing her.
 - Speech recognition sometimes mishears, especially singing. For a real
-  song, paste the lyrics into **Song lyrics** first.
+  song, paste the lyrics into the **Lyrics** notepad first, or fix the word
+  afterwards in Studio.
+- Market accounts have no email check or password reset yet.
 - Japanese voicebanks sing English and Thai as Japanese syllables, which is
   charming but not always clear.
 - Windows only.
@@ -138,6 +169,7 @@ hardware, OpenUtau or GPU needed). To build the app, installer and zip, run
 teto_relay/          the app: capture, speech-to-text, pitch, notes, rendering, playback
 teto_relay/render/   the OpenUtau engine host and the tone-only fallback
 teto_relay/web/      the control panel
+market-server/       the Market: a Cloudflare Worker (see its README)
 packaging/           PyInstaller spec, installer script, build script
 docs/                setup guide and the how-to-use page
 tests/, tools/       unit tests, and scripts that test one stage at a time
