@@ -124,16 +124,19 @@ def clean_lyric(text: str) -> str:
     return word.translate(_STRIP).strip()
 
 
-def whisper_prompt(cfg) -> str | None:
+def whisper_prompt(cfg, lyrics: str | None = None) -> str | None:
     """The vocabulary hint, then the song lyrics if any.
 
     Speech models mishear singing: the user's Senbonzakura came back as
     全部覚悟が夜にまじで... from base, small and medium alike. Given the lyric
     (lyrics_hint) as the text that came before, all three heard it exactly.
     It leans every phrase towards those words, so it is for singing a song
-    and should be cleared afterwards.
+    and should be cleared afterwards. `lyrics`: the part of them to send
+    (Transcriber follows the singer through a song longer than whisper reads).
     """
-    parts = [str(cfg.initial_prompt or "").strip(), str(getattr(cfg, "lyrics_hint", "") or "").strip()]
+    if lyrics is None:
+        lyrics = str(getattr(cfg, "lyrics_hint", "") or "")
+    parts = [str(cfg.initial_prompt or "").strip(), lyrics.strip()]
     return " ".join(p for p in parts if p) or None
 
 
@@ -445,6 +448,10 @@ class Transcriber:
         self._model = None
         self._thai = None  # thai_asr.ThaiTranscriber, for Thai speech
         self._lock = threading.Lock()
+        # Where the singer is in the Song lyrics (a lyric word index), and
+        # the lyrics that is for: whisper is sent the part being sung.
+        self._lyric_at = 0
+        self._lyric_text = ""
 
     def load(self) -> None:
         """Load the model up front so the first utterance is not slow."""
@@ -475,6 +482,48 @@ class Transcriber:
                 compute_type=compute_type,
             )
             log.info("Whisper ready")
+
+    def _count_tokens(self, text: str) -> int:
+        """Tokens `text` is to whisper; without its tokenizer, a safe guess
+        (a token per three bytes: about one per kana or kanji, fewer than
+        English really takes)."""
+        try:
+            return len(self._model.hf_tokenizer.encode(" " + text.strip(), add_special_tokens=False).ids)
+        except Exception:  # noqa: BLE001 - a fake or older model
+            return len(text.strip().encode("utf-8")) // 3 + 1
+
+    def _song_prompt(self) -> str | None:
+        """whisper_prompt with the Song lyrics cut to the part being sung:
+        whisper reads only the last 223 tokens of its prompt, and a whole
+        song pasted in left it only the song's ending."""
+        lyrics = str(getattr(self.cfg, "lyrics_hint", "") or "").strip()
+        if lyrics != getattr(self, "_lyric_text", None):
+            self._lyric_text, self._lyric_at = lyrics, 0   # a new song starts at its top
+        if not lyrics:
+            return whisper_prompt(self.cfg, "")
+        from .lyrics import window
+
+        room = WHISPER_CONTEXT // 2 - 1
+        base = str(self.cfg.initial_prompt or "").strip()
+        if self._count_tokens(" ".join(p for p in (base, lyrics) if p)) <= room:
+            return whisper_prompt(self.cfg, lyrics)      # all of it fits
+        part = window(lyrics, getattr(self, "_lyric_at", 0),
+                      lambda text: self._count_tokens(" ".join(p for p in (base, text) if p)) <= room)
+        return whisper_prompt(self.cfg, part)
+
+    def _follow_song(self, words: list[Word]) -> None:
+        """Move the place in the song to the end of what was just sung."""
+        if not getattr(self, "_lyric_text", "") or not words:
+            return
+        try:
+            from .lyrics import locate
+
+            at = locate(words, self._lyric_text, getattr(self, "_lyric_at", 0))
+        except Exception:  # noqa: BLE001 - following the song must never cost the phrase
+            log.debug("could not place the phrase in the lyrics", exc_info=True)
+            return
+        if at is not None:
+            self._lyric_at = at
 
     def _prompt_tokens(self, prompt: str | None) -> int:
         """Tokens of the prompt as faster-whisper sends it: <|startofprev|>,
@@ -522,7 +571,7 @@ class Transcriber:
                 words = snap(words, lyrics)
             return words
 
-        prompt = whisper_prompt(self.cfg)
+        prompt = self._song_prompt()
         budget = max_new_tokens(len(audio) / sample_rate, self._prompt_tokens(prompt))
         segments, _info = self._model.transcribe(
             audio.astype(np.float32),
@@ -624,4 +673,5 @@ class Transcriber:
         if dropped:
             log.info("Discarded %d low-confidence segment(s)", dropped)
         log.info("Transcribed %d word(s): %s", len(words), " ".join(w.text for w in words))
+        self._follow_song(words)
         return words

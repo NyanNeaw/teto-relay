@@ -25,9 +25,16 @@ OTHER_ENGINES = {
     "enuconfig.yaml": "an ENUNU voicebank",
     "vogen.json": "a Vogen voicebank",
 }
-ARCHIVES_WE_CANNOT_OPEN = (".rar", ".7z", ".lzh", ".tar", ".gz")
+#: Archives opened with a tool on the PC rather than by Python: 7-Zip when it
+#: is installed, otherwise the tar.exe Windows 10 and 11 ship (libarchive),
+#: which reads .rar and .7z too. Voicebanks, Thai ones especially, are often
+#: shared as .rar.
+TOOL_ARCHIVES = (".rar", ".7z", ".lzh", ".tar", ".gz", ".tgz")
+ARCHIVES_WE_CANNOT_OPEN = ()
 #: What the upload accepts. .uar is UTAU's installer archive, a renamed zip.
-VOICEBANK_ARCHIVES = (".zip", ".uar")
+VOICEBANK_ARCHIVES = (".zip", ".uar") + TOOL_ARCHIVES
+#: How long unpacking with a tool may take.
+UNPACK_SECONDS = 600
 MAX_UPLOAD = 1_500_000_000  # 1.5 GB - a multi-pitch voicebank can be several hundred MB
 MAX_UNPACKED = 4_000_000_000  # what a voicebank zip may expand to
 
@@ -122,20 +129,154 @@ def _check_samples(bank: Path) -> tuple[int, int]:
     return named, missing
 
 
+def _archive_tools() -> list[list[str]]:
+    """The commands that can unpack a .rar or .7z here, best first."""
+    import os
+
+    tools = []
+    for path in (Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "7-Zip" / "7z.exe",
+                 Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "7-Zip" / "7z.exe"):
+        if path.is_file():
+            tools.append([str(path)])
+            break
+    found = shutil.which("7z")
+    if found and not tools:
+        tools.append([found])
+    tar = shutil.which("tar")
+    if tar:
+        tools.append([tar])
+    return tools
+
+
+def _listed_size(tool: list[str], archive: Path) -> int | None:
+    """What the archive says it unpacks to, in bytes; None if it won't say."""
+    import subprocess
+
+    seven = Path(tool[0]).stem.lower() == "7z"
+    cmd = tool + (["l", "-slt", "-sccUTF-8", str(archive)] if seven else ["-tvf", str(archive)])
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=120, creationflags=_NO_WINDOW).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    text = out.decode("utf-8", errors="replace")
+    total = 0
+    for line in text.splitlines():
+        if seven:
+            if line.startswith("Size = "):
+                total += int(line[7:].strip() or 0)
+        else:
+            parts = line.split()
+            if len(parts) > 4 and parts[4].isdigit():
+                total += int(parts[4])
+    return total
+
+
+def _unpack_with_tool(data: bytes, suffix: str, staging: Path, root: Path) -> None:
+    """Unpack a .rar/.7z/... into `staging` with 7-Zip or tar.exe. Checks
+    what it would unpack to first, and afterwards that nothing landed outside
+    `staging` and no link was made. Raises ValueError saying what to do."""
+    import subprocess
+
+    help_ = ("Unpack it yourself (7-Zip or WinRAR), then add the folder with Add voicebank "
+             "> folder, or zip the folder and add that.")
+    tools = _archive_tools()
+    if not tools:
+        raise ValueError(f"{suffix} files need 7-Zip on this PC to be opened. {help_}")
+    archive = root / f".installing-archive{suffix}"
+    archive.write_bytes(data)
+    try:
+        last = ""
+        for tool in tools:
+            size = _listed_size(tool, archive)
+            if size is None or size == 0:
+                last = "it could not be read"
+                continue
+            if size > MAX_UNPACKED:
+                raise ValueError(f"That archive would unpack to {size/1e9:.1f} GB; a voicebank is at most "
+                                 f"{MAX_UNPACKED/1e9:.0f} GB, so it was not installed.")
+            free = shutil.disk_usage(root).free
+            if size > free:
+                raise ValueError(f"Not enough disk space: the voicebank needs {size/1e9:.1f} GB "
+                                 f"and {free/1e9:.1f} GB is free.")
+            seven = Path(tool[0]).stem.lower() == "7z"
+            cmd = tool + (["x", "-y", "-bd", f"-o{staging}", str(archive)] if seven
+                          else ["-xf", str(archive), "-C", str(staging)])
+            try:
+                done = subprocess.run(cmd, capture_output=True, timeout=UNPACK_SECONDS, creationflags=_NO_WINDOW)
+            except subprocess.TimeoutExpired:
+                raise ValueError(f"Unpacking took too long. {help_}") from None
+            except OSError as exc:
+                last = str(exc)
+                continue
+            if done.returncode == 0:
+                break
+            # Windows' tar skips names outside the PC's own alphabet (the kana
+            # of a Japanese bank: あ.wav), so a bank comes out half empty.
+            for leftover in list(staging.iterdir()):
+                shutil.rmtree(leftover, ignore_errors=True) if leftover.is_dir() else leftover.unlink(missing_ok=True)
+            said = (done.stderr or b"").decode("utf-8", errors="replace")
+            last = ("some file names couldn't be read; installing 7-Zip (free, 7-zip.org) fixes that"
+                    if "filename" in said else (said.strip().splitlines()[-1:] or ["failed"])[0])
+        else:
+            raise ValueError(f"That {suffix} file couldn't be opened ({last}). {help_}")
+    finally:
+        archive.unlink(missing_ok=True)
+    # Nothing outside the staging folder, and no links that could point there.
+    top = staging.resolve()
+    for path in list(staging.rglob("*")):
+        if path.is_symlink():
+            path.unlink()
+            continue
+        if top not in path.resolve().parents and path.resolve() != top:
+            raise ValueError("That archive tried to write outside its folder, so it was not installed.")
+    if not any(staging.iterdir()):
+        raise ValueError(f"That {suffix} file is empty. {help_}")
+
+
+def _unpack_zip(data: bytes, staging: Path, root: Path) -> None:
+    """Unpack a .zip or .uar into `staging`, its names decoded and checked."""
+    import io
+
+    try:
+        archive = zipfile.ZipFile(io.BytesIO(data))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("That file is not a valid .zip.") from exc
+    with archive:
+        _decode_names(archive)
+        members = _safe_members(archive)
+        if not members:
+            raise ValueError("That zip is empty, or every entry was unsafe to extract.")
+        # The upload size is capped, but a small zip can claim to unpack
+        # to terabytes. Check what it says before writing any of it.
+        unpacked = sum(m.file_size for m in members)
+        if unpacked > MAX_UNPACKED:
+            raise ValueError(
+                f"That zip would unpack to {unpacked/1e9:.1f} GB; a voicebank is "
+                f"at most {MAX_UNPACKED/1e9:.0f} GB, so it was not installed."
+            )
+        free = shutil.disk_usage(root).free
+        if unpacked > free:
+            raise ValueError(
+                f"Not enough disk space: the voicebank needs {unpacked/1e9:.1f} GB "
+                f"and {free/1e9:.1f} GB is free."
+            )
+        archive.extractall(staging, members=members)
+
+
+#: Run tools without flashing a console window (Windows).
+_NO_WINDOW = 0x08000000 if __import__("os").name == "nt" else 0
+
+
 def install_voicebank(data: bytes, filename: str, root: Path) -> dict:
-    """Unpack an uploaded voicebank zip into the library.
+    """Unpack an uploaded voicebank into the library: a .zip or .uar (read
+    here), or a .rar, .7z and the like (unpacked with 7-Zip or Windows'
+    tar.exe). A folder arrives as a .zip the panel packs.
 
     Returns a summary; raises ValueError with something the user can act on.
     """
     lower = filename.lower()
-    if lower.endswith(ARCHIVES_WE_CANNOT_OPEN):
-        raise ValueError(
-            f"{Path(filename).suffix} files can't be opened here. Unpack it, then either "
-            "zip the voicebank folder and add that, or copy the folder into your "
-            "voicebank folder (Setup shows where)."
-        )
     if not lower.endswith(VOICEBANK_ARCHIVES):
-        raise ValueError("A voicebank must be a .zip of the bank folder.")
+        raise ValueError("A voicebank must be its folder, or an archive of it (.zip, .rar, .7z or .uar).")
     if len(data) > MAX_UPLOAD:
         raise ValueError(f"That file is {len(data)/1e9:.1f} GB; the limit is 1.5 GB.")
 
@@ -147,32 +288,10 @@ def install_voicebank(data: bytes, filename: str, root: Path) -> dict:
     staging.mkdir(parents=True)
 
     try:
-        import io
-
-        try:
-            archive = zipfile.ZipFile(io.BytesIO(data))
-        except zipfile.BadZipFile as exc:
-            raise ValueError("That file is not a valid .zip.") from exc
-        with archive:
-            _decode_names(archive)
-            members = _safe_members(archive)
-            if not members:
-                raise ValueError("That zip is empty, or every entry was unsafe to extract.")
-            # The upload size is capped, but a small zip can claim to unpack
-            # to terabytes. Check what it says before writing any of it.
-            unpacked = sum(m.file_size for m in members)
-            if unpacked > MAX_UNPACKED:
-                raise ValueError(
-                    f"That zip would unpack to {unpacked/1e9:.1f} GB; a voicebank is "
-                    f"at most {MAX_UNPACKED/1e9:.0f} GB, so it was not installed."
-                )
-            free = shutil.disk_usage(root).free
-            if unpacked > free:
-                raise ValueError(
-                    f"Not enough disk space: the voicebank needs {unpacked/1e9:.1f} GB "
-                    f"and {free/1e9:.1f} GB is free."
-                )
-            archive.extractall(staging, members=members)
+        if lower.endswith(TOOL_ARCHIVES):
+            _unpack_with_tool(data, Path(filename).suffix.lower(), staging, root)
+        else:
+            _unpack_zip(data, staging, root)
 
         found = _find_bank_root(staging)
         if found is None:

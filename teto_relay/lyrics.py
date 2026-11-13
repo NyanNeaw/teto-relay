@@ -39,21 +39,32 @@ def _letters(text: str) -> str:
 
 
 @functools.lru_cache(maxsize=4)
+def _split(lyrics: str) -> tuple[tuple[str, ...], tuple[tuple[int, int], ...]]:
+    """The lyrics' words, and for each word the span of the pasted text it
+    came from (several words share one span: a Thai run, "97")."""
+    words: list[str] = []
+    spans: list[tuple[int, int]] = []
+    for m in re.finditer(r"\S+", str(lyrics or "")):
+        piece, parts, rest = m.group(), [], 0
+        for t in _THAI.finditer(piece):
+            if t.start() > rest:
+                parts.append(piece[rest:t.start()])
+            parts.extend(_thai_words(t.group()))
+            rest = t.end()
+        if rest < len(piece):
+            parts.append(piece[rest:])
+        for word in (clean_lyric(p) for p in parts):
+            if _letters(word):
+                words.append(word)
+                spans.append(m.span())
+    return tuple(words), tuple(spans)
+
+
 def lyric_words(lyrics: str) -> tuple[str, ...]:
     """The pasted lyrics as words: split on spaces, and Thai runs (written
     without spaces) cut into words. Kept, since the same lyrics are looked up
     for every phrase of a song."""
-    out: list[str] = []
-    for piece in str(lyrics or "").split():
-        rest = 0
-        for m in _THAI.finditer(piece):
-            if m.start() > rest:
-                out.append(piece[rest:m.start()])
-            out.extend(_thai_words(m.group()))
-            rest = m.end()
-        if rest < len(piece):
-            out.append(piece[rest:])
-    return tuple(w for w in (clean_lyric(w) for w in out) if _letters(w))
+    return _split(lyrics)[0]
 
 
 def _thai_words(run: str) -> list[str]:
@@ -102,6 +113,71 @@ def _align(heard: str, ref: str) -> tuple[int, int, list[int | None]]:
             j -= 1
     start = j
     return edits, start, [pairs.get(k) for k in range(start, end)]
+
+
+#: Lyric words kept before where the singer is, when the lyrics are cut to
+#: what whisper can read (`window`): the line just sung leads into the next.
+WINDOW_BEFORE = 12
+
+
+def _ref(song: tuple[str, ...], first: int) -> tuple[str, list[int]]:
+    ref, owner = "", []
+    for index in range(first, len(song)):
+        letters = _letters(song[index])
+        ref += letters
+        owner.extend([index] * len(letters))
+    return ref, owner
+
+
+def locate(words: list[Word], lyrics: str, near: int = 0) -> int | None:
+    """Where in the lyrics a heard phrase ends: the index of the lyric word
+    after it, or None when it is no stretch of the lyrics (talking).
+
+    Looked for from a little before `near` (where the singer was) first, so
+    a chorus sung again is found where the song is, not where it was first
+    sung; then anywhere, for a singer who went back."""
+    heard = "".join(_letters(w.text) for w in words)
+    song = lyric_words(lyrics)
+    if len(heard) < MIN_LETTERS or not song:
+        return None
+    starts = (max(0, near - WINDOW_BEFORE), 0) if near > WINDOW_BEFORE else (0,)
+    for first in starts:
+        ref, owner = _ref(song, first)
+        if not ref:
+            continue
+        edits, start, lined = _align(heard, ref)
+        if lined and edits <= MAX_ERROR * len(heard):
+            return owner[start + len(lined) - 1] + 1
+    return None
+
+
+def window(lyrics: str, cursor: int, fits=None) -> str:
+    """The lyrics from a few words before `cursor` on, as many as `fits(text)`
+    allows.
+
+    Whisper reads at most 223 tokens of prompt and keeps the end of a longer
+    one, so a whole song pasted in told it only how the song ends: the verse
+    being sung was not in what it read. Following the singer, it reads the
+    part being sung and what comes next. The text is cut from the lyrics as
+    pasted, lines and all."""
+    song, spans = _split(lyrics)
+    if not song:
+        return ""
+    start = max(0, min(cursor, len(song)) - WINDOW_BEFORE)
+    if start >= len(song) - 1:
+        start = 0          # the end of the song: the next phrase may start it again
+    text = str(lyrics)
+    cut = lambda count: text[spans[start][0]:spans[start + count - 1][1]].strip()  # noqa: E731
+    if fits is None:
+        return cut(len(song) - start)
+    lo, hi = 1, len(song) - start
+    while lo < hi:          # the most words that fit
+        mid = (lo + hi + 1) // 2
+        if fits(cut(mid)):
+            lo = mid
+        else:
+            hi = mid - 1
+    return cut(lo)
 
 
 def snap(words: list[Word], lyrics: str) -> list[Word]:

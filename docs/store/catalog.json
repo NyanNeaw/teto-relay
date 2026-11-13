@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "updated": "2026-11-12",
+  "updated": "2026-11-13",
   "presets": [
     {
       "id": "just-like-you",
@@ -13,43 +13,106 @@
       "id": "pop-singer",
       "name": "Pop singer",
       "author": "Teto Relay",
-      "description": "What you say becomes a tune in a major key, with a light vibrato and a doubled voice.",
+      "description": "A bright, doubled lead: what you say becomes a tune in a major key.",
       "url": "https://nyanneaw.github.io/teto-relay/store/presets/pop-singer.tetostyle"
+    },
+    {
+      "id": "whisper",
+      "name": "Whisper",
+      "author": "Teto Relay",
+      "description": "Half voiced, close to the mic, soft as a secret.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/whisper.tetostyle"
+    },
+    {
+      "id": "metal-scream",
+      "name": "Metal scream",
+      "author": "Teto Relay",
+      "description": "Pressed, distorted and fried, in a minor key. Every line is a scream.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/metal-scream.tetostyle"
     },
     {
       "id": "robot",
       "name": "Robot",
       "author": "Teto Relay",
-      "description": "Flat, even notes with no bends, no vibrato and a gap between words. A machine reading aloud.",
+      "description": "Flat machine notes, ring-modulated and crushed. No bends, no vibrato.",
       "url": "https://nyanneaw.github.io/teto-relay/store/presets/robot.tetostyle"
     },
     {
       "id": "diva",
       "name": "Diva",
       "author": "Teto Relay",
-      "description": "A wide, dramatic melody in a minor key, a deep slow vibrato, and a last note held long.",
+      "description": "An opera voice: a wide minor melody, a huge slow vibrato, a hall.",
       "url": "https://nyanneaw.github.io/teto-relay/store/presets/diva.tetostyle"
-    },
-    {
-      "id": "cover-song",
-      "name": "Cover song",
-      "author": "Teto Relay",
-      "description": "For singing a real song over its music: she sings the notes you sing, in your key, with a little vibrato on long notes.",
-      "url": "https://nyanneaw.github.io/teto-relay/store/presets/cover-song.tetostyle"
-    },
-    {
-      "id": "lullaby",
-      "name": "Lullaby",
-      "author": "Teto Relay",
-      "description": "Soft and slow: a gentle five-note melody, a faint vibrato, long last notes and a single voice.",
-      "url": "https://nyanneaw.github.io/teto-relay/store/presets/lullaby.tetostyle"
     },
     {
       "id": "choir",
       "name": "Choir",
       "author": "Teto Relay",
-      "description": "A big, layered sound in a major key: the doubled voice turned all the way up.",
+      "description": "Many voices in a big room: chorused, doubled, an octave above.",
       "url": "https://nyanneaw.github.io/teto-relay/store/presets/choir.tetostyle"
+    },
+    {
+      "id": "lo-fi-radio",
+      "name": "Lo-fi radio",
+      "author": "Teto Relay",
+      "description": "An old telephone speaker: narrow, crunchy, a little hiss.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/lo-fi-radio.tetostyle"
+    },
+    {
+      "id": "kawaii",
+      "name": "Kawaii",
+      "author": "Teto Relay",
+      "description": "Tiny and bright, with a fast cute vibrato and an octave up.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/kawaii.tetostyle"
+    },
+    {
+      "id": "demon",
+      "name": "Demon",
+      "author": "Teto Relay",
+      "description": "A giant low voice an octave down, with a slow growl, in a cave.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/demon.tetostyle"
+    },
+    {
+      "id": "lullaby",
+      "name": "Lullaby",
+      "author": "Teto Relay",
+      "description": "Slow, soft and round: a gentle five-note melody and long last notes.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/lullaby.tetostyle"
+    },
+    {
+      "id": "rap",
+      "name": "Rap",
+      "author": "Teto Relay",
+      "description": "Clipped and rhythmic, nearly one note, doubled every line.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/rap.tetostyle"
+    },
+    {
+      "id": "cover-song",
+      "name": "Cover song",
+      "author": "Teto Relay",
+      "description": "For singing a real song over its music: she sings the notes you sing, in your key, bright and doubled like a pop lead.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/cover-song.tetostyle"
+    },
+    {
+      "id": "angel",
+      "name": "Angel",
+      "author": "Teto Relay",
+      "description": "Airy and high, with a soft octave above and a cathedral around her.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/angel.tetostyle"
+    },
+    {
+      "id": "vaporwave",
+      "name": "Vaporwave",
+      "author": "Teto Relay",
+      "description": "Warm, washed-out and dreamy: dark, chorused, a little lo-fi, a slow lazy vibrato.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/vaporwave.tetostyle"
+    },
+    {
+      "id": "horror",
+      "name": "Horror",
+      "author": "Teto Relay",
+      "description": "A breathy, haunted voice with a slow wobble, a low shadow and a cold metallic edge.",
+      "url": "https://nyanneaw.github.io/teto-relay/store/presets/horror.tetostyle"
     }
   ],
   "voicebanks": [

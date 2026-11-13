@@ -39,8 +39,14 @@ ESSENTIALS: list[str] = [
 # "All settings", in order of how often they matter. Anything not listed still
 # appears, under "Other", so new options are never silently hidden.
 GROUPS: dict[str, list[str]] = {
+    # Her tone, the way an OpenUtau tuner sets it, then effects after the render.
+    "Voice": ["tone_gender", "tone_tension", "tone_breath", "tone_voicing"],
+    "Note shape": ["note_scoop_cents", "note_fall_cents", "consonant_speed", "note_attack", "note_release"],
+    "Effects": ["fx_drive", "fx_growl", "fx_growl_hz", "fx_octave", "fx_bright", "fx_ring", "fx_crush",
+                "fx_band", "fx_air", "fx_chorus", "fx_reverb", "fx_size"],
     "Singing": [
-        "legato", "expressive", "double_voice", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
+        "sing_source", "legato", "expressive", "double_voice", "scale", "scale_key", "sung_melody_range",
+        "sung_contour_amount",
         "melody_step", "melody_min_note_seconds",
         "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms",
         "final_hold_seconds", "emit_contour",
@@ -53,7 +59,7 @@ GROUPS: dict[str, list[str]] = {
     ],
     "Recording": ["capture_mode", "silence_ms", "min_chunk_ms", "max_chunk_ms"],
     # Where things are. Empty means "look in the usual places".
-    "Setup": ["monitor_device", "openutau_dir", "voicebank_root", "renderer_backend", "lyric_mode",
+    "Setup": ["monitor_device", "openutau_dir", "voicebank_root", "market_url", "renderer_backend", "lyric_mode",
               "persistent_output", "keep_input_audio", "panel_window"],
     "Fine tuning: pitch": [
         "target_tone", "shift_mode", "stable_shift", "shift_tolerance", "max_shift",
@@ -71,6 +77,9 @@ GROUPS: dict[str, list[str]] = {
 # Each group's icon, a line under its title, and whether it starts folded away.
 GROUP_INFO: dict[str, dict] = {
     "Singing": {"icon": "note"},
+    "Voice": {"icon": "mic", "note": "Her tone, as OpenUtau shapes it."},
+    "Note shape": {"icon": "pitch", "note": "How each note starts and ends: scoops, fall-offs, a hard or soft attack."},
+    "Effects": {"icon": "wave", "note": "After she sings: scream, robot, radio, hall."},
     "Listening": {"icon": "ear"},
     "Recording": {"icon": "wave"},
     "Setup": {"icon": "folder"},
@@ -189,6 +198,27 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "vibrato_depth_cents": (0, 100, 5),
     "vibrato_period_ms": (80, 400, 5),
     "final_hold_seconds": (0, 1.5, 0.05),
+    "tone_gender": (-100, 100, 5),
+    "tone_tension": (-100, 100, 5),
+    "tone_breath": (0, 100, 5),
+    "tone_voicing": (0, 100, 5),
+    "note_scoop_cents": (0, 400, 10),
+    "note_fall_cents": (0, 1200, 25),
+    "consonant_speed": (0, 200, 5),
+    "note_attack": (0, 200, 5),
+    "note_release": (0, 100, 5),
+    "fx_octave": (-1, 1, 0.05),
+    "fx_bright": (-1, 1, 0.05),
+    "fx_drive": (0, 1, 0.05),
+    "fx_growl": (0, 1, 0.05),
+    "fx_growl_hz": (30, 120, 5),
+    "fx_ring": (0, 1, 0.05),
+    "fx_crush": (0, 1, 0.05),
+    "fx_band": (0, 1, 0.05),
+    "fx_air": (0, 1, 0.05),
+    "fx_chorus": (0, 1, 0.05),
+    "fx_reverb": (0, 1, 0.05),
+    "fx_size": (0, 1, 0.05),
 }
 
 # Settings whose value is a duration in seconds, shown as ms on the slider
@@ -203,6 +233,7 @@ SECONDS = {
 LABELS: dict[str, list[str]] = {
     "openutau_dir": ["OpenUtau folder", "Empty finds it."],
     "voicebank_root": ["Voicebank folder", "Empty finds it."],
+    "market_url": ["Market server", "Where people share tunings, voicebanks and sounds. Empty: the one this app came with, if any, else the built-in list."],
     "input_device": ["Microphone", ""],
     "output_device": ["Output", "VB-Cable sends her into other apps."],
     "hear_myself": ["Hear myself", "Hear her in your headphones too. Takes are only heard here."],
@@ -242,8 +273,10 @@ LABELS: dict[str, list[str]] = {
     "contour_smooth_ms": ["Intonation smoothing", ""],
     "contour_points": ["Intonation detail", ""],
     "contour_range_cents": ["Intonation range", ""],
-    "singing_style": ["Style", "Speak follows your voice. Sing turns talking into a tune, in a key. "
-                               "Cover is for singing a real song: she sings your notes, in your key."],
+    "singing_style": ["Style", "Speak follows your voice. Sing sings: when you sing she follows your notes, "
+                               "in your key; when you talk she makes a tune of it."],
+    "sing_source": ["Sing follows", "Auto: your notes when you sing, a made-up tune when you talk. "
+                                    "My notes: always yours (for covers). Make a tune: always a tune."],
     "double_voice": ["Double her voice", "0 is off."],
     "double_when": ["Double voice", "A fuller, layered sound in Sing style."],
     "scale": ["Scale", "Sing and Cover. Chromatic leaves every note where it was."],
@@ -256,6 +289,27 @@ LABELS: dict[str, list[str]] = {
     "vibrato_depth_cents": ["Vibrato depth", "100 cents is a semitone."],
     "vibrato_period_ms": ["Vibrato speed", ""],
     "final_hold_seconds": ["Hold the last note", "Sing style only."],
+    "tone_gender": ["Gender", "Up: a darker, bigger voice. Down: smaller, younger."],
+    "tone_tension": ["Tension", "Up: pressed, belting, powerful. Down: soft and relaxed."],
+    "tone_breath": ["Breath", "Air in the voice."],
+    "tone_voicing": ["Voicing", "100 is a full voice; under 60 half whispered; 0 a whisper."],
+    "note_scoop_cents": ["Scoop", "Slide up into each note from this many cents below: pop and R&B singers do it."],
+    "note_fall_cents": ["Fall-off", "Drop the pitch off the end of each phrase, in cents: 1200 is a scream's octave fall."],
+    "consonant_speed": ["Consonants", "How fast the consonants go: under 100 slower and clearer, over 100 snappier."],
+    "note_attack": ["Attack", "How hard each note starts: 0 fades in softly, 200 hits hard."],
+    "note_release": ["Release", "How much each note fades at its end: 0 holds, 100 dies away."],
+    "fx_octave": ["Octave layer", "Up: an octave above (chipmunk). Down: an octave below (demon)."],
+    "fx_bright": ["Brightness", "Up: crisp and forward. Down: dark and muffled."],
+    "fx_drive": ["Drive", "Distortion. High for a scream."],
+    "fx_growl": ["Growl", "A rough, fried rattle on the voice."],
+    "fx_growl_hz": ["Growl speed", "Rattles a second: about 75 for a scream, 45 for a demon."],
+    "fx_ring": ["Robot", "Metallic ring modulation."],
+    "fx_crush": ["Bitcrush", "Fewer bits: an old game console."],
+    "fx_band": ["Radio", "A telephone or an old radio."],
+    "fx_air": ["Air", "Breath noise over the voice."],
+    "fx_chorus": ["Chorus", "A few voices instead of one."],
+    "fx_reverb": ["Reverb", "A room around her."],
+    "fx_size": ["Room size", "From a booth to a hall."],
     "stream_block_ms": ["Block length", ""],
     "stream_context_ms": ["Context", ""],
     "stream_crossfade_ms": ["Crossfade", ""],
@@ -460,11 +514,43 @@ class Controller:
 
         return paths.data_dir() / "takes"
 
+    @staticmethod
+    def _for_project(take, project: str) -> None:
+        """Mark the take just started as sung for `project` (not one already
+        under way, started from somewhere else)."""
+        if take is not None and not getattr(take, "phrases", None) and hasattr(take, "project"):
+            take.project = project
+
     def _took(self, info: dict | None) -> None:
+        """A take was recorded. It is kept as a recording; recorded with no
+        song project open, a new project is started with it too (its lines
+        where they were sung, and the music it was sung over), so a cover
+        sung from scratch is a song straight away. With a project open, it
+        waits in the Recordings to be dragged in."""
         discarded = bool(info and info.get("discarded"))
         self.take_notice = ("Nothing was sung while recording, so that take wasn't kept."
                             if discarded else "")
-        self.last_take = "" if discarded or not info else str(info.get("id", ""))
+        self.last_recording = "" if discarded or not info else str(info.get("id", ""))
+        self.last_take = self.last_recording
+        if not self.last_recording or info.get("project"):
+            return
+        from . import music
+        from . import takes as takes_mod
+
+        root = self.takes_root()
+        source = takes_mod.take_folder(root, self.last_recording)
+        if source is None:
+            return
+        try:
+            folder = takes_mod.new_folder(root)
+            takes_mod.copy_lines(source, None, folder)
+            if info.get("sung_over") == "next":
+                music.copy_into(root / music.NEXT, folder)
+            self.last_take = folder.name
+        except Exception:  # noqa: BLE001 - the recording is kept either way
+            log.exception("could not start a project from the recording")
+
+    last_recording = ""
 
     def current_take(self) -> dict:
         """The take being recorded, line by line, for the panel's sheet."""
@@ -505,15 +591,134 @@ class Controller:
         self.takes_changed += 1
         return out
 
-    def move_line(self, folder, line_no: int, new_at) -> dict:
-        """Move a line along the take's timeline; needs no relay, because
-        nothing is sung again."""
+    def move_line(self, folder, line_no: int, new_at, lane=None) -> dict:
+        """Move a line along the take's timeline, or to another lane; needs
+        no relay, because nothing is sung again."""
         from . import takes as takes_mod
 
         with takes_mod.edit_lock(folder):
-            out = takes_mod.move_line(folder, line_no, new_at)
+            out = takes_mod.move_line(folder, line_no, new_at, lane)
         self.takes_changed += 1
         return out
+
+    def audio_clip(self, action: str, folder, **kw) -> dict:
+        """Add, move or delete an audio clip on a take's playlist; needs no
+        relay."""
+        from . import takes as takes_mod
+
+        do = {"add": takes_mod.add_audio, "move": takes_mod.move_audio, "delete": takes_mod.delete_audio}[action]
+        with takes_mod.edit_lock(folder):
+            out = do(folder, **kw)
+        self.takes_changed += 1
+        return out
+
+    def copy_line(self, source, line_no: int, target_id: str, at=None, lane=None) -> dict:
+        """Copy a line from one take into another (the Studio library, dropped
+        on the timeline); needs no relay. `target_id` "new" makes a new take
+        of it, which keeps the music waiting on the music row, if any."""
+        from . import music
+        from . import takes as takes_mod
+
+        root = self.takes_root()
+        if target_id == "new":
+            folder = takes_mod.new_folder(root)
+            out = takes_mod.copy_line(source, line_no, folder, at, lane)
+            if music.copy_into(root / music.NEXT, folder):
+                out = takes_mod.detail(folder)
+        else:
+            folder = takes_mod.take_folder(root, target_id)
+            if folder is None:
+                raise ValueError("no such take")
+            with takes_mod.edit_lock(folder):
+                out = takes_mod.copy_line(source, line_no, folder, at, lane)
+        self.takes_changed += 1
+        return out
+
+    def copy_lines(self, source, line_nos, target_id: str, start=None, lane=None) -> dict:
+        """Copy a whole recording (or some of its lines) into a project,
+        keeping their spacing; "new" starts a project of them, with the
+        music waiting on the music row. Needs no relay."""
+        from . import music
+        from . import takes as takes_mod
+
+        root = self.takes_root()
+        if target_id == "new":
+            folder = takes_mod.new_folder(root)
+            out = takes_mod.copy_lines(source, line_nos, folder, start, lane)
+            if music.copy_into(root / music.NEXT, folder):
+                out = takes_mod.detail(folder)
+        else:
+            folder = takes_mod.take_folder(root, target_id)
+            if folder is None:
+                raise ValueError("no such take")
+            with takes_mod.edit_lock(folder):
+                out = takes_mod.copy_lines(source, line_nos, folder, start, lane)
+        self.takes_changed += 1
+        return out
+
+    def rename(self, folder, name) -> dict:
+        from . import takes as takes_mod
+
+        with takes_mod.edit_lock(folder):
+            out = takes_mod.rename(folder, name)
+        self.takes_changed += 1
+        return out
+
+    def revoice(self, folder, lines, bank: str, tuning: str, as_copy: bool = False, name: str = "") -> dict:
+        """Sing lines again with another voicebank and/or tuning (the
+        relay's revoice). With as_copy the whole take is copied first and
+        the copy is sung again, so the first stays as it was."""
+        relay = self.relay
+        if relay is None or not self.running:
+            raise TetoRelayError("Press Start first: she sings it again with the new voice.")
+        from . import takes as takes_mod
+
+        if as_copy:
+            folder = takes_mod.duplicate(folder, self.takes_root(), name)
+        try:
+            out = relay.revoice(folder, lines, bank, tuning)
+        except Exception:
+            if as_copy:
+                takes_mod.discard(folder)
+            raise
+        finally:
+            self.takes_changed += 1
+        return out
+
+    def preview(self, style: str = "") -> bytes:
+        """Tune's play button: the last phrase sung again with the settings
+        now, as .wav bytes for the panel to play. With `style` (a preset id:
+        "builtin:robot", "user:mine", or "store:angel" for one in the Market)
+        that tuning is heard instead, for this once; nothing changes."""
+        import re
+
+        from . import presets, store
+
+        relay = self.relay
+        if relay is None or not self.running:
+            raise TetoRelayError("Press Start and sing a phrase first: the preview sings it again.")
+        settings = None
+        if style:
+            kind, _, key = style.partition(":")
+            if kind == "store":
+                path = store.bundled_folder() / "presets" / f"{key}{presets.EXTENSION}"
+                if not re.fullmatch(r"[a-z0-9-]{1,60}", key) or not path.is_file():
+                    raise TetoRelayError("That tuning can't be heard before it is installed.")
+                preset = presets.parse(path.read_bytes())
+            else:
+                preset = presets.get(style)
+            settings = presets.settings_of(preset)
+        return Path(relay.preview(settings)).read_bytes()
+
+    def hush(self) -> bool:
+        """PANIC: she goes quiet now. What is playing is cut and phrases
+        waiting to play are dropped; the relay keeps running. False: nothing
+        was running to hush."""
+        relay = self.relay
+        if relay is None:
+            return False
+        relay.hush()
+        return True
 
     def shift_lines(self, folder, milliseconds) -> tuple[dict, float]:
         """Move all of a take's lines earlier or later; needs no relay."""
@@ -547,15 +752,18 @@ class Controller:
         """Make a preset's settings the ones in force (teto_relay.presets):
         saved, and used by a running relay from its next phrase. Returns the
         settings as they now are."""
+        from .presets import settings_of
+
+        settings = settings_of(preset)   # every setting: an old preset's missing ones as defaults
         cfg = Config.load(self.config_path)
-        for key, value in preset["settings"].items():
+        for key, value in settings.items():
             setattr(cfg, key, value)
         cfg.validate("this preset")
-        for key in preset["settings"]:
+        for key in settings:
             # In place: the running relay holds this object (see api/config).
             setattr(self.cfg, key, getattr(cfg, key))
         cfg.save(self.config_path)
-        return {key: getattr(cfg, key) for key in preset["settings"]}
+        return {key: getattr(cfg, key) for key in settings}
 
     def import_style(self, raw: bytes, apply: bool = True) -> dict:
         """Read a .tetostyle file, keep it, and (unless told not to) sing
@@ -572,10 +780,26 @@ class Controller:
         """The Store's list for the panel (teto_relay.store), each preset
         marked with what this PC already has of it: "builtin" (it ships with
         the app), "installed" (it is among your presets) or ""."""
-        from . import presets, store
+        from . import market, presets
 
-        listing = store.catalog(refresh)
+        listing = self._listing(refresh)
         mine = {s["name"].casefold(): s["id"] for s in presets.listing()["styles"] if not s["builtin"]}
+
+        def public(entry: dict) -> dict:
+            # Addresses stay here: the panel asks for things by id.
+            out = {k: v for k, v in entry.items() if k not in ("url", "file", "demo", "shop_url", "user")}
+            user = entry.get("user")
+            out["user"] = {"handle": user["handle"], "name": user["name"], "avatar": bool(user.get("avatar"))} if user else None
+            out["community"] = entry.get("origin") == "market"
+            if entry.get("url"):
+                from urllib.parse import urlparse
+
+                out["host"] = urlparse(entry["url"]).hostname or ""
+            file = entry.get("file")
+            out["has_demo"] = bool(entry.get("demo"))
+            out["size"] = int(file["size"]) if isinstance(file, dict) else 0
+            return out
+
         shown = []
         for entry in listing["presets"]:
             if entry["id"] in presets.BUILTIN:
@@ -583,10 +807,20 @@ class Controller:
             else:
                 have = mine.get(entry["name"].casefold(), "")
                 state = "installed" if have else ""
-            # The address stays here: the panel asks for a preset by its id.
-            shown.append({k: v for k, v in entry.items() if k != "url"} | {"state": state, "have": have})
-        return {"source": listing["source"], "problem": listing.get("problem", ""),
-                "updated": listing["updated"], "presets": shown, "voicebanks": listing["voicebanks"]}
+            shown.append(public(entry) | {"state": state, "have": have})
+        banks = [public(b) | {"hosted": bool(b.get("file")), "page": bool(b.get("url"))} for b in listing["voicebanks"]]
+        sounds = [public(s) | {"have": market.sound_path(s["id"]) is not None} for s in listing.get("sounds", [])]
+        problem = listing.get("problem", "")
+        if str(getattr(self.cfg, "market_url", "") or "").strip() and not market.base_url(self.cfg):
+            problem = "The Market server address must start with https:// (or http://127.0.0.1 for one on this PC)."
+        return {"source": listing["source"], "problem": problem,
+                "updated": listing["updated"], "presets": shown, "voicebanks": banks, "sounds": sounds,
+                "server": listing.get("server", ""), "shared": [s["id"] for s in market.shared()]}
+
+    def _listing(self, refresh: bool = False) -> dict:
+        from . import market, store
+
+        return store.catalog(refresh, market.base_url(self.cfg))
 
     def store_install(self, entry_id: str) -> dict:
         """Install a preset from the Store: fetched by its id from the list
@@ -594,7 +828,7 @@ class Controller:
         the same checks. It joins your presets; it is not put on."""
         from . import store
 
-        found = self.import_style(store.preset_file(store.catalog(), entry_id), apply=False)
+        found = self.import_style(store.preset_file(self._listing(), entry_id), apply=False)
         log.info("Preset installed from the Store: %s", found["name"])
         return found
 
@@ -604,9 +838,66 @@ class Controller:
 
         from . import store
 
-        url = store.official_page(store.catalog(), entry_id)
+        url = store.official_page(self._listing(), entry_id)
         webbrowser.open(url)
         return url
+
+    def store_demo(self, kind: str, entry_id: str) -> bytes:
+        """A Market listing's demo sound, to hear before it is downloaded."""
+        from . import market
+
+        kinds = {"preset": "presets", "voicebank": "voicebanks", "sound": "sounds"}
+        if kind not in kinds:
+            raise market.MarketError("No such kind of listing.")
+        listing = self._listing()
+        if listing.get("source") != "market":
+            raise market.MarketError("Demos come from the Market server.")
+        if kind == "sound":
+            have = market.sound_path(entry_id)
+            if have is not None and not market.entry(listing, "sounds", entry_id).get("demo"):
+                return have.read_bytes()
+            if not market.entry(listing, "sounds", entry_id).get("demo"):
+                return market.get_sound(listing, entry_id).read_bytes()
+        return market.download(listing, kinds[kind], entry_id, "demo")[0]
+
+    def store_get_bank(self, entry_id: str) -> dict:
+        """Download a voicebank its creator shared in the Market and install
+        it the usual way (teto_relay.library), with the usual checks."""
+        from . import market
+        from .library import install_voicebank
+
+        data, meta = market.download(self._listing(), "voicebanks", entry_id)
+        info = install_voicebank(data, meta.get("name") or f"{entry_id}.zip", self.cfg.voicebank_path())
+        _forget_library()
+        log.info("Installed voicebank %r from the Market (%d samples)", info["name"], info["samples"])
+        return info
+
+    def store_sound(self, entry_id: str) -> Path:
+        """A Market sound's file on this PC (downloaded the first time)."""
+        from . import market
+
+        return market.get_sound(self._listing(), entry_id)
+
+    def store_shop(self, kind: str, entry_id: str) -> str:
+        """Open a paid listing's shop page (where it is sold) in the browser."""
+        import webbrowser
+
+        from . import market
+
+        kinds = {"preset": "presets", "voicebank": "voicebanks", "sound": "sounds"}
+        if kind not in kinds:
+            raise market.MarketError("No such kind of listing.")
+        url = market.shop_page(self._listing(), kinds[kind], entry_id)
+        webbrowser.open(url)
+        return url
+
+    def market_server(self) -> str:
+        from . import market
+
+        server = market.base_url(self.cfg)
+        if not server:
+            raise market.MarketError("Set the Market server first (Settings, Setup).")
+        return server
 
     def talk(self, down: bool) -> bool:
         """The mini player's hold-to-talk button: what holding the talk key does."""
@@ -617,14 +908,20 @@ class Controller:
         (chunker.start if down else chunker.stop)()
         return True
 
-    def start_take(self, music_id: str = "") -> None:
+    def start_take(self, music_id: str = "", project: str = "") -> None:
         """Start a take; with `music_id` ("next" or a take's id), over that
-        music, played where only you hear it."""
+        music, played where only you hear it. It is kept as a recording;
+        `project` is the song project open while it is sung, if any (see
+        _took)."""
         relay = self.relay
         if relay is None or not self.running:
             raise TetoRelayError("Press Start first: a take records what Teto sings.")
+        from . import takes as takes_mod
+
+        if project and takes_mod.take_folder(self.takes_root(), project) is None:
+            project = ""
         if not music_id:
-            relay.start_take()
+            self._for_project(relay.start_take(), project)
             return
         from . import music
 
@@ -632,7 +929,7 @@ class Controller:
         if folder is None or music.music_file(folder) is None:
             raise TetoRelayError("That music is gone. Add it again, or record without it.")
         try:
-            relay.start_take(folder, music_id)
+            self._for_project(relay.start_take(folder, music_id), project)
         except TetoRelayError:
             raise
         except Exception as exc:  # noqa: BLE001 - a device that will not open: say so, record nothing
@@ -744,6 +1041,7 @@ class Controller:
             "takes_changed": self.takes_changed,
             "take_notice": self.take_notice,
             "last_take": self.last_take,
+            "last_recording": self.last_recording,
             # For the mini player's headphones button.
             "hear_myself": bool(getattr(self.cfg, "hear_myself", False)),
             "log": list(self.buffer.lines)[-60:],
@@ -799,6 +1097,50 @@ def _bank_image(cfg: Config, key: str) -> bytes | None:
         return _IMAGE_CACHE[key]
     except Exception:
         log.debug("could not load the icon for %r", key, exc_info=True)
+        return None
+
+
+#: The longest voicebank sample the Market plays, in seconds.
+SAMPLE_SECONDS = 8.0
+
+
+def _sample_file(root: Path) -> Path | None:
+    """The bank's own sample voice: the file its character.txt names as
+    `sample=`, else a sung vowel from the bank (あ, a, or the first
+    recording), so every installed voice can be heard in the Market."""
+    named = _character(root).get("sample")
+    if named:
+        path = (root / named).resolve()
+        if path.is_file() and path.is_relative_to(root.resolve()):
+            return path
+    for pattern in ("_あ*.wav", "あ*.wav", "*/_あ*.wav", "*/あ*.wav", "a.wav", "_a.wav", "*/a.wav", "*.wav", "*/*.wav"):
+        found = sorted(p for p in root.glob(pattern) if p.is_file())
+        if found:
+            return found[0]
+    return None
+
+
+def _bank_sample(cfg: Config, key: str) -> bytes | None:
+    """The bank's sample as a short 16-bit .wav, or None."""
+    from io import BytesIO
+
+    import soundfile as sf
+
+    from .voicebank import discover, select
+
+    try:
+        bank = select(discover(cfg.voicebank_path()), key)
+        path = _sample_file(bank.root)
+        if path is None:
+            return None
+        with sf.SoundFile(str(path)) as source:
+            audio = source.read(frames=int(source.samplerate * SAMPLE_SECONDS), dtype="float32")
+            rate = source.samplerate
+        buffer = BytesIO()
+        sf.write(buffer, audio, rate, format="WAV", subtype="PCM_16")
+        return buffer.getvalue()
+    except Exception:
+        log.debug("could not read a sample for %r", key, exc_info=True)
         return None
 
 
@@ -873,8 +1215,9 @@ def _meta(cfg: Config) -> dict:
         "seconds": sorted(SECONDS),
         "labels": LABELS,
         "option_labels": {
-            "singing_style": {"speech": "Speak", "sung": "Sing", "cover": "Cover"},
-            "double_when": {"off": "Off", "singing": "On"},
+            "singing_style": {"speech": "Speak", "sung": "Sing", "cover": "Sing"},
+            "sing_source": {"auto": "Auto", "tune": "Make a tune", "notes": "My notes"},
+            "double_when": {"off": "Off", "singing": "On", "always": "Always"},
             "panel_window": {"app": "Its own window", "browser": "Browser tab"},
             "language": {"en": "English", "th": "ไทย", "ja": "日本語"},
             "capture_mode": {"ptt": "Hold the talk key", "vad": "Split on silence"},
@@ -886,8 +1229,10 @@ def _meta(cfg: Config) -> dict:
             "lyric_mode": ["auto", "native", "japanese"],
             "renderer_backend": ["openutau", "null"],
             "shift_mode": ["semitone", "octave"],
-            "singing_style": ["speech", "sung", "cover"],
-            "double_when": ["off", "singing"],
+            # Sing and Cover are one Sing now; how it follows you is sing_source.
+            "singing_style": ["speech", "sung"],
+            "sing_source": ["auto", "tune", "notes"],
+            "double_when": ["off", "singing", "always"],
             "panel_window": ["app", "browser"],
             "scale": ["major", "minor", "pentatonic", "chromatic"],
             "scale_key": ["auto", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"],
@@ -984,9 +1329,12 @@ def make_handler(controller: Controller):
                     "text": format_checks(checks),
                 })
             elif route == "api/takes":
-                from .takes import listing
+                from .takes import PROJECT, RECORDING, listing
 
-                self._json({"takes": listing(controller.takes_root())})
+                everything = listing(controller.takes_root())
+                self._json({"takes": everything,
+                            "projects": [t for t in everything if t["kind"] == PROJECT],
+                            "recordings": [t for t in everything if t["kind"] == RECORDING]})
             elif route == "api/take":
                 from .takes import detail
 
@@ -1006,6 +1354,50 @@ def make_handler(controller: Controller):
                 except Exception as exc:  # noqa: BLE001 - even the bundled list failed
                     log.exception("could not show the Store")
                     self._json({"error": str(exc)}, 500)
+            elif route in ("api/market/account", "api/market/mine", "api/market/person", "api/market/avatar"):
+                from urllib.parse import parse_qs, urlparse
+
+                from . import market
+
+                handle = (parse_qs(urlparse(self.path).query).get("handle") or [""])[0]
+                try:
+                    server = controller.market_server()
+                    if route == "api/market/account":
+                        self._json({"ok": True, "server": server, **market.account(server)})
+                    elif route == "api/market/mine":
+                        self._json({"ok": True, "items": market.mine(server)})
+                    elif route == "api/market/person":
+                        self._json({"ok": True, **market.person(server, handle)})
+                    else:
+                        data = market.avatar(server, handle)
+                        kind = "image/png" if data[:4] == b"\x89PNG" else "image/jpeg" if data[:3] == b"\xff\xd8\xff" else "image/webp"
+                        self._send(data, kind)
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400 if route != "api/market/avatar" else 404)
+            elif route in ("api/store/demo", "api/store/sound"):
+                # A listing's demo, or a Market sound's file (fetched once and
+                # kept in the data folder's sounds folder), by id.
+                from urllib.parse import parse_qs, urlparse
+
+                query = parse_qs(urlparse(self.path).query)
+                entry_id = (query.get("id") or [""])[0]
+                try:
+                    if route == "api/store/demo":
+                        data = controller.store_demo((query.get("kind") or [""])[0], entry_id)
+                        name = "demo"
+                    else:
+                        path = controller.store_sound(entry_id)
+                        data, name = path.read_bytes(), path.name
+                    kind = {b"RIFF": "audio/wav", b"OggS": "audio/ogg", b"fLaC": "audio/flac"}.get(data[:4], "audio/mpeg")
+                    self.send_response(200)
+                    self.send_header("Content-Type", kind)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("X-File-Name", name)
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(data)
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
             elif route == "api/styles":
                 from . import presets
 
@@ -1080,6 +1472,15 @@ def make_handler(controller: Controller):
                     self._json({"error": "no image"}, 404)
                 else:
                     self._send(png, "image/png")
+            elif route == "api/bank-sample":
+                from urllib.parse import parse_qs, urlparse
+
+                key = (parse_qs(urlparse(self.path).query).get("bank") or [""])[0]
+                wav = _bank_sample(controller.cfg, key or controller.cfg.voicebank)
+                if wav is None:
+                    self._json({"error": "This voicebank has no sample to play."}, 404)
+                else:
+                    self._send(wav, "audio/wav")
             else:
                 self._json({"error": "not found"}, 404)
 
@@ -1120,7 +1521,9 @@ def make_handler(controller: Controller):
                 try:
                     body = json.loads(self.rfile.read(length) or b"{}") if length else {}
                     music_id = body.get("music") if isinstance(body, dict) else None
-                    controller.start_take(music_id if isinstance(music_id, str) else "")
+                    project = body.get("project") if isinstance(body, dict) else None
+                    controller.start_take(music_id if isinstance(music_id, str) else "",
+                                          project if isinstance(project, str) else "")
                     self._json({"ok": True})
                 except (TetoRelayError, ValueError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
@@ -1222,10 +1625,121 @@ def make_handler(controller: Controller):
                     if folder is None:
                         self._json({"ok": False, "error": "no such take"}, 404)
                     else:
-                        take = controller.move_line(folder, int(body.get("line") or 0), body.get("at"))
+                        take = controller.move_line(folder, int(body.get("line") or 0), body.get("at"), body.get("lane"))
                         self._json({"ok": True, "take": take})
                 except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/line/copy":
+                # ?take= is where it goes: a take's id, or "new".
+                from urllib.parse import parse_qs, urlparse
+
+                from .takes import take_folder
+
+                target = (parse_qs(urlparse(self.path).query).get("take") or [""])[0]
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    source = take_folder(controller.takes_root(), str(body.get("from") or ""))
+                    if source is None or (target != "new" and take_folder(controller.takes_root(), target) is None):
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    else:
+                        if "lines" in body:
+                            # A whole recording (or some of its lines), keeping their spacing:
+                            # "start" is where the first one's singing begins; none, where sung.
+                            wanted = body.get("lines")
+                            if wanted is not None and wanted != "all":
+                                if not isinstance(wanted, list) or not all(
+                                        isinstance(n, int) and not isinstance(n, bool) for n in wanted):
+                                    raise ValueError("lines is a list of line numbers.")
+                            take = controller.copy_lines(source, None if wanted in (None, "all") else wanted,
+                                                         target, body.get("start"), body.get("lane"))
+                        else:
+                            take = controller.copy_line(source, int(body.get("line") or 0), target, body.get("at"),
+                                                        body.get("lane"))
+                        self._json({"ok": True, "take": take})
+                except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route in ("api/take/revoice", "api/take/rename"):
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    if not isinstance(body, dict):
+                        raise ValueError("Send an object.")
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    elif route == "api/take/rename":
+                        self._json({"ok": True, "take": controller.rename(folder, body.get("name"))})
+                    else:
+                        lines = body.get("lines")
+                        if lines is not None and (not isinstance(lines, list) or not all(
+                                isinstance(n, int) and not isinstance(n, bool) for n in lines)):
+                            raise ValueError("lines is a list of line numbers.")
+                        bank, tuning, name = body.get("bank") or "", body.get("tuning") or "", body.get("name") or ""
+                        if not all(isinstance(v, str) for v in (bank, tuning, name)):
+                            raise ValueError("bank, tuning and name are text.")
+                        take = controller.revoice(folder, lines, bank, tuning, bool(body.get("copy")), name)
+                        self._json({"ok": True, "take": take})
+                except (TetoRelayError, ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/take/audio":
+                # An audio file laid on the playlist: the raw file, its name,
+                # time and lane in the query (as the music arrives).
+                from urllib.parse import parse_qs, unquote, urlparse
+
+                from . import music
+
+                folder, _ = self._take_query()
+                query = parse_qs(urlparse(self.path).query)
+                length = int(self.headers.get("Content-Length", 0))
+                if folder is None:
+                    self.close_connection = True
+                    self._json({"ok": False, "error": "no such take"}, 404)
+                elif length <= 0 or length > music.MAX_UPLOAD:
+                    self.close_connection = True  # its body is not read
+                    self._json({"ok": False, "error": "That file is empty or too large."}, 400)
+                else:
+                    try:
+                        lane = float((query.get("lane") or ["1"])[0])
+                        take = controller.audio_clip("add", folder, data=self.rfile.read(length),
+                                                     filename=unquote((query.get("name") or ["audio"])[0]),
+                                                     at=(query.get("at") or ["0"])[0], lane=lane)
+                        self._json({"ok": True, "take": take})
+                    except ValueError as exc:
+                        self._json({"ok": False, "error": str(exc)}, 400)
+                    except Exception as exc:  # noqa: BLE001
+                        log.exception("could not add the audio")
+                        self._json({"ok": False, "error": str(exc)}, 500)
+            elif route in ("api/take/audio/move", "api/take/audio/delete"):
+                folder, _ = self._take_query()
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") or {}
+                    if folder is None:
+                        self._json({"ok": False, "error": "no such take"}, 404)
+                    elif route == "api/take/audio/move":
+                        take = controller.audio_clip("move", folder, clip_id=body.get("id"), at=body.get("at"),
+                                                     lane=body.get("lane"))
+                        self._json({"ok": True, "take": take})
+                    else:
+                        self._json({"ok": True, "take": controller.audio_clip("delete", folder, clip_id=body.get("id"))})
+                except (ValueError, TypeError, KeyError, AttributeError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/preview":
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") if length else {}
+                    style = str(body.get("style") or "") if isinstance(body, dict) else ""
+                    self._send(controller.preview(style), "audio/wav")
+                except ValueError as exc:   # a broken preset (PresetError) or body
+                    self._json({"ok": False, "error": str(exc)}, 400)
+                except TetoRelayError as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+                except Exception as exc:  # noqa: BLE001 - a render that failed: say so
+                    log.exception("could not sing the preview")
+                    self._json({"ok": False, "error": f"Could not sing it: {exc}"}, 500)
+            elif route == "api/panic":
+                self._json({"ok": True, "hushed": controller.hush()})
             elif route == "api/take/shift":
                 folder, _ = self._take_query()
                 length = int(self.headers.get("Content-Length", 0))
@@ -1255,6 +1769,107 @@ def make_handler(controller: Controller):
                         self._json({"ok": True, **controller.store_install(entry_id)})
                     else:
                         self._json({"ok": True, "url": controller.store_open(entry_id)})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route in ("api/store/get-bank", "api/store/get-sound", "api/store/like", "api/store/report",
+                           "api/store/takedown"):
+                from . import market
+
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") if 0 < length < 20_000 else {}
+                    body = body if isinstance(body, dict) else {}
+                    entry_id = str(body.get("id") or "")
+                    if route == "api/store/get-bank":
+                        self._json({"ok": True, "installed": controller.store_get_bank(entry_id)})
+                    elif route == "api/store/get-sound":
+                        self._json({"ok": True, "file": controller.store_sound(entry_id).name})
+                    elif route == "api/store/like":
+                        self._json({"ok": True, "likes": market.like(controller.market_server(), entry_id,
+                                                                      bool(body.get("on", True)))})
+                    elif route == "api/store/report":
+                        market.report(controller.market_server(), entry_id, str(body.get("reason") or ""))
+                        self._json({"ok": True})
+                    else:
+                        market.take_down(controller.market_server(), entry_id)
+                        self._json({"ok": True})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route in ("api/market/signup", "api/market/login", "api/market/logout", "api/market/profile",
+                           "api/market/close", "api/store/shop"):
+                # The password is passed on to the Market server and not kept.
+                from . import market
+
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") if 0 < length < 20_000 else {}
+                    body = body if isinstance(body, dict) else {}
+                    if route == "api/store/shop":
+                        self._json({"ok": True, "url": controller.store_shop(str(body.get("kind") or ""),
+                                                                              str(body.get("id") or ""))})
+                        return
+                    server = controller.market_server()
+                    if route == "api/market/signup":
+                        out = market.sign_up(server, body.get("email") or "", body.get("password") or "",
+                                             body.get("handle") or "", body.get("name") or "")
+                    elif route == "api/market/login":
+                        out = market.sign_in(server, body.get("email") or "", body.get("password") or "")
+                    elif route == "api/market/logout":
+                        market.sign_out(server)
+                        out = {"signed_in": False}
+                    elif route == "api/market/close":
+                        market.close_account(server)
+                        out = {"signed_in": False}
+                    else:
+                        links = body.get("links") if isinstance(body.get("links"), list) else []
+                        out = market.edit_profile(server, body.get("name") or "", body.get("bio") or "", links)
+                    self._json({"ok": True, **out})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/open-link":
+                # A creator's link (their shop, their channel), in the browser:
+                # only a plain https address, as the Store's links.
+                import webbrowser
+
+                from .store import safe_url
+
+                length = int(self.headers.get("Content-Length", 0))
+                try:
+                    body = json.loads(self.rfile.read(length) or b"{}") if 0 < length < 4000 else {}
+                    url = safe_url(body.get("url") if isinstance(body, dict) else None)
+                    if url is None:
+                        self._json({"ok": False, "error": "That is not a plain https address."}, 400)
+                    else:
+                        webbrowser.open(url)
+                        self._json({"ok": True})
+                except ValueError as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/market/picture":
+                from . import market
+
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > 300 * 1024:
+                    self.close_connection = True
+                    self._json({"ok": False, "error": "Use a picture of at most 300 KB."}, 400)
+                    return
+                try:
+                    self._json({"ok": True, **market.set_avatar(controller.market_server(), self.rfile.read(length))})
+                except (TetoRelayError, ValueError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc)}, 400)
+            elif route == "api/market/upload":
+                # Shared from the panel: its multipart form (meta, file, demo)
+                # goes to the Market server as it came.
+                from . import market
+
+                length = int(self.headers.get("Content-Length", 0))
+                if length <= 0 or length > market.MAX_UPLOAD:
+                    self.close_connection = True   # its body is not read
+                    self._json({"ok": False, "error": "That upload is empty or too big: at most 95 MB."}, 400)
+                    return
+                try:
+                    data = self.rfile.read(length)
+                    self._json({"ok": True, **market.upload(controller.market_server(), data,
+                                                            self.headers.get("Content-Type", ""))})
                 except (TetoRelayError, ValueError, OSError) as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
             elif route in ("api/style/apply", "api/style/save", "api/style/delete", "api/style/import"):

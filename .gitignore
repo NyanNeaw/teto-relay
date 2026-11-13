@@ -59,3 +59,9 @@ ROADMAP.md
 docs/NOTES.md
 docs/RELEASE.md
 docs/CHANGELOG-dev.md
+
+# The Market: your sign-in session and device id, and sounds you got from it
+market.json
+sounds/
+# A built app's own Market server (teto_relay.market.BUNDLED_SERVER): yours only, never shared
+teto_relay/web/market_server.txt

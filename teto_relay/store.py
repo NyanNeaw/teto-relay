@@ -177,22 +177,52 @@ _KEPT: dict = {}
 _KEPT_LOCK = threading.Lock()
 
 
-def catalog(refresh: bool = False) -> dict:
-    """The Store's list: from the internet ("source": "online"), or, when
-    that cannot be had or is not a catalog, the copy that came with the app
-    ("bundled", with "problem" saying why). A fetched list is kept for a few
-    minutes, and `refresh` fetches it again now."""
+def catalog(refresh: bool = False, server: str = "") -> dict:
+    """The Store's list: from the Market server when there is one
+    (teto_relay.market, "source": "market"), else from the internet
+    ("online"), or, when that cannot be had or is not a catalog, the copy
+    that came with the app ("bundled", with "problem" saying why). A fetched
+    list is kept for a few minutes, and `refresh` fetches it again now."""
     with _KEPT_LOCK:
         kept = _KEPT.get("catalog")
-        if kept is not None and not refresh and time.monotonic() - _KEPT["at"] < KEEP_SECONDS:
+        if (kept is not None and not refresh and _KEPT.get("server") == server
+                and time.monotonic() - _KEPT["at"] < KEEP_SECONDS):
             return kept
+        community, problem = None, ""
+        if server:
+            from . import market
+
+            try:
+                community = market.catalog(server)
+            except market.MarketError as exc:
+                problem = str(exc)
+                log.info("Market server: %s", exc)
         try:
             found = {**parse(download(CATALOG_URL, MAX_CATALOG_BYTES)), "source": "online"}
         except StoreError as exc:
-            log.info("Store: showing the bundled list (%s)", exc)
-            return {**bundled(), "problem": str(exc)}
-        _KEPT.update(catalog=found, at=time.monotonic())
+            if community is None:
+                log.info("Store: showing the bundled list (%s)", exc)
+                return {**bundled(), "problem": problem or str(exc)}
+            found = bundled()
+        if community is not None:
+            found = _merge(community, found)
+        elif problem:
+            found["problem"] = problem
+        _KEPT.update(catalog=found, at=time.monotonic(), server=server)
         return found
+
+
+def _merge(community: dict, official: dict) -> dict:
+    """The Market server's listings with the official list's (the built-in
+    tunings, the voicebanks' official pages) after them, each entry marked
+    with where it comes from (`origin`), so it is fetched from there."""
+    out = dict(community)
+    for kind in ("presets", "voicebanks"):
+        mine = [{**e, "origin": "market"} for e in community.get(kind, [])]
+        ids = {e["id"] for e in mine}
+        out[kind] = mine + [{**e, "origin": "list"} for e in official.get(kind, []) if e["id"] not in ids]
+    out["sounds"] = [{**e, "origin": "market"} for e in community.get("sounds", [])]
+    return out
 
 
 def forget() -> None:
@@ -216,6 +246,10 @@ def preset_file(listing: dict, entry_id: str) -> bytes:
     from .presets import EXTENSION, MAX_BYTES
 
     entry = _entry(listing, "presets", str(entry_id))
+    if entry.get("origin") == "market":
+        from . import market
+
+        return market.download(listing, "presets", entry["id"])[0]
     try:
         return download(entry["url"], MAX_BYTES)
     except StoreError as exc:
@@ -228,4 +262,7 @@ def preset_file(listing: dict, entry_id: str) -> bytes:
 
 def official_page(listing: dict, entry_id: str) -> str:
     """The official download page of a voicebank in the Store, by its id."""
-    return _entry(listing, "voicebanks", str(entry_id))["url"]
+    url = _entry(listing, "voicebanks", str(entry_id)).get("url") or ""
+    if not url:
+        raise StoreError("That voicebank has no official page: get it from the Market instead.")
+    return url

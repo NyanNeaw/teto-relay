@@ -38,56 +38,126 @@ EXTENSION = ".tetostyle"
 MAX_BYTES = 64_000
 MAX_NAME, MAX_AUTHOR, MAX_DESCRIPTION = 60, 60, 300
 
-#: What a preset may hold: the settings that only change how she sings.
+#: What a preset may hold: the settings that only change how she sings -
+#: the melody, the vibrato, her tone, and the effects on her voice.
 SETTINGS: tuple[str, ...] = (
-    "singing_style", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
+    "singing_style", "sing_source", "scale", "scale_key", "sung_melody_range", "sung_contour_amount",
     "melody_step", "melody_min_note_seconds",
     "vibrato_min_seconds", "vibrato_depth_cents", "vibrato_period_ms", "final_hold_seconds",
     "double_voice", "double_when", "legato", "expressive",
     "emit_contour", "contour_range_cents", "contour_smooth_ms",
+    "tone_gender", "tone_tension", "tone_breath", "tone_voicing",
+    "note_scoop_cents", "note_fall_cents", "consonant_speed", "note_attack", "note_release",
+    "fx_octave", "fx_bright", "fx_drive", "fx_growl", "fx_growl_hz", "fx_ring", "fx_crush",
+    "fx_band", "fx_air", "fx_chorus", "fx_reverb", "fx_size",
 )
+
+
+def settings_of(preset: dict) -> dict:
+    """Every setting a preset stands for: its own, and for any it does not
+    name (one made before effects existed), the default. Choosing an old
+    preset then gives its sound, not its sound plus the last one's growl."""
+    defaults = Config()
+    return {key: preset["settings"].get(key, getattr(defaults, key)) for key in SETTINGS}
 
 
 class PresetError(TetoRelayError, ValueError):
     """The file is not a preset Teto Relay can use. The message says why."""
 
 
-def _preset(name: str, description: str, **settings) -> dict:
+#: The base every built-in tuning starts from: her voice as you gave it.
+_NATURAL = dict(
+    singing_style="speech", sing_source="auto", scale="major", scale_key="auto", sung_melody_range=1.0,
+    sung_contour_amount=0.35,
+    melody_step=1.5, melody_min_note_seconds=0.14, vibrato_min_seconds=0.35, vibrato_depth_cents=25.0,
+    vibrato_period_ms=175.0, final_hold_seconds=0.3, double_voice=0.5, double_when="singing",
+    legato=True, expressive=True, emit_contour=True, contour_range_cents=300.0, contour_smooth_ms=60.0,
+    tone_gender=0.0, tone_tension=0.0, tone_breath=0.0, tone_voicing=100.0,
+    note_scoop_cents=0.0, note_fall_cents=0.0, consonant_speed=100.0, note_attack=100.0, note_release=0.0,
+    fx_octave=0.0, fx_bright=0.0, fx_drive=0.0, fx_growl=0.0, fx_growl_hz=70.0, fx_ring=0.0, fx_crush=0.0,
+    fx_band=0.0, fx_air=0.0, fx_chorus=0.0, fx_reverb=0.0, fx_size=0.3,
+)
+def _preset(name: str, description: str, tag: str = "", **changes) -> dict:
+    """A built-in tuning: the natural base with `changes`, so each one sets
+    every setting and choosing it always gives the same sound."""
+    settings = {**_NATURAL, **changes}
+    unknown = set(settings) - set(SETTINGS)
+    assert not unknown, unknown
     return {"format": FORMAT, "name": name, "author": "Teto Relay", "description": description,
-            "settings": settings}
+            "settings": settings, "tag": tag}
 
 
-#: The built-in presets, by id. Each sets every setting, so choosing one
-#: always gives the same sound whatever was chosen before.
+_NO_VIBRATO = dict(vibrato_depth_cents=0.0, vibrato_min_seconds=10.0)
+
+#: The built-in tunings, by id: twelve voices that sound clearly unlike each
+#: other, from a natural voice to a scream, a robot, a radio and a choir.
 BUILTIN: dict[str, dict] = {
     "just-like-you": _preset(
         "Just like you", "She follows your voice exactly: your rhythm, your ups and downs. Good for talking.",
-        singing_style="speech", scale="major", scale_key="auto", sung_melody_range=1.0,
-        melody_step=1.5, melody_min_note_seconds=0.14,
-        sung_contour_amount=0.35, vibrato_min_seconds=0.35, vibrato_depth_cents=25.0,
-        vibrato_period_ms=175.0, final_hold_seconds=0.3, double_voice=0.5, double_when="singing",
-        legato=True, expressive=True, emit_contour=True, contour_range_cents=300.0, contour_smooth_ms=60.0),
+        "Natural"),
     "pop-singer": _preset(
-        "Pop singer", "What you say becomes a tune in a major key, with a light vibrato and a doubled voice.",
-        singing_style="sung", scale="major", scale_key="auto", sung_melody_range=1.4,
-        melody_step=1.5, melody_min_note_seconds=0.14,
-        sung_contour_amount=0.3, vibrato_min_seconds=0.35, vibrato_depth_cents=30.0,
-        vibrato_period_ms=170.0, final_hold_seconds=0.5, double_voice=0.5, double_when="singing",
-        legato=True, expressive=True, emit_contour=True, contour_range_cents=200.0, contour_smooth_ms=60.0),
+        "Pop singer", "A bright, doubled lead: what you say becomes a tune in a major key.", "Pop",
+        singing_style="sung", sung_melody_range=1.4, sung_contour_amount=0.3, vibrato_depth_cents=30.0,
+        vibrato_period_ms=170.0, final_hold_seconds=0.5, contour_range_cents=200.0,
+        tone_tension=25.0, fx_bright=0.3, fx_air=0.15, fx_reverb=0.12,
+        note_scoop_cents=80.0, note_attack=120.0),
+    "whisper": _preset(
+        "Whisper", "Half voiced, close to the mic, soft as a secret.", "Soft",
+        singing_style="sung", scale="pentatonic", sung_melody_range=0.8, vibrato_depth_cents=10.0,
+        vibrato_period_ms=220.0, tone_voicing=45.0, tone_breath=70.0, tone_tension=-60.0,
+        fx_air=0.5, fx_bright=-0.2, fx_reverb=0.2, fx_size=0.4, double_voice=0.0,
+        note_attack=35.0, note_release=40.0, consonant_speed=80.0),
+    "metal-scream": _preset(
+        "Metal scream", "Pressed, distorted and fried, in a minor key. Every line is a scream.", "Scream",
+        singing_style="sung", scale="minor", sung_melody_range=1.8, sung_contour_amount=0.6,
+        final_hold_seconds=0.6, tone_tension=100.0, tone_breath=40.0, tone_gender=15.0,
+        fx_drive=0.85, fx_growl=0.7, fx_growl_hz=75.0, fx_octave=-0.25, fx_bright=0.4,
+        fx_reverb=0.15, fx_size=0.5, double_voice=0.4, note_attack=170.0, note_fall_cents=700.0,
+        note_scoop_cents=150.0, **_NO_VIBRATO),
     "robot": _preset(
-        "Robot", "Flat, even notes with no bends, no vibrato and a gap between words. A machine reading aloud.",
-        singing_style="sung", scale="chromatic", scale_key="auto", sung_melody_range=0.6,
-        melody_step=1.5, melody_min_note_seconds=0.14,
-        sung_contour_amount=0.0, vibrato_min_seconds=10.0, vibrato_depth_cents=0.0,
-        vibrato_period_ms=175.0, final_hold_seconds=0.0, double_voice=0.0, double_when="off",
-        legato=False, expressive=False, emit_contour=False, contour_range_cents=0.0, contour_smooth_ms=60.0),
+        "Robot", "Flat machine notes, ring-modulated and crushed. No bends, no vibrato.", "Robot",
+        singing_style="sung", scale="chromatic", sung_melody_range=0.6, sung_contour_amount=0.0,
+        final_hold_seconds=0.0, legato=False, expressive=False, emit_contour=False, contour_range_cents=0.0,
+        double_voice=0.0, double_when="off", tone_tension=20.0, fx_ring=0.6, fx_crush=0.35,
+        consonant_speed=160.0, note_attack=180.0, **_NO_VIBRATO),
     "diva": _preset(
-        "Diva", "A wide, dramatic melody in a minor key, a deep slow vibrato, and a last note held long.",
-        singing_style="sung", scale="minor", scale_key="auto", sung_melody_range=2.2,
-        melody_step=1.5, melody_min_note_seconds=0.14,
-        sung_contour_amount=0.15, vibrato_min_seconds=0.2, vibrato_depth_cents=70.0,
-        vibrato_period_ms=200.0, final_hold_seconds=1.2, double_voice=0.8, double_when="singing",
-        legato=True, expressive=True, emit_contour=True, contour_range_cents=300.0, contour_smooth_ms=90.0),
+        "Diva", "An opera voice: a wide minor melody, a huge slow vibrato, a hall.", "Opera",
+        singing_style="sung", scale="minor", sung_melody_range=2.2, sung_contour_amount=0.15,
+        vibrato_min_seconds=0.2, vibrato_depth_cents=80.0, vibrato_period_ms=190.0, final_hold_seconds=1.2,
+        contour_smooth_ms=90.0, tone_tension=40.0, tone_gender=10.0, double_voice=0.3,
+        fx_reverb=0.35, fx_size=0.85, fx_bright=0.1, note_scoop_cents=120.0, consonant_speed=85.0),
+    "choir": _preset(
+        "Choir", "Many voices in a big room: chorused, doubled, an octave above.", "Choir",
+        singing_style="sung", sung_melody_range=1.2, sung_contour_amount=0.25, vibrato_depth_cents=35.0,
+        vibrato_period_ms=185.0, final_hold_seconds=0.7, tone_tension=-20.0, tone_breath=15.0,
+        double_voice=1.0, fx_chorus=0.8, fx_octave=0.25, fx_reverb=0.45, fx_size=1.0),
+    "lo-fi-radio": _preset(
+        "Lo-fi radio", "An old telephone speaker: narrow, crunchy, a little hiss.", "Lo-fi",
+        singing_style="sung", scale="pentatonic", sung_contour_amount=0.3, tone_tension=-10.0,
+        fx_band=0.9, fx_crush=0.2, fx_drive=0.25, fx_reverb=0.1, double_voice=0.0),
+    "kawaii": _preset(
+        "Kawaii", "Tiny and bright, with a fast cute vibrato and an octave up.", "Chipmunk",
+        singing_style="sung", sung_melody_range=1.6, vibrato_depth_cents=40.0, vibrato_period_ms=130.0,
+        tone_gender=-60.0, tone_tension=30.0, double_voice=0.3, fx_bright=0.5, fx_octave=0.3),
+    "demon": _preset(
+        "Demon", "A giant low voice an octave down, with a slow growl, in a cave.", "Demon",
+        singing_style="sung", scale="minor", sung_melody_range=0.8, sung_contour_amount=0.2,
+        tone_gender=70.0, tone_tension=40.0, tone_breath=20.0, fx_octave=-0.7, fx_growl=0.45,
+        fx_growl_hz=45.0, fx_drive=0.4, fx_bright=-0.4, fx_reverb=0.3, fx_size=0.9, double_voice=0.0,
+        consonant_speed=70.0, note_fall_cents=500.0, **_NO_VIBRATO),
+    "lullaby": _preset(
+        "Lullaby", "Slow, soft and round: a gentle five-note melody and long last notes.", "Lullaby",
+        singing_style="sung", scale="pentatonic", sung_melody_range=0.8, sung_contour_amount=0.2,
+        vibrato_min_seconds=0.5, vibrato_depth_cents=15.0, vibrato_period_ms=230.0, final_hold_seconds=0.9,
+        contour_range_cents=150.0, contour_smooth_ms=120.0, tone_tension=-40.0, tone_breath=30.0,
+        tone_voicing=85.0, double_voice=0.0, fx_bright=-0.3, fx_reverb=0.25, fx_size=0.6,
+        note_attack=45.0, note_release=35.0),
+    "rap": _preset(
+        "Rap", "Clipped and rhythmic, nearly one note, doubled every line.", "Rap",
+        singing_style="sung", scale="chromatic", sung_melody_range=0.5, sung_contour_amount=0.6,
+        melody_min_note_seconds=0.1, final_hold_seconds=0.0, legato=False, tone_tension=35.0,
+        double_voice=0.6, double_when="always", fx_drive=0.15, fx_bright=0.2, consonant_speed=150.0,
+        note_attack=160.0, note_fall_cents=200.0, **_NO_VIBRATO),
 }
 
 
@@ -127,6 +197,9 @@ def validate(data) -> dict:
     if not isinstance(given, dict):
         raise PresetError("This preset has no settings in it.")
     settings, problems = {}, []
+    # Sing and Cover became one Sing: a "cover" preset is Sing on your notes.
+    if isinstance(given.get("singing_style"), str) and given["singing_style"].strip().lower() == "cover":
+        given = {**given, "singing_style": "sung", "sing_source": given.get("sing_source", "notes")}
     for key in SETTINGS:
         if key in given:
             try:
@@ -176,8 +249,9 @@ def from_config(cfg: Config, name: str, author: str = "", description: str = "")
 
 
 def matches(preset: dict, cfg: Config) -> bool:
-    """Whether the settings in force are exactly this preset's."""
-    for key, value in preset["settings"].items():
+    """Whether the settings in force are exactly this preset's (with the
+    defaults for any it does not name, as `settings_of`)."""
+    for key, value in settings_of(preset).items():
         now = getattr(cfg, key)
         if isinstance(value, float) or isinstance(now, float):
             if isinstance(now, bool) or isinstance(value, bool) or abs(float(now) - float(value)) > 1e-6:
@@ -249,7 +323,8 @@ def delete(preset_id: str) -> None:
 def listing(cfg: Config | None = None) -> dict:
     """Every preset for the panel's list, built-in ones first, and which one
     (if any) the settings in force are: {"styles": [...], "active": id}."""
-    out = [{"id": f"builtin:{key}", "builtin": True, **{k: p[k] for k in ("name", "author", "description")}}
+    out = [{"id": f"builtin:{key}", "builtin": True, "tag": p.get("tag", ""),
+            **{k: p[k] for k in ("name", "author", "description")}}
            for key, p in BUILTIN.items()]
     presets = {f"builtin:{key}": p for key, p in BUILTIN.items()}
     home = folder()

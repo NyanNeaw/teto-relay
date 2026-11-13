@@ -108,6 +108,17 @@ class Monitor(threading.Thread):
         super().__init__(name="monitor")
         self.clips: queue.Queue = queue.Queue(maxsize=8)
         self._stopping = threading.Event()
+        # Bumped by hush(): a clip started before it stops where it is.
+        self._hushes = 0
+
+    def hush(self) -> None:
+        """Cut the clip playing and drop the ones waiting; keep running."""
+        self._hushes += 1
+        while True:
+            try:
+                self.clips.get_nowait()
+            except queue.Empty:
+                break
 
     def play(self, data: np.ndarray, sample_rate: int, device: int | None) -> None:
         try:
@@ -124,6 +135,7 @@ class Monitor(threading.Thread):
                 data, sample_rate, device = self.clips.get(timeout=0.2)
             except queue.Empty:
                 continue
+            hushes = self._hushes
             try:
                 rate, channels = _device_format(device)
                 data, sample_rate = _fit(data, sample_rate, rate, channels)
@@ -131,7 +143,7 @@ class Monitor(threading.Thread):
                 with sd().OutputStream(samplerate=sample_rate, channels=data.shape[1],
                                        dtype="float32", device=device) as stream:
                     for start in range(0, len(data), self.BLOCK):
-                        if self._stopping.is_set():
+                        if self._stopping.is_set() or self._hushes != hushes:
                             break
                         stream.write(data[start:start + self.BLOCK])
             except Exception:  # noqa: BLE001 - hearing yourself must never stop the relay
@@ -168,6 +180,9 @@ class Player(threading.Thread):
         self._stream = None
         self._stream_format: tuple[int, int] | None = None
         self._monitor: Monitor | None = None
+        # Bumped by hush() (the panel's PANIC): a phrase that started playing
+        # before it stops where it is.
+        self._hushes = 0
 
     #: Frames written per call on the persistent stream; small enough that
     #: stop() is answered within a few tens of milliseconds.
@@ -179,6 +194,26 @@ class Player(threading.Thread):
             self._monitor.stop()
         if not getattr(self.cfg, "persistent_output", False):
             sd().stop()
+
+    def hush(self) -> int:
+        """PANIC: cut the phrase playing now and drop the ones waiting, but
+        keep running, so the next phrase plays as usual. Returns how many
+        waiting phrases were dropped."""
+        self._hushes += 1
+        dropped = 0
+        while True:
+            try:
+                item = self.source.get_nowait()
+            except queue.Empty:
+                break
+            if item is None:  # the stop signal is not ours to drop
+                self.source.put(None)
+                break
+            dropped += 1
+        if self._monitor is not None:
+            self._monitor.hush()
+        log.info("Hushed: cut what was playing%s", f", dropped {dropped} waiting" if dropped else "")
+        return dropped
 
     def _hear(self, data: np.ndarray, sample_rate: int, to_main: bool) -> None:
         """Hear myself: the phrase on the monitor device too - unless that is
@@ -247,7 +282,12 @@ class Player(threading.Thread):
             except Exception:  # noqa: BLE001 - reporting must not stop playback
                 log.debug("playback callback failed", exc_info=True)
 
+    def _cut(self, hushes: int) -> bool:
+        """Stopping, or hushed since the phrase that began at `hushes` started."""
+        return self._stopping.is_set() or self._hushes != hushes
+
     def _play_file(self, path: Path, job=None) -> None:
+        hushes = self._hushes
         data, sample_rate = sf.read(path, dtype="float32", always_2d=True)
         if data.size == 0:
             log.warning("%s is empty, skipping", path.name)
@@ -270,7 +310,7 @@ class Player(threading.Thread):
             log.debug("resampled %d Hz -> %d Hz for the output device", original_rate, sample_rate)
 
         if getattr(self.cfg, "persistent_output", False):
-            self._write_persistent(data, sample_rate, job)
+            self._write_persistent(data, sample_rate, job, hushes)
             log.info("Played %s (%.2fs)", path.name, len(data) / sample_rate)
             return
 
@@ -278,12 +318,12 @@ class Player(threading.Thread):
         try:
             sd().play(data, samplerate=sample_rate, device=self.device, blocking=False)
             self._report_start(job, data, sample_rate)
-            # Poll rather than block so stop() stays responsive.
-            while not self._stopping.is_set():
+            # Poll rather than block so stop() and hush() stay responsive.
+            while not self._cut(hushes):
                 if sd().get_stream() is None or not sd().get_stream().active:
                     break
                 self._stopping.wait(0.05)
-            if self._stopping.is_set():
+            if self._cut(hushes):
                 sd().stop()
         finally:
             self._playing.clear()
@@ -313,14 +353,15 @@ class Player(threading.Thread):
         except Exception:  # noqa: BLE001
             log.debug("closing the output stream failed", exc_info=True)
 
-    def _write_persistent(self, data: np.ndarray, sample_rate: int, job) -> None:
+    def _write_persistent(self, data: np.ndarray, sample_rate: int, job, hushes: int | None = None) -> None:
         """Play through the long-lived stream, a block at a time."""
+        hushes = self._hushes if hushes is None else hushes
         self._playing.set()
         try:
             stream = self._open_stream(sample_rate, data.shape[1])
             data = np.ascontiguousarray(data, dtype=np.float32)
             for start in range(0, len(data), self.BLOCK):
-                if self._stopping.is_set():
+                if self._cut(hushes):
                     break
                 stream.write(data[start : start + self.BLOCK])
                 if start == 0:

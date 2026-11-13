@@ -520,6 +520,7 @@ class OpenUtauRenderer:
             note.lyric = str(note_doc["lyric"])
             self._apply_pitch(note, note_doc)
             self._apply_vibrato(note, note_doc)
+            self._apply_phoneme_expressions(project, note, note_doc)
             part.notes.Add(note)
             # Hints are X-SAMPA. The X-SAMPA phonemizer reads them as they are,
             # an ARPAsing one in ARPAbet; any other would look them up as its
@@ -966,6 +967,31 @@ class OpenUtauRenderer:
                     setattr(target, attr, float(vib[key]))
                 except Exception:  # noqa: BLE001
                     log.debug("could not set vibrato %s", attr, exc_info=True)
+
+    def _apply_phoneme_expressions(self, project, note, note_doc: dict) -> None:
+        """A tuning's per-phoneme expressions (ustx._shape: consonant speed,
+        attack, release) onto the note. The note is built here rather than
+        read from the .ustx, so without this they were written to the file and
+        never sung. One OpenUtau does not know is skipped."""
+        docs = note_doc.get("phoneme_expressions") or []
+        if not docs:
+            return
+        try:
+            from OpenUtau.Core.Ustx import UExpression
+        except Exception:  # noqa: BLE001
+            log.debug("no UExpression in this OpenUtau", exc_info=True)
+            return
+        for doc in docs:
+            abbr = str(doc.get("abbr", ""))
+            try:
+                if not project.expressions.ContainsKey(abbr):
+                    continue
+                expression = UExpression(project.expressions[abbr])
+                expression.index = int(doc.get("index", 0))
+                expression.value = float(doc.get("value"))
+                note.phonemeExpressions.Add(expression)
+            except Exception:  # noqa: BLE001 - an expression is a nicety, the note is not
+                log.debug("could not set %r on a note", abbr, exc_info=True)
 
     def _apply_curves(self, project, part, curve_docs: list) -> None:
         """Part-level expression curves (dynamics, breathiness): see

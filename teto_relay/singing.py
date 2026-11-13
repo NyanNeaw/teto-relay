@@ -92,7 +92,7 @@ def key_from_config(value: str) -> int | None:
     return NOTE_NAMES.index(name)
 
 
-def musicalize(notes: list, cfg, state: dict | None = None) -> list:
+def musicalize(notes: list, cfg, state: dict | None = None, follow: bool | None = None) -> list:
     """Apply the sung style to built notes, in place; returns them.
 
     `state` carries the chosen key between phrases (the pipeline passes the
@@ -113,7 +113,9 @@ def musicalize(notes: list, cfg, state: dict | None = None) -> list:
     # Speech moves in small steps - a spoken phrase spans a few semitones, a
     # sung one many more. Widen each interval around the phrase's centre
     # before snapping, so the tune has room to move (1.0 keeps your own).
-    cover = (getattr(cfg, "singing_style", "") or "").lower() == "cover"
+    # Following the notes you sang (notes.follows_notes): your melody as it
+    # was, not widened.
+    cover = follow if follow is not None else (getattr(cfg, "singing_style", "") or "").lower() == "cover"
     widen = 1.0 if cover else float(getattr(cfg, "sung_melody_range", 1.0))
     if widen != 1.0 and len(exact) > 1:
         centre = float(sorted(exact)[len(exact) // 2])

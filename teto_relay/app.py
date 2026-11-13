@@ -458,6 +458,13 @@ class TetoRelay:
             self._capture.resume()
             log.info("Resumed")
 
+    def hush(self) -> int:
+        """PANIC: she stops singing now. The phrase playing is cut and the
+        ones waiting to play are dropped; listening carries on. A phrase still
+        being worked on plays when it is ready. Returns how many were dropped."""
+        player = getattr(self, "_player", None)
+        return player.hush() if player is not None else 0
+
     @property
     def paused(self) -> bool:
         return bool(self._capture and self._capture.paused)
@@ -674,6 +681,15 @@ class TetoRelay:
         if getattr(self, "history", None) is None:  # a relay built without __init__ (tests, tools)
             self.history = deque(maxlen=HISTORY_SIZE)
         self.history.append({"heard": self.last_source, "sung": self.last_text, "count": len(notes)})
+        # What Tune's play button sings again (preview): the phrase as heard,
+        # before any setting turned it into notes.
+        # The aligner's measure of the recording goes with it: a preview
+        # that worked it out again ran the 1.6 GB model on every change,
+        # seconds each on a CPU, and on a PC short of memory it stalled
+        # everything (picking a tuning on Tune, with "Play after every change").
+        self._last_phrase = {"words": list(words), "track": track, "audio": chunk.audio,
+                             "rate": chunk.sample_rate, "context": dict(context), "pending": pending,
+                             "sung": pitch_mod.held_share(track) >= pitch_mod.SUNG_HELD_SHARE}
         path = self.cfg.out_path / f"relay_{stamp}.ustx"
         curves = expression_curves(notes, chunk.audio, chunk.sample_rate, self.cfg)
         write_ustx(notes, path, self.bank, self.cfg, curves)
@@ -712,22 +728,27 @@ class TetoRelay:
         }
         return job
 
-    def finish_render(self, job: "Job") -> None:
-        """Effects on the rendered audio: the doubled lead, on sung phrases
-        (or always, with double_when). Never costs the phrase."""
-        amount = float(self.cfg.double_voice)
-        when = self.cfg.double_when
-        if amount <= 0 or when == "off" or not (job.sung or when == "always"):
+    def finish_render(self, job: "Job", cfg=None) -> None:
+        """Effects on the rendered audio (teto_relay.effects): the tuning's
+        drive, growl, filters, chorus and reverb, and the doubled lead on
+        sung phrases (or always, with double_when). `cfg` is the settings to
+        use (a preview of another tuning); the ones in force otherwise.
+        Never costs the phrase."""
+        from . import effects
+
+        cfg = cfg if cfg is not None else self.cfg
+        amount = float(cfg.double_voice)
+        when = cfg.double_when
+        double = amount if amount > 0 and when != "off" and (job.sung or when == "always") else 0.0
+        if double <= 0 and not effects.active(cfg):
             return
         try:
             import soundfile as sf
 
-            from .performance import double_voice
-
             audio, rate = sf.read(str(job.wav_path), dtype="float32")
-            sf.write(str(job.wav_path), double_voice(audio, rate, amount), rate)
+            sf.write(str(job.wav_path), effects.apply(audio, rate, cfg, double), rate)
         except Exception:  # noqa: BLE001
-            log.debug("could not double %s", job.wav_path, exc_info=True)
+            log.debug("could not finish %s", job.wav_path, exc_info=True)
 
     def _save_input(self, chunk, stamp: str) -> None:
         """keep_input_audio: the phrase as the microphone heard it. Never raises."""
@@ -758,7 +779,7 @@ class TetoRelay:
                 self.finish_render(job)
                 take = getattr(self, "_take", None)
                 if take is not None:
-                    take.add(job)
+                    take.add(job, self.voice_now())
                     job.in_take = True
                 done = job.timeline.lap("render")
                 for stage, seconds in (getattr(self.renderer, "last_timings", None) or {}).items():
@@ -797,19 +818,212 @@ class TetoRelay:
                 if swap:
                     set_bank(self.bank)
 
+    def preview(self, settings: dict | None = None) -> Path:
+        """Tune's play button: the last phrase sung again with the settings
+        as they are now - its words, pitch and recording kept from when it
+        was heard - to hear what a change does. With `settings` (a tuning
+        from the Market) those are used for this once instead, and nothing
+        is changed. Returns the .wav; it is not sent to the output. Raises
+        TetoRelayError when nothing has been sung yet, or the settings leave
+        nothing to sing."""
+        import copy
+
+        last = getattr(self, "_last_phrase", None)
+        if not last:
+            raise TetoRelayError("Sing a phrase first: the preview sings your last one again.")
+        cfg = self.cfg
+        if settings:
+            cfg = copy.copy(self.cfg)
+            for key, value in settings.items():
+                setattr(cfg, key, value)
+        context, audio, rate = last["context"], last["audio"], last["rate"]
+        japanese = self._japanese_lyrics()
+        if japanese and cfg.align_morae and last.get("pending") is None:
+            # Measured once for this phrase, then kept for every preview of it.
+            last["pending"] = align.Pending(audio, cfg, start=False)
+        pending = last.get("pending")
+        notes = build_notes(
+            last["words"], last["track"], cfg, context.get("previous_shift"), context.get("target_tone"),
+            context.get("baseline"), japanese, context.get("mora_floor"),
+            # A copy: a preview must not move the live key detection.
+            copy.deepcopy(self._singing_state), audio=audio, sample_rate=rate,
+            mora_timer=(lambda morae: align.vowel_onsets(morae, audio, rate, cfg, pending))
+            if japanese and cfg.align_morae else None,
+        )
+        if not notes:
+            raise TetoRelayError("Nothing to sing in that phrase with these settings.")
+        ustx = self.cfg.out_path / "preview.ustx"
+        wav = ustx.with_suffix(".wav")
+        write_ustx(notes, ustx, self.bank, cfg, expression_curves(notes, audio, rate, cfg))
+        self._render(ustx, wav)
+        self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav, sung=last["sung"]), cfg)
+        log.info("Preview sung: %s", " ".join(n.lyric for n in notes))
+        return wav
+
     # ---------------------------------------------------------------- takes
+    # Every line of a take remembers the voice that sang it (takes.voice_of):
+    # the voicebank, and the tuning - the settings that only change how she
+    # sings (presets.SETTINGS), kept in full, with the preset's name if they
+    # were one. A line fixed or edited later is sung by that voice again, not
+    # by whichever one is picked now, so a song keeps its sound when the app
+    # is restarted or the voice is changed for Live. `revoice` gives lines
+    # another voicebank or tuning on purpose.
+    def voice_now(self) -> dict:
+        """The voicebank and tuning in force, as a line keeps them."""
+        from . import presets
+
+        bank = self.bank
+        settings = {key: getattr(self.cfg, key) for key in presets.SETTINGS}
+        tuning, tuning_id = "Custom", ""
+        try:
+            listed = presets.listing(self.cfg)
+            found = next((s for s in listed["styles"] if s["id"] == listed["active"]), None)
+            if found is not None:
+                tuning, tuning_id = found["name"], found["id"]
+        except Exception:  # noqa: BLE001 - a name is a nicety; the settings are what count
+            log.debug("could not name the tuning", exc_info=True)
+        return {"bank": bank.key if bank is not None else "",
+                "bank_name": self._bank_title(bank),
+                "tuning": tuning, "tuning_id": tuning_id, "settings": settings}
+
+    @staticmethod
+    def _bank_title(bank) -> str:
+        if bank is None:
+            return ""
+        try:
+            return vb_mod.custom_name(bank) or bank.name
+        except Exception:  # noqa: BLE001
+            return bank.name
+
+    def _bank_by_key(self, key: str):
+        """The installed voicebank `key`, or None (removed since)."""
+        if not key:
+            return None
+        for bank in [self.bank] + list(getattr(self, "banks", None) or []):
+            if bank is not None and bank.key == key:
+                return bank
+        try:
+            self.banks = vb_mod.discover(self.cfg.voicebank_path())
+            return vb_mod.select(self.banks, key)
+        except (ValueError, OSError):
+            return None
+
+    def _voice_cfg(self, settings: dict | None):
+        """The settings in force with a line's tuning on top, for that line
+        alone: the relay's own are not changed."""
+        import copy
+
+        from . import presets
+
+        cfg = copy.copy(self.cfg)
+        for key, value in (settings or {}).items():
+            if key in presets.SETTINGS:
+                setattr(cfg, key, value)
+        if settings:
+            try:
+                cfg.validate("this tuning")
+            except Exception as exc:  # noqa: BLE001 - a hand-edited take.json
+                raise TetoRelayError(f"That line's tuning can't be used ({exc}).") from exc
+        return cfg
+
+    def _line_voice(self, folder: Path, line: dict):
+        """The bank and settings a line is sung with again: its own, kept
+        with it; for a line saved before voices were kept, the bank its
+        project names and the settings in force (then kept from now on)."""
+        from . import takes as takes_mod
+
+        voice = takes_mod.voice_of(line)
+        bank = self._bank_by_key(voice["bank"]) if voice else None
+        if bank is None:
+            try:
+                doc = takes_mod._read_doc(Path(folder) / takes_mod.LINES / f"{int(line['n']):02d}.ustx")
+                bank = self._bank_named(str(doc["tracks"][0].get("singer", "")))
+            except (OSError, KeyError, IndexError, TypeError, ValueError):
+                bank = None
+        bank = bank or self.bank
+        if voice:
+            settings = dict(voice.get("settings") or {})
+        else:
+            settings = self.voice_now()["settings"]
+        return bank, settings, voice
+
+    def _japanese_for(self, bank) -> bool:
+        mode = (self.cfg.lyric_mode or "auto").lower()
+        if mode == "japanese":
+            return True
+        if mode == "native":
+            return False
+        return bank.flavour.startswith("ja-")
+
+    def _tone_of(self, bank, cfg) -> tuple[float, float]:
+        """A bank's recorded pitch and shortest note (as set_voicebank finds
+        them), measured once per bank."""
+        if bank is self.bank or (self.bank is not None and Path(bank.root) == Path(self.bank.root)):
+            return self._target_tone, self._mora_floor
+        tones = self.__dict__.setdefault("_bank_tones", {})
+        key = str(Path(bank.root))
+        if key not in tones:
+            tone = float(cfg.target_tone) or vb_mod.estimate_pitch(bank, cfg)
+            tones[key] = (tone, vb_mod.mora_floor(bank, cfg))
+        return tones[key]
+
+    def _sing_line(self, folder: Path, line: dict, words: list, bank, settings: dict,
+                   shift: int | None = None, keep_shift: bool = True, state: dict | None = None) -> int | None:
+        """Build one line's notes again from `words` and the pitch and
+        recording it was sung with, and sing them with `bank` and the tuning
+        `settings`. Writes the line's .ustx and .wav; returns the shift used.
+        `keep_shift` keeps the octave the line was first sung in (same bank);
+        else `shift` (the line before it, in a revoice) or a new one."""
+        import copy
+
+        import soundfile as sf
+
+        from . import takes as takes_mod
+
+        cfg = self._voice_cfg(settings)
+        stem = Path(folder) / takes_mod.LINES / f"{int(line['n']):02d}"
+        track = takes_mod.load_track(stem.with_name(stem.name + "-pitch.npz"))
+        audio, rate = sf.read(str(stem.with_name(stem.name + "-voice.wav")), dtype="float32")
+        context = line.get("context") or {}
+        japanese = self._japanese_for(bank)
+        if keep_shift:
+            # The voice it was sung with: the pitch it was aimed at, and its octave.
+            target, floor = context.get("target_tone"), context.get("mora_floor")
+            previous = context.get("previous_shift")
+            if target is None or floor is None:
+                tone, shortest = self._tone_of(bank, cfg)
+                target = tone if target is None else target
+                floor = shortest if floor is None else floor
+        else:
+            target, floor = self._tone_of(bank, cfg)
+            previous = shift
+        notes = build_notes(
+            words, track, cfg, previous, target,
+            context.get("baseline"), japanese, floor,
+            # A copy: singing a line again must not move the live key detection.
+            # (A revoice carries its own from line to line.)
+            copy.deepcopy(self._singing_state) if state is None else state, audio=audio, sample_rate=rate,
+            mora_timer=(lambda morae: align.vowel_onsets(morae, audio, rate, cfg))
+            if japanese and cfg.align_morae else None,
+        )
+        if not notes:
+            raise TetoRelayError("Nothing to sing in that line with these words.")
+        ustx = stem.with_suffix(".ustx")
+        wav = stem.with_suffix(".wav")
+        write_ustx(notes, ustx, bank, cfg, expression_curves(notes, audio, rate, cfg))
+        line["origin"] = self._render(ustx, wav, bank)
+        self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav,
+                               sung=bool(line.get("sung"))), cfg)
+        return notes[0].shift
+
     def resing(self, folder: Path, line_no: int, texts: list[str]) -> dict:
         """Fix the words of one line of a finished take and sing it again.
 
         The line is built again from the corrected words with the timing and
         the pitch it was sung with (what analyse kept for it), rendered with
-        the current voicebank, and the take is put together again. Returns
-        the take's detail.
+        the voicebank and tuning it was sung with, and the take is put
+        together again. Returns the take's detail.
         """
-        import copy
-
-        import soundfile as sf
-
         from . import takes as takes_mod
 
         folder = Path(folder)
@@ -820,30 +1034,12 @@ class TetoRelay:
                 raise TetoRelayError(f"This take has no line {line_no}.")
             if not line.get("editable"):
                 raise TetoRelayError("This line was recorded before words could be fixed.")
-            stem = folder / takes_mod.LINES / f"{int(line_no):02d}"
             words = [Word(w["text"], w["start"], w["end"])
                      for w in takes_mod.respace(line["words"], texts)]
-            track = takes_mod.load_track(stem.with_name(stem.name + "-pitch.npz"))
-            audio, rate = sf.read(str(stem.with_name(stem.name + "-voice.wav")), dtype="float32")
-            context = line.get("context") or {}
-            japanese = self._japanese_lyrics()
-            notes = build_notes(
-                words, track, self.cfg, context.get("previous_shift"), context.get("target_tone"),
-                context.get("baseline"), japanese, context.get("mora_floor"),
-                # A copy: fixing a word must not move the live key detection.
-                copy.deepcopy(self._singing_state), audio=audio, sample_rate=rate,
-                mora_timer=(lambda morae: align.vowel_onsets(morae, audio, rate, self.cfg))
-                if japanese and self.cfg.align_morae else None,
-            )
-            if not notes:
-                raise TetoRelayError("Nothing to sing in that line with these words.")
-            ustx = stem.with_suffix(".ustx")
-            wav = stem.with_suffix(".wav")
-            write_ustx(notes, ustx, self.bank, self.cfg,
-                       expression_curves(notes, audio, rate, self.cfg))
-            line["origin"] = self._render(ustx, wav)
-            self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav,
-                                   sung=bool(line.get("sung"))))
+            bank, settings, voice = self._line_voice(folder, line)
+            self._sing_line(folder, line, words, bank, settings)
+            if voice is None:
+                line["voice"] = self._voice_record(bank, settings)
             line["words"] = [{"text": w.text, "start": w.start, "end": w.end} for w in words]
             line["text"] = " ".join(w.text for w in words)
             line["edited"] = True
@@ -852,6 +1048,96 @@ class TetoRelay:
             takes_mod.assemble(folder, info)
             log.info("Sang line %d of %s again: %s", line_no, folder.name, line["text"])
         return takes_mod.detail(folder)
+
+    def _voice_record(self, bank, settings: dict, tuning: str | None = None, tuning_id: str = "") -> dict:
+        """A line's voice as take.json keeps it."""
+        from . import presets
+
+        if tuning is None:
+            tuning = "Custom"
+            try:
+                for item in presets.listing()["styles"]:
+                    if presets.matches(presets.get(item["id"]), self._voice_cfg(settings)):
+                        tuning, tuning_id = item["name"], item["id"]
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+        return {"bank": bank.key, "bank_name": self._bank_title(bank), "tuning": tuning,
+                "tuning_id": tuning_id, "settings": dict(settings)}
+
+    def revoice(self, folder: Path, line_nos=None, bank_key: str = "", tuning: str = "") -> dict:
+        """Sing lines of a take again with another voicebank and/or tuning:
+        the same singing (its words, its pitch, its timing), another voice.
+        `line_nos` None is every line. `bank_key` "" keeps each line's own
+        bank; `tuning` is a preset's id, "current" for the settings in force,
+        or "" to keep each line's own. Lines are sung in order, each carrying
+        the octave to the next, as they were when recorded. Lines recorded
+        before their singing was kept cannot be: they are left as they are.
+        Returns the take's detail, with "skipped" (how many were left)."""
+        from . import presets
+        from . import takes as takes_mod
+
+        folder = Path(folder)
+        new_bank = None
+        if bank_key:
+            new_bank = self._bank_by_key(bank_key)
+            if new_bank is None:
+                raise TetoRelayError("That voicebank isn't installed any more.")
+        new_settings, tuning_name, tuning_id = None, None, ""
+        if tuning == "current":
+            now = self.voice_now()
+            new_settings, tuning_name, tuning_id = now["settings"], now["tuning"], now["tuning_id"]
+        elif tuning:
+            try:
+                preset = presets.get(tuning)
+            except presets.PresetError as exc:
+                raise TetoRelayError(str(exc)) from exc
+            new_settings = presets.settings_of(preset)
+            tuning_name, tuning_id = preset["name"], tuning
+        with takes_mod.edit_lock(folder):
+            info = takes_mod.read_info(folder)
+            wanted = None if line_nos is None else {int(n) for n in line_nos}
+            chosen = [p for p in info["phrases"] if p.get("n") is not None
+                      and (wanted is None or int(p["n"]) in wanted)]
+            if not chosen:
+                raise TetoRelayError("There are no lines to sing again.")
+            chosen.sort(key=lambda p: takes_mod.line_span(folder, p)[0])
+            skipped, sung, shift = 0, 0, None
+            state: dict = {}
+            for line in chosen:
+                if not line.get("editable"):
+                    skipped += 1
+                    continue
+                bank, settings, voice = self._line_voice(folder, line)
+                changes_bank = new_bank is not None and Path(new_bank.root) != Path(bank.root)
+                bank = new_bank or bank
+                settings = new_settings if new_settings is not None else settings
+                words = [Word(w["text"], w["start"], w["end"]) for w in line.get("words") or []]
+                shift = self._sing_line(folder, line, words, bank, settings, shift,
+                                        keep_shift=not changes_bank, state=state)
+                keep_name = new_settings is None and voice is not None
+                line["voice"] = self._voice_record(
+                    bank, settings,
+                    tuning=voice.get("tuning", "Custom") if keep_name else tuning_name,
+                    tuning_id=voice.get("tuning_id", "") if keep_name else tuning_id)
+                if changes_bank:
+                    # Sung for another voice: the pitch it is aimed at is that voice's.
+                    context = dict(line.get("context") or {})
+                    context["target_tone"], context["mora_floor"] = self._tone_of(bank, self._voice_cfg(settings))
+                    context["previous_shift"] = shift
+                    line["context"] = context
+                line["notes_edited"] = False
+                sung += 1
+            if not sung:
+                raise TetoRelayError("These lines were recorded before they could be sung again with another voice.")
+            if wanted is None:
+                info["voice"] = dict(chosen[0].get("voice") or {})
+            takes_mod.assemble(folder, info)
+            log.info("Sang %d line(s) of %s again with %s", sung, folder.name,
+                     (new_bank.key if new_bank else "their own voicebank"))
+        out = takes_mod.detail(folder)
+        out["skipped"] = skipped
+        return out
 
     def renote(self, folder: Path, line_no: int, notes: list) -> dict:
         """Sing one line of a finished take again from notes edited in the
@@ -870,8 +1156,10 @@ class TetoRelay:
             doc = takes_mod._read_doc(ustx)
             # The voice that sang the line sings its edited notes: its lyrics
             # are spelled for that bank (an English bank's words are silence
-            # on a Japanese one). If that bank is gone, the one selected now.
-            bank = self._bank_named(str(doc["tracks"][0].get("singer", ""))) or self.bank
+            # on a Japanese one), with its own tuning. If that bank is gone,
+            # the one selected now.
+            bank, settings, voice = self._line_voice(folder, line)
+            cfg = self._voice_cfg(settings)
             doc = takes_mod.edit_notes(doc, notes, lambda lyric, previous: self._respell(lyric, previous, bank))
             track = doc["tracks"][0]
             track["singer"] = bank.root.name
@@ -880,7 +1168,9 @@ class TetoRelay:
             wav = stem.with_suffix(".wav")
             line["origin"] = self._render(ustx, wav, bank)
             self.finish_render(Job(captured_at=time.monotonic(), text="", wav_path=wav,
-                                   sung=bool(line.get("sung"))))
+                                   sung=bool(line.get("sung"))), cfg)
+            if voice is None:
+                line["voice"] = self._voice_record(bank, settings)
             line["edited"] = line["notes_edited"] = True
             takes_mod.assemble(folder, info)
             log.info("Sang line %d of %s again from edited notes", line_no, folder.name)

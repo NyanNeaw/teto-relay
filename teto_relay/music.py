@@ -139,6 +139,46 @@ def store(data: bytes, filename: str, folder: Path) -> dict:
         trial.unlink(missing_ok=True)
 
 
+def save_audio(data: bytes, filename: str, stem: Path) -> dict:
+    """Keep an audio file dropped on the Studio's playlist (a layer: a beat,
+    a DAW bounce, a backing vocal) as `stem` plus its own extension, checked
+    the way a song is (`store`). Returns {name, file, seconds, rate,
+    channels}, `file` being the kept file's name. Raises ValueError with
+    something the user can act on, and keeps nothing then."""
+    import soundfile as sf
+
+    name = Path(str(filename).replace("\\", "/")).name.strip() or "audio"
+    ext = Path(name).suffix.lower()
+    if ext not in FORMATS:
+        raise ValueError(NOT_AUDIO)
+    if not data:
+        raise ValueError("That file is empty.")
+    if len(data) > MAX_UPLOAD:
+        raise ValueError(f"That file is {len(data) / 1e6:.0f} MB; audio can be up to {MAX_UPLOAD / 1e6:.0f} MB.")
+    stem = Path(stem)
+    stem.parent.mkdir(parents=True, exist_ok=True)
+    path = stem.with_name(stem.name + ext)
+    trial = stem.with_name(f".adding-{stem.name}{ext}")
+    try:
+        trial.write_bytes(data)
+        try:
+            found = _describe(trial, name)
+            with sf.SoundFile(str(trial)) as audio:
+                heard = len(audio.read(min(len(audio), 4096), dtype="float32"))
+        except Exception:  # noqa: BLE001 - whatever the decoder says, it is not audio to us
+            raise ValueError(NOT_AUDIO) from None
+        if not heard or found["seconds"] <= 0:
+            raise ValueError("That file has no sound in it.")
+        if found["seconds"] > MAX_SECONDS:
+            raise ValueError(f"That is {found['seconds'] / 60:.0f} minutes long; "
+                             f"audio can be up to {MAX_SECONDS / 60:.0f}.")
+        trial.replace(path)
+        found["file"] = path.name
+        return found
+    finally:
+        trial.unlink(missing_ok=True)
+
+
 def remove(folder: Path) -> bool:
     """Take the music off; True if there was any."""
     folder = Path(folder)
@@ -250,17 +290,35 @@ def mix_tracks(music: np.ndarray, music_rate: int, voice: np.ndarray, voice_rate
     """Her singing over the music, both from 0:00, at her singing's rate.
     The music keeps its channels; she is in the middle. A sum that would
     clip is turned down, not cut off."""
+    return mix_layers(voice, voice_rate, [(0.0, music, music_rate)])
+
+
+def mix_layers(voice: np.ndarray, voice_rate: int, layers: list) -> tuple[np.ndarray, int]:
+    """Her singing with other sounds laid over it, at her singing's rate:
+    `layers` are (seconds, audio, rate), each from its time (the music from
+    0:00, an audio clip from where it sits on the playlist). Stereo if any
+    layer is; she and mono layers are in the middle. A sum that would clip
+    is turned down, not cut off."""
     from .playback import _resample
 
-    music = np.asarray(music, dtype=np.float32)
-    if music.ndim == 1:
-        music = music[:, None]
-    music = _resample(music, int(music_rate), int(voice_rate))
+    placed = []
+    channels = 1
+    for at, audio, rate in layers:
+        audio = np.asarray(audio, dtype=np.float32)
+        if audio.ndim == 1:
+            audio = audio[:, None]
+        audio = _resample(audio, int(rate), int(voice_rate))
+        channels = max(channels, min(2, audio.shape[1]))
+        placed.append((max(0, int(round(float(at) * int(voice_rate)))), audio))
     voice = np.asarray(voice, dtype=np.float32)
     if voice.ndim > 1:
         voice = voice.mean(axis=1)
-    out = np.zeros((max(len(music), len(voice)), music.shape[1]), dtype=np.float64)
-    out[:len(music)] += music
+    total = max([len(voice)] + [start + len(a) for start, a in placed])
+    out = np.zeros((total, channels), dtype=np.float64)
+    for start, audio in placed:
+        if audio.shape[1] != channels:
+            audio = np.repeat(audio.mean(axis=1, keepdims=True), channels, axis=1)
+        out[start:start + len(audio)] += audio[:, :channels]
     out[:len(voice)] += voice[:, None]
     peak = float(np.max(np.abs(out))) if out.size else 0.0
     if peak > 1.0:
@@ -269,16 +327,22 @@ def mix_tracks(music: np.ndarray, music_rate: int, voice: np.ndarray, voice_rate
 
 
 def mix_wav(take: Path) -> bytes:
-    """mix.wav: the take's teto.wav over its music. Made when asked for,
-    not kept: a song's worth is tens of megabytes."""
+    """mix.wav: the take's teto.wav over its music and the audio clips laid
+    on its playlist. Made when asked for, not kept: a song's worth is tens of
+    megabytes."""
     import soundfile as sf
 
+    from .takes import audio_layers
+
     take = Path(take)
-    if music_file(take) is None:
-        raise ValueError("This take has no music to mix with.")
-    music, music_rate = load(take)
+    layers = audio_layers(take)
+    if music_file(take) is not None:
+        music, music_rate = load(take)
+        layers.insert(0, (0.0, music, music_rate))
+    if not layers:
+        raise ValueError("This take has no music or audio to mix with.")
     voice, voice_rate = sf.read(str(take / "teto.wav"), dtype="float32", always_2d=False)
-    mixed, rate = mix_tracks(music, music_rate, voice, voice_rate)
+    mixed, rate = mix_layers(voice, voice_rate, layers)
     buffer = io.BytesIO()
     sf.write(buffer, mixed, rate, format="WAV", subtype="PCM_16")
     return buffer.getvalue()

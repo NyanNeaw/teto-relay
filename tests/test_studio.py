@@ -484,6 +484,9 @@ class TestMusicTrack(unittest.TestCase):
             self.assertEqual(waiting, root / "_next")
             music.store(_song(seconds=1.0, rate=1000), "song.wav", waiting)
             take = Take(root)
+            # A project keeps its music (a recording leaves it where it was:
+            # TestRecordingsAndProjects).
+            take.kind = "project"
             take.phrases = [_phrase(0.2, "one", level=0.25)]
             take.music_from, take.music_id = waiting, "next"
             take.finish()
@@ -1174,17 +1177,23 @@ class TestStylePresets(unittest.TestCase):
         self.assertIn("final_hold_seconds", str(caught.exception))
 
     def test_four_presets_are_built_in_and_differ(self):
+        # Twelve now, and each clearly unlike the others.
         from teto_relay import presets
         from teto_relay.config import Config
 
-        self.assertEqual(list(presets.BUILTIN), ["just-like-you", "pop-singer", "robot", "diva"])
+        self.assertEqual(list(presets.BUILTIN), [
+            "just-like-you", "pop-singer", "whisper", "metal-scream", "robot", "diva", "choir", "lo-fi-radio",
+            "kawaii", "demon", "lullaby", "rap"])
         seen = []
         for key, preset in presets.BUILTIN.items():
             read = presets.validate(preset)
             # Each sets everything, so picking one never depends on the last.
             self.assertEqual(set(read["settings"]), set(presets.SETTINGS), key)
-            self.assertTrue(read["name"] and read["description"])
-            self.assertNotIn(read["settings"], seen)
+            self.assertTrue(read["name"] and read["description"] and preset["tag"])
+            # Any two differ in at least six settings: a different voice, not a tweak.
+            for other in seen:
+                differ = sum(1 for k in presets.SETTINGS if read["settings"][k] != other[k])
+                self.assertGreaterEqual(differ, 6, key)
             seen.append(read["settings"])
         # A fresh install sings as the first one says.
         self.assertTrue(presets.matches(presets.BUILTIN["just-like-you"], Config()))
@@ -1215,8 +1224,7 @@ class TestStylePresets(unittest.TestCase):
 
         with _TempHome() as home:
             first = presets.listing(Config())
-            self.assertEqual([s["id"] for s in first["styles"]],
-                             ["builtin:just-like-you", "builtin:pop-singer", "builtin:robot", "builtin:diva"])
+            self.assertEqual([s["id"] for s in first["styles"]], [f"builtin:{k}" for k in presets.BUILTIN])
             self.assertEqual(first["active"], "builtin:just-like-you")
             saved = presets.save(self.preset())
             self.assertEqual(saved, "user:mine")
@@ -1231,8 +1239,8 @@ class TestStylePresets(unittest.TestCase):
             # A file in the folder that is not a preset is passed over.
             (home / "styles" / "broken.tetostyle").write_text("{", encoding="utf-8")
             listed = presets.listing(Config(singing_style="sung", vibrato_depth_cents=40.0))
-            self.assertEqual(len(listed["styles"]), 7)
-            self.assertFalse(listed["styles"][4]["builtin"])
+            self.assertEqual(len(listed["styles"]), len(presets.BUILTIN) + 3)
+            self.assertFalse(listed["styles"][len(presets.BUILTIN)]["builtin"])
             self.assertEqual(listed["active"], "user:mine")
             self.assertEqual(presets.get("user:mine")["settings"]["vibrato_depth_cents"], 40.0)
             self.assertEqual(presets.get("builtin:robot")["name"], "Robot")
@@ -1261,7 +1269,7 @@ class TestStylePresets(unittest.TestCase):
         with _TempHome() as home, _PanelServer() as s:
             _, body = s.request("GET", "/api/styles")
             listed = json.loads(body)
-            self.assertEqual(len(listed["styles"]), 4)
+            self.assertEqual(len(listed["styles"]), len(presets.BUILTIN))
             self.assertEqual(listed["active"], "builtin:just-like-you")
             self.assertEqual(listed["settings"], list(presets.SETTINGS))
 
@@ -1272,8 +1280,9 @@ class TestStylePresets(unittest.TestCase):
             data = json.loads(body)
             self.assertEqual((data["ok"], data["name"], data["config"]["scale"]), (True, "Diva", "minor"))
             saved = Config.load()
-            self.assertEqual((saved.singing_style, saved.vibrato_depth_cents), ("sung", 70.0))
-            self.assertEqual(s.controller.cfg.vibrato_depth_cents, 70.0)
+            self.assertEqual((saved.singing_style, saved.vibrato_depth_cents), ("sung", 80.0))
+            self.assertEqual(s.controller.cfg.vibrato_depth_cents, 80.0)
+            self.assertEqual((saved.fx_reverb, saved.fx_size), (0.35, 0.85))
             # Nothing else was touched.
             self.assertEqual((saved.output_device, saved.language), ("My speakers", "th"))
             self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "builtin:diva")
@@ -1308,7 +1317,7 @@ class TestStylePresets(unittest.TestCase):
             self.assertEqual(status, 200, data)
             self.assertEqual((data["id"], data["name"]), ("user:long-notes", "Long notes"))
             back = Config.load()
-            self.assertEqual((back.final_hold_seconds, back.scale, back.vibrato_depth_cents), (2.0, "minor", 70.0))
+            self.assertEqual((back.final_hold_seconds, back.scale, back.vibrato_depth_cents), (2.0, "minor", 80.0))
             self.assertEqual(s.controller.cfg.final_hold_seconds, 2.0)
             self.assertEqual(json.loads(s.request("GET", "/api/styles")[1])["active"], "user:long-notes")
 
@@ -1440,9 +1449,9 @@ class TestStore(unittest.TestCase):
         self.assertEqual(len(listing["presets"]), len(raw["presets"]))
         self.assertEqual(len(listing["voicebanks"]), len(raw["voicebanks"]))
         ids = [p["id"] for p in listing["presets"]]
-        # The four built-in presets, and a few more.
-        self.assertEqual(ids[:4], list(presets.BUILTIN))
-        self.assertGreaterEqual(len(ids), 6)
+        # The built-in presets, and a few more.
+        self.assertEqual(ids[:len(presets.BUILTIN)], list(presets.BUILTIN))
+        self.assertGreaterEqual(len(ids), len(presets.BUILTIN) + 2)
         for entry in listing["presets"]:
             self.assertEqual(entry["url"], f"{store.CATALOG_URL.rsplit('/', 1)[0]}/presets/{entry['id']}.tetostyle")
             preset = presets.parse((docs / "presets" / f"{entry['id']}.tetostyle").read_bytes())
@@ -1596,24 +1605,24 @@ class TestStore(unittest.TestCase):
             self.assertEqual(shown["source"], "bundled")
             self.assertIn("offline", shown["problem"])
             states = {p["id"]: p["state"] for p in shown["presets"]}
-            self.assertEqual([states[k] for k in presets.BUILTIN], ["builtin"] * 4)
-            self.assertEqual(states["lullaby"], "")
+            self.assertEqual([states[k] for k in presets.BUILTIN], ["builtin"] * len(presets.BUILTIN))
+            self.assertEqual(states["angel"], "")
             # The panel is given no addresses for presets: it asks by id.
             self.assertTrue(all("url" not in p for p in shown["presets"]))
             self.assertEqual(next(p for p in shown["presets"] if p["id"] == "robot")["have"], "builtin:robot")
 
             # The done-when: install one, and it is among the presets.
             before = Config.load().vibrato_depth_cents
-            status, body = s.request("POST", "/api/store/install", {"id": "lullaby"}, TOKEN)
+            status, body = s.request("POST", "/api/store/install", {"id": "angel"}, TOKEN)
             self.assertEqual(status, 200, body)
-            self.assertEqual(json.loads(body), {"ok": True, "id": "user:lullaby", "name": "Lullaby", "config": {}})
+            self.assertEqual(json.loads(body), {"ok": True, "id": "user:angel", "name": "Angel", "config": {}})
             listed = json.loads(s.request("GET", "/api/styles")[1])
-            self.assertIn("user:lullaby", [p["id"] for p in listed["styles"]])
+            self.assertIn("user:angel", [p["id"] for p in listed["styles"]])
             # Installed, not put on: she sings as she did until it is picked.
             self.assertEqual(Config.load().vibrato_depth_cents, before)
             shown = json.loads(s.request("GET", "/api/store")[1])
-            lullaby = next(p for p in shown["presets"] if p["id"] == "lullaby")
-            self.assertEqual((lullaby["state"], lullaby["have"]), ("installed", "user:lullaby"))
+            angel = next(p for p in shown["presets"] if p["id"] == "angel")
+            self.assertEqual((angel["state"], angel["have"]), ("installed", "user:angel"))
 
             # A voicebank is a page to open, by id; nothing is downloaded.
             opened = []
@@ -1662,8 +1671,9 @@ class TestStore(unittest.TestCase):
             self.assertEqual(Config.load().output_device, "CABLE Input")
 
     def test_the_page_has_the_store_tab(self):
+        # The Store is the Market tab in Studio's side panel now.
         page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
-        for needle in ('data-mode="store"', 'id="store"', "api/store", "api/store/install", "api/store/open",
+        for needle in ('data-side="store"', 'id="store"', "api/store", "api/store/install", "api/store/open",
                        "function renderStore(", "Official page"):
             self.assertIn(needle, page)
         # What the catalog says is shown as text, never as markup.
@@ -1772,8 +1782,11 @@ class TestCoverStyle(unittest.TestCase):
         self.assertTrue(cover[2].legato)
         self.assertAlmostEqual(cover[2].start, 0.9, delta=0.06)
         self.assertEqual(cover[1].end, cover[2].start)
-        # The Sing style still makes one note of a word, as it always did.
-        self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="sung")], ["la", "la"])
+        # Sing making a tune still makes one note of a word, as it always did...
+        self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="sung", sing_source="tune")],
+                         ["la", "la"])
+        # ...and on auto, this was sung, so she follows the notes, as Cover did.
+        self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="sung")], ["la", "la", "+"])
         self.assertEqual([n.lyric for n in self.notes(track, words, singing_style="speech")], ["la", "la"])
 
     def test_she_stays_in_the_singers_key(self):
@@ -1789,8 +1802,10 @@ class TestCoverStyle(unittest.TestCase):
             cfg = Config(singing_style=style, emit_contour=False, scale="chromatic", **more)
             return build_notes([Word(*w) for w in words], track, cfg, None, target, None, False, None, {})
 
-        # Sing moves her onto the voicebank's pitch: a different key from the music.
-        self.assertEqual(built("sung", 70.0)[0].shift, 4)
+        # Making a tune moves her onto the voicebank's pitch: a different key from the music.
+        self.assertEqual(built("sung", 70.0, sing_source="tune")[0].shift, 4)
+        # Sing on auto heard this as singing, so it keeps the key, as Cover did.
+        self.assertEqual(built("sung", 70.0)[0].shift, 0)
         # Cover moves her by whole octaves only, whatever the voicebank's pitch...
         for target, shift in ((70.0, 0), (61.0, 0), (78.0, 12), (52.0, -12)):
             cover = built("cover", target)
@@ -1798,7 +1813,8 @@ class TestCoverStyle(unittest.TestCase):
             self.assertEqual([n.tone for n in cover], [65 + shift, 67 + shift, 69 + shift, 65 + shift])
         # ...and does not stretch the tune, even with a wide Melody range set.
         self.assertEqual([n.tone for n in built("cover", 61.0, sung_melody_range=2.5)], [65, 67, 69, 65])
-        self.assertNotEqual([n.tone for n in built("sung", 65.0, sung_melody_range=2.5)], [65, 67, 69, 65])
+        self.assertNotEqual([n.tone for n in built("sung", 65.0, sung_melody_range=2.5, sing_source="tune")],
+                            [65, 67, 69, 65])
         # A shift left over from another style is not an octave: it is not kept.
         from teto_relay.config import Config
         from teto_relay.notes import build_notes
@@ -1822,7 +1838,9 @@ class TestCoverStyle(unittest.TestCase):
         from teto_relay import presets, store
         from teto_relay.config import Config, ConfigError
 
-        self.assertEqual(Config.from_dict({"singing_style": "Cover"}).singing_style, "cover")
+        # Cover is Sing following your notes now; an old setting still reads.
+        old = Config.from_dict({"singing_style": "Cover"})
+        self.assertEqual((old.singing_style, old.sing_source), ("sung", "notes"))
         self.assertEqual((Config().melody_step, Config().melody_min_note_seconds), (1.5, 0.14))
         with self.assertRaises(ConfigError):
             Config.from_dict({"melody_step": 0})
@@ -1830,21 +1848,1336 @@ class TestCoverStyle(unittest.TestCase):
         self.assertIn("melody_step", presets.SETTINGS)
         self.assertIn("melody_min_note_seconds", presets.SETTINGS)
         song = presets.parse((store.bundled_folder() / "presets" / "cover-song.tetostyle").read_bytes())
-        self.assertEqual((song["settings"]["singing_style"], song["settings"]["sung_melody_range"],
-                          song["settings"]["final_hold_seconds"]), ("cover", 1.0, 0.0))
+        self.assertEqual((song["settings"]["singing_style"], song["settings"]["sing_source"],
+                          song["settings"]["sung_melody_range"], song["settings"]["final_hold_seconds"]),
+                         ("sung", "notes", 1.0, 0.0))
         with _PanelServer() as s:
             meta = json.loads(s.request("GET", "/api/config")[1])["meta"]
-            self.assertEqual(meta["choices"]["singing_style"], ["speech", "sung", "cover"])
-            self.assertEqual(meta["option_labels"]["singing_style"]["cover"], "Cover")
+            # One Sing: the panel offers Speak and Sing, and how Sing follows you.
+            self.assertEqual(meta["choices"]["singing_style"], ["speech", "sung"])
+            self.assertEqual(meta["choices"]["sing_source"], ["auto", "tune", "notes"])
+            self.assertIn("sing_source", meta["groups"]["Singing"])
             self.assertIn("melody_step", meta["groups"]["Singing"])
             status, _ = s.request("POST", "/api/config", {"singing_style": "cover"}, TOKEN)
             self.assertEqual(status, 200)
 
     def test_the_page_points_a_take_over_music_at_cover(self):
+        # Cover is part of Sing now: a take over music points at Sing.
         page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("singing_style!=='cover'", page)
-        self.assertIn("Set Style to Cover", page)
+        self.assertIn("cfg.singing_style!=='sung'||cfg.sing_source==='tune'", page)
+        self.assertIn("Set Style to Sing", page)
+
+
+def _take_named(root, name, phrases):
+    """A saved take under `root` called `name`: two takes made in the same
+    second would otherwise get the same folder."""
+    import shutil
+    import tempfile
+
+    from teto_relay.takes import read_info
+
+    with tempfile.TemporaryDirectory() as tmp:
+        made = _take(tmp, phrases)
+        folder = Path(root) / name
+        folder.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(made), str(folder))
+    info = read_info(folder)
+    info["id"] = name
+    (folder / "take.json").write_text(json.dumps(info), encoding="utf-8")
+    return folder
+
+
+class TestLibraryClips(unittest.TestCase):
+    """Studio's library: a line from any take, dragged onto the timeline, is
+    copied into the take there (or makes a new take), as a clip of its own."""
+
+    def test_a_line_is_copied_after_the_last_one(self):
+        import tempfile
+
+        import soundfile as sf
+
+        from teto_relay.takes import copy_line, read_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _take_named(tmp, "take_20260101_000000",
+                                 [_phrase(0.0, "one"), _phrase(1.0, "two", level=0.4)])
+            target = _take_named(tmp, "take_20260101_000001", [_phrase(0.5, "here")])
+            before = {p.name: p.read_bytes() for p in (source / "lines").iterdir()}
+            out = copy_line(source, 2, target)
+
+            self.assertEqual([(p["n"], p["text"], p["at"]) for p in out["phrases"]],
+                             [(1, "here", 0.5), (2, "two", 0.6)])
+            # The copy has files of its own, so it can be fixed and moved alone.
+            for name in ("02.wav", "02.ustx", "02-voice.wav"):
+                self.assertTrue((target / "lines" / name).is_file(), name)
+            self.assertEqual(out["phrases"][1]["notes"], out["phrases"][0]["notes"])
+            sung, _ = sf.read(str(target / "teto.wav"))
+            self.assertEqual(len(sung), 700)
+            self.assertAlmostEqual(float(sung[650]), 0.4, places=3)
+            self.assertEqual(len(read_info(target)["phrases"]), 2)
+            # The take it came from is untouched.
+            self.assertEqual({p.name: p.read_bytes() for p in (source / "lines").iterdir()}, before)
+            self.assertEqual(len(read_info(source)["phrases"]), 2)
+
+    def test_a_copy_lands_where_it_is_dropped_or_beside_a_clip_there(self):
+        import tempfile
+
+        from teto_relay.takes import copy_line, line_span
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one", origin=0.2, length=500)])
+            target = _take_named(tmp, "take_20260101_000001", [_phrase(1.0, "here", length=500)])
+            out = copy_line(source, 1, target, at=3.0)
+            self.assertEqual(out["phrases"][1]["at"], 3.0)
+            # Dropped onto the clip at 1.0-1.5: its singing starts where that ends.
+            out = copy_line(source, 1, target, at=1.0)
+            spans = sorted(line_span(target, p) for p in out["phrases"])
+            self.assertAlmostEqual(spans[1][0], 1.5, places=3)
+            self.assertEqual(sorted(p["n"] for p in out["phrases"]), [1, 2, 3])
+
+    def test_a_copy_can_make_a_new_take_or_double_a_line(self):
+        import tempfile
+
+        from teto_relay.takes import copy_line, read_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one")])
+            fresh = Path(tmp) / "take_20260101_000009"
+            out = copy_line(source, 1, fresh, at=2.0)
+            self.assertEqual(out["id"], "take_20260101_000009")
+            self.assertEqual([(p["n"], p["at"]) for p in out["phrases"]], [(1, 2.0)])
+            self.assertTrue((fresh / "teto.wav").is_file())
+            # Into its own take: a second copy, after the first.
+            out = copy_line(source, 1, source)
+            self.assertEqual([(p["n"], p["text"], p["at"]) for p in out["phrases"]],
+                             [(1, "one", 0.0), (2, "one", 0.1)])
+            self.assertEqual(len(read_info(source)["phrases"]), 2)
+
+    def test_a_line_that_is_not_there_changes_nothing(self):
+        import tempfile
+
+        from teto_relay.takes import copy_line, read_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            source = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one")])
+            target = _take_named(tmp, "take_20260101_000001", [_phrase(0.0, "here")])
+            with self.assertRaises(ValueError) as caught:
+                copy_line(source, 4, target)
+            self.assertIn("no line 4", str(caught.exception))
+            for bad in ("later", float("nan"), True):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    copy_line(source, 1, target, at=bad)
+            self.assertEqual(len(read_info(target)["phrases"]), 1)
+            self.assertEqual(sorted(p.name for p in (target / "lines").iterdir())[:1], ["01-voice.wav"])
+            self.assertFalse((target / "lines" / "02.wav").exists())
+            # A new take that could not be made is not left half made.
+            fresh = Path(tmp) / "take_20260101_000009"
+            with self.assertRaises(ValueError):
+                copy_line(source, 4, fresh)
+            self.assertFalse(fresh.exists())
+
+    def test_new_take_names_never_clash(self):
+        import tempfile
+
+        from teto_relay.takes import new_folder, take_folder
+
+        with tempfile.TemporaryDirectory() as tmp:
+            first = new_folder(tmp)
+            first.mkdir()
+            second = new_folder(tmp)
+            self.assertNotEqual(first, second)
+            self.assertTrue(second.name.startswith(first.name))
+            second.mkdir()
+            self.assertEqual(take_folder(tmp, second.name), second.resolve())
+
+    def test_the_panel_copies_a_line(self):
+        from teto_relay import music
+        from teto_relay.takes import read_info
+
+        with _TempHome() as home, _PanelServer() as s:
+            source = _take_named(home / "takes", "take_20260101_000000", [_phrase(0.0, "one"), _phrase(1.0, "two")])
+            target = _take_named(home / "takes", "take_20260101_000001", [_phrase(0.0, "here")])
+            url = f"/api/take/line/copy?take={target.name}"
+            status, body = s.request("POST", url, {"from": source.name, "line": 2, "at": 4.0}, TOKEN)
+            self.assertEqual(status, 200, body)
+            data = json.loads(body)
+            self.assertEqual([(p["text"], p["at"]) for p in data["take"]["phrases"]], [("here", 0.0), ("two", 4.0)])
+            self.assertEqual(len(read_info(target)["phrases"]), 2)
+            self.assertEqual(s.controller.takes_changed, 1)
+            self.assertIsNone(s.controller.relay)
+
+            # "new": a take of its own, keeping the music waiting on the music row.
+            next_folder = home / "takes" / music.NEXT
+            next_folder.mkdir(parents=True)
+            (next_folder / "music.wav").write_bytes(_song())
+            status, body = s.request("POST", "/api/take/line/copy?take=new",
+                                     {"from": source.name, "line": 1}, TOKEN)
+            self.assertEqual(status, 200, body)
+            made = json.loads(body)["take"]
+            self.assertNotIn(made["id"], (source.name, target.name))
+            self.assertEqual([p["text"] for p in made["phrases"]], ["one"])
+            self.assertTrue((home / "takes" / made["id"] / "music.wav").is_file())
+            self.assertIsNotNone(made["music"])
+
+            for query, body_in, code in (
+                    (target.name, {"from": source.name, "line": 9}, 400),
+                    (target.name, {"from": source.name, "line": 1, "at": "x"}, 400),
+                    (target.name, {"from": "take_nope", "line": 1}, 404),
+                    ("take_nope", {"from": source.name, "line": 1}, 404),
+                    ("../etc", {"from": source.name, "line": 1}, 404)):
+                status, body = s.request("POST", f"/api/take/line/copy?take={query}", body_in, TOKEN)
+                self.assertEqual(status, code, body)
+                self.assertFalse(json.loads(body)["ok"])
+            status, _ = s.request("POST", url, {"from": source.name, "line": 1})
+            self.assertEqual(status, 403)
+            self.assertEqual(len(read_info(target)["phrases"]), 2)
+
+    def test_the_page_has_the_library(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/take/line/copy?take=", "function renderLibrary(", "application/x-teto-line"):
+            self.assertIn(needle, page)
+
+
+class TestLanes(unittest.TestCase):
+    """The playlist has lanes: her lines can be stacked (doubles, harmonies)
+    and audio files can be laid alongside."""
+
+    def test_lines_on_different_lanes_can_sing_at_once(self):
+        import tempfile
+
+        import soundfile as sf
+        import yaml
+
+        from teto_relay.takes import copy_line, line_span, move_line, read_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one", level=0.25), _phrase(1.0, "two")])
+            # A double of line 1 on lane 2, at the same time: not pushed aside.
+            out = copy_line(folder, 1, folder, at=0.0, lane=2)
+            copy = next(p for p in out["phrases"] if p["n"] == 3)
+            self.assertEqual((copy["lane"], copy["at"], copy["double"]), (2, 0.0, True))
+            sung, _ = sf.read(str(folder / "teto.wav"))
+            self.assertAlmostEqual(float(sung[50]), 0.5, places=3)          # both heard at once
+            voice, _ = sf.read(str(folder / "your-voice.wav"))
+            self.assertAlmostEqual(float(voice[50]), 0.25, places=3)        # the guide only once
+            # Moving it on its own lane only steps around lines on that lane.
+            out = move_line(folder, 3, 1.0)
+            self.assertEqual(next(p for p in out["phrases"] if p["n"] == 3)["at"], 1.0)
+            # Moved back to lane 1 at the same time, it goes beside line 2
+            # (1.0-1.1), just before or just after it.
+            out = move_line(folder, 3, 1.0, lane=1)
+            line = next(p for p in out["phrases"] if p["n"] == 3)
+            self.assertEqual(line["lane"], 1)
+            self.assertIn(round(line_span(folder, line)[0], 3), (0.9, 1.1))
+            # Each lane is a track of its own in the OpenUtau project.
+            move_line(folder, 3, 1.0, lane=2)
+            doc = yaml.safe_load((folder / "teto.ustx").read_text(encoding="utf-8"))
+            self.assertEqual([t["track_name"] for t in doc["tracks"]], ["Teto", "Teto 2"])
+            self.assertEqual(sorted(p["track_no"] for p in doc["voice_parts"]), [0, 0, 1])
+            for bad in (0, 17, 1.5, "2", True):
+                with self.assertRaises(ValueError, msg=repr(bad)):
+                    move_line(folder, 3, 1.0, lane=bad)
+            self.assertEqual(next(p for p in read_info(folder)["phrases"] if p["n"] == 3)["lane"], 2)
+
+    def test_a_line_saved_before_lanes_is_on_lane_1(self):
+        from teto_relay.takes import lane_of
+
+        self.assertEqual(lane_of({}), 1)
+        self.assertEqual(lane_of({"lane": 3}), 3)
+        self.assertEqual(lane_of({"lane": "x"}), 1)
+        self.assertEqual(lane_of({"lane": 99}), 16)
+
+    def test_audio_is_laid_on_its_own_lanes(self):
+        import io
+        import tempfile
+        import zipfile
+
+        import soundfile as sf
+
+        from teto_relay import music
+        from teto_relay.takes import add_audio, delete_audio, detail, move_audio, take_file, zip_take
+
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one", length=300)])
+            out = add_audio(folder, _song(seconds=0.5, rate=1000), "beat.wav", at=0.2, lane=1)
+            clip = out["audio"][0]
+            self.assertEqual((clip["id"], clip["name"], clip["file"], clip["lane"], clip["at"], clip["seconds"]),
+                             (1, "beat.wav", "audio/01.wav", 1, 0.2, 0.5))
+            self.assertTrue(clip["peaks"])
+            self.assertEqual(take_file(folder, "audio/01.wav"), folder / "audio" / "01.wav")
+            for bad in ("audio/01-peaks.json", "audio/../take.json", "audio/1.wav"):
+                self.assertIsNone(take_file(folder, bad), bad)
+            # A second clip dropped over the first on its lane goes beside it;
+            # on another lane it stays where it was dropped.
+            out = add_audio(folder, _song(seconds=0.5, rate=1000), "pad.wav", at=0.3, lane=1)
+            self.assertEqual(out["audio"][1]["at"], 0.7)
+            out = move_audio(folder, 2, 0.3, lane=2)
+            self.assertEqual((out["audio"][1]["lane"], out["audio"][1]["at"]), (2, 0.3))
+            # teto.wav is her alone; mix.wav has the clips, even with no music.
+            sung, _ = sf.read(str(folder / "teto.wav"))
+            self.assertEqual(len(sung), 300)
+            mixed, rate = sf.read(io.BytesIO(music.mix_wav(folder)))
+            self.assertEqual((rate, len(mixed)), (1000, 800))
+            self.assertGreater(float(abs(mixed[600:800]).max()), 0.2)
+            with zipfile.ZipFile(io.BytesIO(zip_take(folder))) as z:
+                self.assertIn(f"{folder.name}/audio/01-beat.wav", z.namelist())
+            out = delete_audio(folder, 1)
+            self.assertEqual([c["id"] for c in out["audio"]], [2])
+            self.assertFalse((folder / "audio" / "01.wav").exists())
+            # Not audio, or a clip that is not there: refused, nothing kept.
+            with self.assertRaises(ValueError):
+                add_audio(folder, b"not sound at all", "notes.txt")
+            with self.assertRaises(ValueError):
+                add_audio(folder, b"RIFF....garbage", "fake.wav")
+            with self.assertRaises(ValueError):
+                move_audio(folder, 9, 1.0)
+            with self.assertRaises(ValueError):
+                add_audio(folder, _song(seconds=0.5, rate=1000), "x.wav", at="soon")
+            self.assertEqual(len(detail(folder)["audio"]), 1)
+            self.assertEqual(sorted(p.name for p in (folder / "audio").iterdir()), ["02-peaks.json", "02.wav"])
+
+    def test_the_panel_lays_and_moves_audio_and_lanes(self):
+        from teto_relay.takes import read_info
+
+        with _TempHome() as home, _PanelServer() as s:
+            folder = _take_named(home / "takes", "take_20260101_000000", [_phrase(0.0, "one"), _phrase(1.0, "two")])
+            import http.client
+
+            def upload(query, data, headers=TOKEN):
+                conn = http.client.HTTPConnection("127.0.0.1", s.port, timeout=10)
+                conn.request("POST", f"/api/take/audio?{query}", body=data, headers=headers)
+                resp = conn.getresponse()
+                body = resp.read()
+                conn.close()
+                return resp.status, body
+
+            status, body = upload(f"take={folder.name}&name=beat.wav&at=0.5&lane=2", _song(seconds=0.5, rate=1000))
+            self.assertEqual(status, 200, body)
+            clip = json.loads(body)["take"]["audio"][0]
+            self.assertEqual((clip["lane"], clip["at"]), (2, 0.5))
+            self.assertEqual(upload(f"take={folder.name}&name=beat.wav", b"hello")[0], 400)
+            self.assertEqual(upload("take=take_nope&name=beat.wav", _song(seconds=0.5, rate=1000))[0], 404)
+            self.assertEqual(upload(f"take={folder.name}&name=beat.wav", _song(seconds=0.5, rate=1000), {})[0], 403)
+
+            url = f"/api/take/audio/move?take={folder.name}"
+            status, body = s.request("POST", url, {"id": 1, "at": 2.0, "lane": 1}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(read_info(folder)["audio"][0]["at"], 2.0)
+            self.assertEqual(s.request("POST", url, {"id": 1, "at": "x"}, TOKEN)[0], 400)
+            self.assertEqual(s.request("POST", url, {"at": 1}, TOKEN)[0], 400)
+
+            status, body = s.request("POST", f"/api/take/line/move?take={folder.name}", {"line": 2, "at": 0.0, "lane": 2}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(next(p for p in read_info(folder)["phrases"] if p["n"] == 2)["lane"], 2)
+            status, body = s.request("POST", f"/api/take/line/copy?take={folder.name}",
+                                     {"from": folder.name, "line": 1, "at": 0.0, "lane": 3}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(next(p for p in json.loads(body)["take"]["phrases"] if p["n"] == 3)["lane"], 3)
+
+            status, body = s.request("POST", f"/api/take/audio/delete?take={folder.name}", {"id": 1}, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(read_info(folder)["audio"], [])
+            self.assertEqual(s.request("POST", f"/api/take/audio/delete?take={folder.name}", {"id": 1})[0], 403)
+
+    def test_the_page_has_the_lanes(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/take/audio?take=", "api/take/audio/move?take=", "api/take/audio/delete?take=",
+                       "function harmony(", "lane:"):
+            self.assertIn(needle, page)
+
+
+class TestPanic(unittest.TestCase):
+    """PANIC: she goes quiet at once, and the relay keeps running."""
+
+    def test_hush_cuts_the_phrase_playing_and_drops_the_waiting_ones(self):
+        import queue
+        import tempfile
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay import playback
+        from teto_relay.config import Config
+
+        streams = []
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                self.written = []
+                streams.append(self)
+
+            def start(self):
+                pass
+
+            def write(self, block):
+                self.written.append(block.copy())
+                if len(self.written) == 1:
+                    player.hush()      # PANIC while the first phrase plays
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, stop=lambda: None,
+                                        query_devices=lambda *a: {"default_samplerate": 44100,
+                                                                  "max_output_channels": 1})
+        with tempfile.TemporaryDirectory() as tmp:
+            q = queue.Queue()
+            for i in range(3):
+                path = Path(tmp) / f"relay_{i}.wav"
+                sf.write(path, np.full(4000, 0.25, dtype=np.float32), 44100)
+                q.put(path)
+            q.put(None)
+            with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+                player = playback.Player(Config(persistent_output=True), q, device=3)
+                player.start()
+                player.join(timeout=10)
+            self.assertFalse(player.is_alive(), "the stop signal was dropped with the phrases")
+        written = np.concatenate(streams[0].written)
+        # One block of the first phrase, nothing of the other two.
+        self.assertEqual(len(written), playback.Player.BLOCK)
+
+    def test_a_phrase_after_the_hush_plays_in_full(self):
+        import queue
+        import tempfile
+        import types
+        import unittest.mock
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay import playback
+        from teto_relay.config import Config
+
+        written = []
+
+        class FakeStream:
+            def __init__(self, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def write(self, block):
+                written.append(len(block))
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        fake_sd = types.SimpleNamespace(OutputStream=FakeStream, stop=lambda: None,
+                                        query_devices=lambda *a: {"default_samplerate": 44100,
+                                                                  "max_output_channels": 1})
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "relay.wav"
+            sf.write(path, np.full(3000, 0.25, dtype=np.float32), 44100)
+            with unittest.mock.patch.object(playback, "sd", lambda: fake_sd):
+                player = playback.Player(Config(persistent_output=True), queue.Queue(), device=3)
+                self.assertEqual(player.hush(), 0)
+                player._play_file(path)
+        self.assertEqual(sum(written), 3000)
+
+    def test_the_panel_hushes_a_running_relay(self):
+        import types
+
+        with _PanelServer() as s:
+            status, body = s.request("POST", "/api/panic", None, TOKEN)
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body), {"ok": True, "hushed": False})
+            hushed = []
+            s.controller.relay = types.SimpleNamespace(hush=lambda: hushed.append(1) or 0)
+            try:
+                status, body = s.request("POST", "/api/panic", None, TOKEN)
+                self.assertEqual(json.loads(body), {"ok": True, "hushed": True})
+                self.assertEqual(hushed, [1])
+                status, _ = s.request("POST", "/api/panic")
+                self.assertEqual(status, 403)
+                self.assertEqual(hushed, [1])
+            finally:
+                s.controller.relay = None
+
+    def test_the_relay_hush_reaches_the_player(self):
+        import types
+
+        from teto_relay.app import TetoRelay
+
+        relay = TetoRelay.__new__(TetoRelay)
+        relay._player = types.SimpleNamespace(hush=lambda: 2)
+        self.assertEqual(relay.hush(), 2)
+        relay._player = None
+        self.assertEqual(relay.hush(), 0)
+
+    def test_the_page_has_the_panic_button(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("api/panic", page)
+        self.assertIn('id="panic"', page)
+
+
+def _bank_files(name="bank"):
+    """A tiny voicebank: an oto.ini naming two samples, and the samples."""
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    wav = io.BytesIO()
+    sf.write(wav, np.zeros(441, np.float32), 44100, format="WAV")
+    return {f"{name}/oto.ini": "あ.wav=あ,0,100,0,0,0\r\nい.wav=い,0,100,0,0,0\r\n".encode("cp932"),
+            f"{name}/あ.wav": wav.getvalue(), f"{name}/い.wav": wav.getvalue()}
+
+
+class TestAddingVoicebanks(unittest.TestCase):
+    """Your own voicebank, however it came: a .zip, a .rar or .7z, or its
+    folder (which the panel packs into a .zip)."""
+
+    def test_a_7z_is_unpacked_with_a_tool_on_the_pc(self):
+        import shutil
+        import subprocess
+        import tempfile
+
+        from teto_relay import library
+
+        tools = library._archive_tools()
+        seven = next((t for t in tools if Path(t[0]).stem.lower() == "7z"), None)
+        if seven is None:
+            self.skipTest("7-Zip is not installed here")
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            for name, data in _bank_files("声").items():
+                (src / name).parent.mkdir(parents=True, exist_ok=True)
+                (src / name).write_bytes(data)
+            archive = Path(tmp) / "mine.7z"
+            subprocess.run(seven + ["a", "-bd", str(archive), str(src / "声")], capture_output=True, check=True)
+            info = library.install_voicebank(archive.read_bytes(), "mine.7z", Path(tmp) / "lib")
+            self.assertEqual((info["name"], info["samples"], info["missing"]), ("mine", 2, 0))
+            self.assertTrue((Path(tmp) / "lib" / "mine" / "あ.wav").is_file())
+            # Nothing left behind but the bank.
+            self.assertEqual([p.name for p in (Path(tmp) / "lib").iterdir()], ["mine"])
+            shutil.rmtree(Path(tmp) / "lib")
+
+    def test_with_no_tool_it_says_what_to_do(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import library
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                unittest.mock.patch.object(library, "_archive_tools", lambda: []):
+            with self.assertRaises(ValueError) as caught:
+                library.install_voicebank(b"Rar!\x1a\x07\x00", "bank.rar", Path(tmp))
+            self.assertIn("7-Zip", str(caught.exception))
+            self.assertIn("folder", str(caught.exception))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_the_page_offers_archives_and_folders(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("webkitdirectory", "function makeZip(", "function addVoicebankFolder(", "webkitGetAsEntry",
+                       ".rar", ".7z"):
+            self.assertIn(needle, page)
+
+
+class TestHearingAVoicebank(unittest.TestCase):
+    """The Market plays a voicebank on this PC: the sample its character.txt
+    names, else one of its own recordings."""
+
+    def make(self, root: Path, character: str | None):
+        for name, data in _bank_files("声").items():
+            (root / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / name).write_bytes(data)
+        if character is not None:
+            (root / "声" / "character.txt").write_bytes(character.encode("cp932"))
+
+    def test_the_named_sample_is_played(self):
+        import io
+
+        import numpy as np
+        import soundfile as sf
+
+        with _PanelServer() as s:
+            root = Path(s.tmp.name)
+            self.make(root, "name=テスト\r\nsample=voice.wav\r\n")
+            sf.write(str(root / "声" / "voice.wav"), np.full(4410, 0.25, np.float32), 44100)
+            status, body = s.request("GET", "/api/bank-sample?bank=bank")
+            self.assertEqual(status, 200)
+            audio, rate = sf.read(io.BytesIO(body))
+            self.assertEqual((rate, len(audio)), (44100, 4410))
+
+    def test_without_one_a_recording_is_played(self):
+        from teto_relay import webui
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.make(Path(tmp), None)
+            self.assertEqual(webui._sample_file(Path(tmp) / "声").name, "あ.wav")
+
+    def test_a_sample_outside_the_bank_is_refused(self):
+        from teto_relay import webui
+
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            self.make(Path(tmp), "sample=..\\secret.wav\r\n")
+            (Path(tmp) / "secret.wav").write_bytes(b"x")
+            self.assertEqual(webui._sample_file(Path(tmp) / "声").name, "あ.wav")
+
+    def test_a_bank_with_nothing_to_play_says_so(self):
+        with _PanelServer() as s:
+            status, _ = s.request("GET", "/api/bank-sample?bank=nothing")
+            self.assertEqual(status, 404)
+
+
+class TestTunePreview(unittest.TestCase):
+    """Tune's play button: the last phrase sung again with the settings as
+    they are now, so a turned knob can be heard."""
+
+    def relay(self, home):
+        import threading
+        import types
+
+        from test_production import _bare_relay
+
+        from teto_relay.config import Config
+        from teto_relay.render.null import NullRenderer
+        from teto_relay.stt import Word
+        from teto_relay.voicebank import Voicebank
+
+        cfg = Config(pitch_method="pyin", use_alignment=False, align_boundaries=False, renderer_backend="null")
+        cfg.validate()
+        relay = _bare_relay(cfg)
+        relay.bank = Voicebank(key="english", name="Teto", root=home / "bank", flavour="en-cvvc")
+        relay.transcriber = types.SimpleNamespace(
+            transcribe=lambda audio, rate: [Word("hello", 0.1, 0.5), Word("there", 0.6, 1.0)])
+        relay.renderer = NullRenderer(cfg)
+        relay.converter = None
+        relay.engine = "utau"
+        relay._render_gate = threading.Lock()
+        relay._octave_shift = relay._voice_baseline = None
+        relay._singing_state = {}
+        relay._side_pool = None
+        relay._target_tone, relay._mora_floor = 61.0, 0.11
+        return relay
+
+    def test_the_last_phrase_is_sung_again_with_the_new_settings(self):
+        import copy
+
+        import numpy as np
+        import soundfile as sf
+        import yaml
+
+        from teto_relay.app import TetoRelayError
+        from teto_relay.capture import Chunk
+
+        with _TempHome() as home:
+            relay = self.relay(home)
+            with self.assertRaises(TetoRelayError):
+                relay.preview()                        # nothing sung yet
+            rate = relay.cfg.sample_rate
+            t = np.arange(int(1.2 * rate)) / rate
+            relay.analyse(Chunk((0.3 * np.sin(2 * np.pi * 150 * t)).astype(np.float32), rate, "release"))
+            relay._side_pool.shutdown()
+            relay._side_pool = None
+            state = copy.deepcopy(relay._singing_state)
+
+            first = relay.preview()
+            tones = [n["tone"] for p in yaml.safe_load(first.with_suffix(".ustx").read_text(encoding="utf-8"))["voice_parts"]
+                     for n in p["notes"]]
+            self.assertTrue(first.is_file())
+            self.assertGreater(len(sf.read(str(first))[0]), 0)
+
+            relay.cfg.transpose = 5
+            again = relay.preview()
+            moved = [n["tone"] for p in yaml.safe_load(again.with_suffix(".ustx").read_text(encoding="utf-8"))["voice_parts"]
+                     for n in p["notes"]]
+            self.assertEqual(moved, [x + 5 for x in tones])
+            # A preview leaves the live key detection as it was.
+            self.assertEqual(relay._singing_state, state)
+            # Another tuning, heard once (the Market's play button): used for
+            # this preview, and nothing in force changes.
+            dry = len(sf.read(str(again))[0])     # the same file is written again below
+            other = relay.preview({"transpose": 2, "fx_reverb": 0.4})
+            heard = [n["tone"] for p in yaml.safe_load(other.with_suffix(".ustx").read_text(encoding="utf-8"))["voice_parts"]
+                     for n in p["notes"]]
+            self.assertEqual(heard, [x + 2 for x in tones])
+            self.assertEqual((relay.cfg.transpose, relay.cfg.fx_reverb), (5, 0.0))
+            self.assertGreater(len(sf.read(str(other))[0]), dry)   # the reverb's tail
+
+    def test_the_panel_needs_the_relay_running(self):
+        with _PanelServer() as s:
+            status, body = s.request("POST", "/api/preview", None, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("Start", json.loads(body)["error"])
+            self.assertEqual(s.request("POST", "/api/preview")[0], 403)
+
+    def test_the_page_has_the_preview(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("api/preview", page)
+        self.assertIn('id="tunePlay"', page)
+
+
+class TestTunings(unittest.TestCase):
+    """Tunings that sound clearly different: effects on her voice, her tone
+    as OpenUtau shapes it, and one Sing that follows how you sang."""
+
+    def voice(self, seconds=3.0, rate=44100):
+        import numpy as np
+
+        t = np.arange(int(seconds * rate)) / rate
+        tone = 0.3 * np.sin(2 * np.pi * 220 * t) + 0.1 * np.sin(2 * np.pi * 660 * t)
+        return (tone * np.minimum(1.0, t * 8)).astype(np.float32), rate
+
+    def test_every_effect_is_off_at_zero_and_safe_when_on(self):
+        import time
+
+        import numpy as np
+
+        from teto_relay import effects
+        from teto_relay.config import Config
+
+        audio, rate = self.voice()
+        self.assertIs(effects.apply(audio, rate, Config()), audio)        # nothing on: untouched
+        loud = {"fx_octave": -1.0, "fx_bright": 1.0, "fx_drive": 1.0, "fx_growl": 1.0, "fx_ring": 1.0,
+                "fx_crush": 1.0, "fx_band": 1.0, "fx_air": 1.0, "fx_chorus": 1.0, "fx_reverb": 1.0, "fx_size": 1.0}
+        for key in effects.CHAIN:
+            out = effects.apply(audio, rate, Config(**{key: loud[key]}))
+            self.assertFalse(np.isnan(out).any(), key)
+            self.assertLessEqual(float(np.max(np.abs(out))), 1.0, key)
+            self.assertFalse(np.allclose(out[: audio.size], audio, atol=1e-3), key)   # it did something
+            extra = out.size - audio.size
+            # Only reverb lengthens it, by its tail at most.
+            self.assertEqual(extra if key != "fx_reverb" else 0, 0, key)
+            self.assertLessEqual(extra, int(rate * effects.TAIL_SECONDS), key)
+            # As loud as it went in (within a few dB), whatever the effect.
+            ratio = float(np.sqrt(np.mean(out[: audio.size] ** 2)) / np.sqrt(np.mean(audio ** 2)))
+            self.assertTrue(0.5 < ratio < 2.0, (key, ratio))
+        # The whole chain at once on a 3 s phrase: quick enough not to be felt.
+        everything = Config(**loud)
+        effects.apply(audio, rate, everything)  # warm the filter design and the room
+        began = time.perf_counter()
+        effects.apply(audio, rate, everything, double=1.0)
+        self.assertLess(time.perf_counter() - began, 0.5)
+
+    def test_the_relay_puts_the_effects_on_her_voice(self):
+        import tempfile
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay.app import Job, TetoRelay
+        from teto_relay.config import Config
+
+        audio, rate = self.voice(1.0, 22050)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "x.wav"
+            sf.write(path, audio, rate)
+            relay = TetoRelay.__new__(TetoRelay)
+            relay.cfg = Config(double_voice=0.0, fx_drive=0.8, fx_reverb=0.3)
+            relay.finish_render(Job(captured_at=0.0, text="", wav_path=path, sung=False))
+            out, _ = sf.read(path, dtype="float32")
+            self.assertGreater(out.size, audio.size)                     # the reverb's tail
+            self.assertFalse(np.allclose(out[: audio.size], audio, atol=1e-2))
+
+    def test_her_tone_reaches_the_project_as_curves(self):
+        from teto_relay.config import Config
+        from teto_relay.notes import Note
+        from teto_relay.performance import expression_curves
+
+        notes = [Note(lyric="a", start=0.0, end=0.5, tone=60), Note(lyric="b", start=0.5, end=1.0, tone=62)]
+        for n in notes:
+            n.legato = True
+        self.assertEqual(expression_curves(notes, None, 16000, Config(expressive=False)), {})
+        flat = expression_curves(notes, None, 16000, Config(expressive=False, tone_gender=40.0, tone_tension=-60.0,
+                                                            tone_breath=50.0, tone_voicing=30.0))
+        self.assertEqual(flat["genc"], [(0.0, 40), (1.0, 40)])
+        self.assertEqual(flat["tenc"], [(0.0, -60), (1.0, -60)])
+        self.assertEqual(flat["brec"][0][1], 50)
+        self.assertEqual(flat["voic"][0][1], 30)
+        full = expression_curves(notes, None, 16000, Config(tone_breath=50.0, tone_voicing=50.0))
+        self.assertEqual(full["brec"][0][1], 50)          # breath under the whole phrase...
+        self.assertEqual(full["brec"][-1][1], 80)         # ...and the usual tail on top
+        self.assertEqual(full["voic"][0][1], 50)
+        self.assertEqual(full["voic"][-1][1], 35)         # the devoiced ending, scaled
+        self.assertNotIn("genc", full)                    # neutral: not written
+
+    def test_sing_follows_your_notes_when_you_sing(self):
+        import numpy as np
+
+        from teto_relay import pitch as pitch_mod
+        from teto_relay.config import Config
+        from teto_relay.notes import follows_notes
+
+        n = 200
+        times = np.arange(n) * 0.01
+        held = pitch_mod.F0Track(times=times, f0=np.repeat([220.0, 247.0, 262.0, 294.0], n // 4),
+                                 voiced=np.ones(n, bool), sample_rate=16000)
+        sliding = pitch_mod.F0Track(times=times, f0=np.linspace(180.0, 260.0, n) * (1 + 0.05 * np.sin(times * 40)),
+                                    voiced=np.ones(n, bool), sample_rate=16000)
+        short = pitch_mod.F0Track(times=times[:30], f0=np.full(30, 220.0), voiced=np.ones(30, bool),
+                                  sample_rate=16000)
+        auto = Config(singing_style="sung")
+        state = {}
+        self.assertTrue(follows_notes("sung", held, auto, state))
+        self.assertTrue(state["follow"])
+        self.assertTrue(follows_notes("sung", short, auto, state))       # too short to judge: as before
+        self.assertFalse(follows_notes("sung", sliding, auto, state))
+        self.assertFalse(follows_notes("sung", short, auto, state))
+        self.assertFalse(follows_notes("speech", held, auto, {}))         # Speak never does
+        self.assertTrue(follows_notes("sung", sliding, Config(sing_source="notes"), {}))
+        self.assertFalse(follows_notes("sung", held, Config(sing_source="tune"), {}))
+        self.assertTrue(follows_notes("cover", sliding, auto, {}))         # the old Cover
+
+    def test_cover_is_sing_on_your_notes(self):
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        cfg = Config.from_dict({"singing_style": "Cover"})
+        self.assertEqual((cfg.singing_style, cfg.sing_source), ("sung", "notes"))
+        old = presets.validate({"format": 1, "name": "Old", "settings": {"singing_style": "cover"}})
+        self.assertEqual((old["settings"]["singing_style"], old["settings"]["sing_source"]), ("sung", "notes"))
+
+    def test_an_old_preset_clears_the_effects_it_never_had(self):
+        from teto_relay import presets
+        from teto_relay.config import Config
+
+        old = presets.validate({"format": 1, "name": "Old", "settings": {"singing_style": "sung",
+                                                                        "vibrato_depth_cents": 40.0}})
+        full = presets.settings_of(old)
+        self.assertEqual(set(full), set(presets.SETTINGS))
+        self.assertEqual((full["fx_drive"], full["fx_growl"], full["vibrato_depth_cents"]), (0.0, 0.0, 40.0))
+        screaming = Config(**presets.settings_of(presets.BUILTIN["metal-scream"]))
+        self.assertFalse(presets.matches(old, screaming))
+        for key, value in full.items():
+            setattr(screaming, key, value)
+        self.assertTrue(presets.matches(old, screaming))
+        self.assertEqual(screaming.fx_drive, 0.0)
+
+
+class TestSavingSettings(unittest.TestCase):
+    """Windows refuses to swap a file in while something has it open; a
+    knob saving often ran into that ("Access is denied")."""
+
+    def test_a_refused_swap_is_tried_again(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import config as config_mod
+        from teto_relay.config import Config
+
+        real = Path.replace
+        refusals = []
+
+        def flaky(self, target):
+            if len(refusals) < 3:
+                refusals.append(1)
+                raise PermissionError(5, "Access is denied")
+            return real(self, target)
+
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(Path, "replace", flaky):
+            path = Path(tmp) / "config.json"
+            Config(transpose=5).save(path)
+            self.assertEqual(Config.load(path).transpose, 5)
+            self.assertEqual(len(refusals), 3)
+            self.assertEqual([p.name for p in Path(tmp).iterdir()], ["config.json"])
+
+        def always(self, target):
+            raise PermissionError(5, "Access is denied")
+
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(Path, "replace", always), \
+                unittest.mock.patch.object(config_mod.time if hasattr(config_mod, "time") else __import__("time"),
+                                           "sleep", lambda s: None):
+            with self.assertRaises(PermissionError):
+                Config().save(Path(tmp) / "config.json")
+            self.assertEqual(list(Path(tmp).iterdir()), [])     # no temp file left behind
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLyricsFollowTheSong(unittest.TestCase):
+    """Whisper reads only the last 223 tokens of its prompt, so a whole song
+    pasted in told it only the ending. It is sent the part being sung, and
+    the place moves on as each phrase is heard."""
+
+    @staticmethod
+    def name(n):
+        out = ""
+        for _ in range(3):
+            out, n = "bcdfghjklmnpqrstvwxyz"[n % 21] + "aeiou"[n % 5] + out, n // 21
+        return out
+
+    @property
+    def song(self):
+        # 200 lines of four made-up words, one line per row as pasted.
+        return "\n".join(" ".join(self.name(4 * line + k) for k in range(4)) for line in range(200))
+
+    def words(self, text):
+        from teto_relay.stt import Word
+
+        return [Word(w, 0.1 * i, 0.1 * i + 0.1) for i, w in enumerate(text.split())]
+
+    def test_a_phrase_is_found_where_it_is_in_the_song(self):
+        from teto_relay import lyrics
+
+        heard = " ".join(self.name(n) for n in (200, 201, 202))
+        self.assertEqual(lyrics.locate(self.words(heard), self.song), 203)
+        self.assertIsNone(lyrics.locate(self.words("what are we having for dinner tonight"), self.song))
+
+    def test_a_repeated_chorus_is_found_near_the_singer(self):
+        from teto_relay import lyrics
+
+        song = "la la chorus goes here " + "verse words " * 40 + "la la chorus goes here " + "end words"
+        self.assertEqual(lyrics.locate(self.words("chorus goes here"), song), 5)
+        self.assertGreater(lyrics.locate(self.words("chorus goes here"), song, near=80), 80)
+
+    def test_the_window_is_the_pasted_text_from_just_before_the_singer(self):
+        from teto_relay import lyrics
+
+        part = lyrics.window(self.song, 400, fits=lambda text: len(text.split()) <= 60)
+        self.assertEqual(len(part.split()), 60)
+        self.assertTrue(part.startswith(self.name(400 - lyrics.WINDOW_BEFORE)))
+        self.assertIn("\n", part)                          # lines kept as pasted
+
+    def test_the_transcriber_sends_the_part_being_sung(self):
+        import types
+
+        from teto_relay.config import Config
+        from teto_relay.stt import Transcriber
+
+        t = Transcriber(Config(lyrics_hint=self.song, initial_prompt=""))
+        t._model = types.SimpleNamespace()        # no tokenizer: the safe guess counts
+        start = t._song_prompt()
+        self.assertTrue(start.startswith(self.name(0)))
+        self.assertLess(t._count_tokens(start), 224)
+        t._follow_song(self.words(" ".join(self.name(n) for n in range(480, 484))))
+        later = t._song_prompt()
+        self.assertIn(self.name(484), later)
+        self.assertNotIn(self.name(0), later)
+        # Talking between lines leaves the place where it was.
+        t._follow_song(self.words("hold on a second please"))
+        self.assertEqual(t._song_prompt(), later)
+        # New lyrics start again at their top.
+        t.cfg.lyrics_hint = "short song"
+        self.assertEqual(t._song_prompt(), "short song")
+
+
+class TestMarketServer(unittest.TestCase):
+    """The Market server (market-server/): its listings are checked like the
+    Store's list, and the app talks to it only by id."""
+
+    BASE = "http://127.0.0.1:8787"
+
+    def listing(self, **item):
+        f = {"url": self.BASE + "/v1/files/x-1/file", "size": 100, "type": "wav", "name": "x.wav"}
+        return {"id": "x-1", "kind": "sound", "name": "Kick", "file": f, **item}
+
+    def test_only_a_plain_https_address_or_this_pc_is_a_server(self):
+        from teto_relay import market
+        from teto_relay.config import Config
+
+        for url, ok in (("https://teto-market.example.workers.dev", True), ("http://127.0.0.1:8787/", True),
+                        ("http://localhost:8787", True), ("http://example.com", False), ("ftp://x", False),
+                        ("https://user:pw@example.com", False), ("", False), ("https://a b", False)):
+            self.assertEqual(bool(market.base_url(Config(market_url=url))), ok, url)
+
+    def test_a_built_app_brings_its_own_server_and_the_source_does_not(self):
+        import tempfile
+        import unittest.mock
+
+        from teto_relay import market, paths
+        from teto_relay.config import Config
+
+        with tempfile.TemporaryDirectory() as tmp:
+            own = Path(tmp) / "market_server.txt"
+            own.write_text("https://teto-market.example.workers.dev\n", encoding="utf-8")
+            with unittest.mock.patch.object(market, "BUNDLED_SERVER", own):
+                with unittest.mock.patch.object(paths, "frozen", lambda: True):
+                    self.assertEqual(market.base_url(Config()), "https://teto-market.example.workers.dev")
+                    # The setting, when set, wins.
+                    self.assertEqual(market.base_url(Config(market_url="http://127.0.0.1:8787")), "http://127.0.0.1:8787")
+                # Run from source (and in these tests): only the setting.
+                self.assertEqual(market.base_url(Config()), "")
+            with unittest.mock.patch.object(market, "BUNDLED_SERVER", Path(tmp) / "none.txt"), \
+                    unittest.mock.patch.object(paths, "frozen", lambda: True):
+                self.assertEqual(market.base_url(Config()), "")
+        # The file itself is never shared (where this is a git checkout).
+        import shutil
+        import subprocess
+        if (ROOT / ".git").exists() and shutil.which("git"):
+            ignored = subprocess.run(["git", "check-ignore", "-q", "teto_relay/web/market_server.txt"], cwd=ROOT)
+            self.assertEqual(ignored.returncode, 0)
+
+    def test_listings_are_checked(self):
+        import json
+
+        from teto_relay import market
+
+        good = self.listing()
+        off_site = self.listing(id="x-2", file={**good["file"], "url": "https://evil.example/x.wav"})
+        not_audio = self.listing(id="x-3", file={**good["file"], "type": "exe"})
+        bad_id = self.listing(id="../x")
+        tuning = {"id": "soft-1", "kind": "tuning", "name": "Soft\x00 one", "file": {**good["file"], "type": "tetostyle"}}
+        link = {"id": "vb-1", "kind": "voicebank", "name": "Link", "official_url": "https://example.com/vb", "licence": "x"}
+        nothing = {"id": "vb-2", "kind": "voicebank", "name": "Nothing"}
+        raw = json.dumps({"format": 2, "items": [good, off_site, not_audio, bad_id, tuning, link, nothing]}).encode()
+        out = market.parse(raw, self.BASE)
+        self.assertEqual([s["id"] for s in out["sounds"]], ["x-1"])
+        self.assertEqual(out["presets"][0]["name"], "Soft one")
+        self.assertEqual([v["id"] for v in out["voicebanks"]], ["vb-1"])
+        with self.assertRaises(market.MarketError):
+            market.parse(json.dumps({"format": 1, "presets": []}).encode(), self.BASE)
+
+    def test_the_official_list_stays_beside_the_community_one(self):
+        from teto_relay import store
+
+        community = {"source": "market", "server": self.BASE, "updated": "", "sounds": [],
+                     "presets": [{"id": "growl-1", "name": "Growl", "url": "x"}], "voicebanks": []}
+        merged = store._merge(community, store.bundled())
+        origins = {p["id"]: p["origin"] for p in merged["presets"]}
+        self.assertEqual(origins["growl-1"], "market")
+        self.assertEqual(origins["rap"], "list")
+        self.assertTrue(any(v["origin"] == "list" for v in merged["voicebanks"]))
+
+    def test_sharing_and_getting_through_the_real_worker(self):
+        """market-server/ run in Node, as on this PC: share, list, demo, get."""
+        import io
+        import os
+        import shutil
+        import socket
+        import subprocess
+        import tempfile
+        import time
+        import uuid
+
+        import numpy as np
+        import soundfile as sf
+
+        from teto_relay import market, store
+
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node is not installed here")
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        base = f"http://127.0.0.1:{port}"
+        with tempfile.TemporaryDirectory() as data, _TempHome():
+            proc = subprocess.Popen([node, str(ROOT / "market-server" / "dev" / "serve.mjs"), str(port)],
+                                    env={**os.environ, "MARKET_DATA": data}, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+            try:
+                for _ in range(50):
+                    try:
+                        market.request(base + "/v1/health", base, 1000)
+                        break
+                    except market.MarketError:
+                        time.sleep(0.1)
+                wav = io.BytesIO()
+                sf.write(wav, np.zeros(4410, np.float32), 44100, format="WAV")
+
+                def form(meta, file=None, demo=None):
+                    boundary = uuid.uuid4().hex
+                    out = f"--{boundary}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{json.dumps(meta)}\r\n".encode()
+                    for field, data in (("file", file), ("demo", demo)):
+                        if data:
+                            out += (f"--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"a.wav\"\r\n"
+                                    f"Content-Type: audio/wav\r\n\r\n").encode() + data + b"\r\n"
+                    return out + f"--{boundary}--\r\n".encode(), f"multipart/form-data; boundary={boundary}"
+
+                rim = {"kind": "sound", "name": "Rim", "permission": True, "tags": ["drums"]}
+                with self.assertRaises(market.MarketError):          # sharing needs an account
+                    market.upload(base, *form(rim, wav.getvalue()))
+                me = market.sign_up(base, "mika@example.com", "a good password", "mika", "Mika")
+                self.assertEqual((me["signed_in"], me["handle"], me["email"]), (True, "mika", "mika@example.com"))
+                self.assertNotIn("a good password", (data_dir_text := market._state_path().read_text(encoding="utf-8")))
+                self.assertNotIn("password", data_dir_text)
+                shared = market.upload(base, *form(rim, wav.getvalue()))
+                self.assertEqual(shared["status"], "live")
+                paid = market.upload(base, *form({"kind": "sound", "name": "Pack", "price": 120, "currency": "THB",
+                                                  "shop_url": "https://mika.booth.pm/items/1"}, None, wav.getvalue()))
+                store.forget()
+                listing = store.catalog(True, base)
+                self.assertEqual(listing["source"], "market")
+                by_name = {s["name"]: s for s in listing["sounds"]}
+                self.assertEqual(by_name["Rim"]["user"]["handle"], "mika")
+                self.assertEqual((by_name["Pack"]["price"], by_name["Pack"]["currency"]), (120, "THB"))
+                self.assertIsNone(by_name["Pack"]["file"])
+                self.assertEqual(market.shop_page(listing, "sounds", paid["id"]), "https://mika.booth.pm/items/1")
+                with self.assertRaises(market.MarketError):
+                    market.download(listing, "sounds", paid["id"])
+                path = market.get_sound(listing, shared["id"])
+                self.assertEqual(path.read_bytes(), wav.getvalue())
+                self.assertEqual(market.like(base, shared["id"], True), 1)
+                page = market.person(base, "mika")
+                self.assertEqual(sorted(page["items"]), sorted([shared["id"], paid["id"]]))
+                self.assertEqual(market.edit_profile(base, "Mika ✿", "Thai covers", ["https://x.example/m"])["name"], "Mika ✿")
+                self.assertEqual(len(market.mine(base)), 2)
+                market.take_down(base, shared["id"])
+                market.sign_out(base)
+                self.assertFalse(market.account(base)["signed_in"])
+                self.assertTrue(market.sign_in(base, "mika@example.com", "a good password")["signed_in"])
+                store.forget()
+                self.assertEqual([s["name"] for s in store.catalog(True, base)["sounds"]], ["Pack"])
+            finally:
+                proc.terminate()
+                proc.wait(10)
+                store.forget()
+
+
+# ------------------------------------------- recordings, projects and voices
+class TestRecordingsAndProjects(unittest.TestCase):
+    """Record makes a recording, kept apart from the song projects; a whole
+    recording can be dropped onto a project, keeping its lines' spacing."""
+
+    def test_record_makes_a_recording_and_older_takes_are_projects(self):
+        import tempfile
+
+        from teto_relay.takes import PROJECT, RECORDING, Take, listing, read_info
+
+        with tempfile.TemporaryDirectory() as tmp:
+            take = Take(Path(tmp))
+            take.project = "take_20260101_000000"
+            take.phrases = [_phrase(0.0, "one")]
+            take.phrases[0].voice = {"bank": "neru", "bank_name": "Neru", "tuning": "Robot",
+                                     "tuning_id": "builtin:robot", "settings": {"fx_ring": 0.5}}
+            info = take.finish()
+            self.assertEqual(info["kind"], RECORDING)
+            self.assertEqual(info["project"], "take_20260101_000000")
+            self.assertEqual(info["voice"]["bank"], "neru")
+            self.assertEqual(read_info(take.folder)["phrases"][0]["voice"]["tuning"], "Robot")
+            old = _take_named(tmp, "take_20200101_000000", [_phrase(0.0, "old")])
+            data = read_info(old)
+            data.pop("kind", None)
+            (old / "take.json").write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual([t["id"] for t in listing(tmp, kind=RECORDING)], [take.folder.name])
+            self.assertEqual([t["id"] for t in listing(tmp, kind=PROJECT)], [old.name])
+            self.assertEqual(len(listing(tmp)), 2)
+
+    def test_a_recording_over_music_leaves_the_music_where_it_is(self):
+        import tempfile
+
+        from teto_relay import music
+        from teto_relay.takes import Take
+
+        with tempfile.TemporaryDirectory() as tmp:
+            song = Path(tmp) / music.NEXT
+            song.mkdir()
+            (song / "music.wav").write_bytes(_song())
+            take = Take(Path(tmp))
+            take.music_from, take.music_id = song, "next"
+            take.phrases = [_phrase(0.0, "one")]
+            info = take.finish()
+            self.assertEqual(info["sung_over"], "next")
+            self.assertFalse((take.folder / "music.wav").exists())
+
+    def test_a_whole_recording_keeps_its_spacing(self):
+        import tempfile
+
+        from teto_relay.takes import copy_lines, line_span
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = _take_named(tmp, "take_20260101_000000",
+                              [_phrase(1.0, "one", length=500), _phrase(3.0, "two", length=500)])
+            song = _take_named(tmp, "take_20260101_000001", [_phrase(0.0, "here", length=500)])
+            # Where it was sung: the same times.
+            out = copy_lines(rec, None, song)
+            self.assertEqual(sorted((p["text"], p["at"]) for p in out["phrases"]),
+                             [("here", 0.0), ("one", 1.0), ("two", 3.0)])
+            # Dropped at 10 s on lane 2: the first at 10, the second 2 s later.
+            out = copy_lines(rec, None, song, start=10.0, lane=2)
+            two = sorted(line_span(song, p)[0] for p in out["phrases"] if p.get("lane") == 2)
+            self.assertEqual([round(x, 3) for x in two], [10.0, 12.0])
+            self.assertEqual(sorted(p["n"] for p in out["phrases"]), [1, 2, 3, 4, 5])
+            # Some of its lines only, into a new project.
+            fresh = Path(tmp) / "take_20260101_000009"
+            out = copy_lines(rec, [2], fresh, start=0.0)
+            self.assertEqual([(p["text"], p["at"]) for p in out["phrases"]], [("two", 0.0)])
+            self.assertEqual(out["kind"], "project")
+            with self.assertRaises(ValueError):
+                copy_lines(rec, [7], song)
+            with self.assertRaises(ValueError):
+                copy_lines(rec, None, song, start="soon")
+
+    def test_names_and_copies(self):
+        import tempfile
+
+        from teto_relay.takes import duplicate, read_info, rename
+
+        with tempfile.TemporaryDirectory() as tmp:
+            rec = _take_named(tmp, "take_20260101_000000", [_phrase(0.0, "one")])
+            self.assertEqual(rename(rec, "  My   chorus ")["name"], "My chorus")
+            self.assertNotIn("name", rename(rec, ""))
+            with self.assertRaises(ValueError):
+                rename(rec, 5)
+            self.assertEqual(len(rename(rec, "x" * 500)["name"]), 80)
+            twin = duplicate(rec, tmp, "One · Neru")
+            self.assertNotEqual(twin, rec)
+            self.assertEqual(read_info(twin)["id"], twin.name)
+            self.assertEqual(read_info(twin)["name"], "One · Neru")
+            self.assertTrue((twin / "lines" / "01.wav").is_file())
+
+    def test_the_panel_lists_them_apart_and_copies_a_whole_recording(self):
+        from teto_relay.takes import read_info
+
+        with _TempHome() as home, _PanelServer() as s:
+            rec = _take_named(home / "takes", "take_20260101_000000", [_phrase(0.0, "one"), _phrase(1.0, "two")])
+            song = _take_named(home / "takes", "take_20260101_000001", [_phrase(0.0, "here")])
+            data = read_info(song)
+            data["kind"] = "project"
+            (song / "take.json").write_text(json.dumps(data), encoding="utf-8")
+            status, body = s.request("GET", "/api/takes")
+            listed = json.loads(body)
+            self.assertEqual([t["id"] for t in listed["recordings"]], [rec.name])
+            self.assertEqual([t["id"] for t in listed["projects"]], [song.name])
+
+            status, body = s.request("POST", f"/api/take/line/copy?take={song.name}",
+                                     {"from": rec.name, "lines": "all", "start": 5.0}, TOKEN)
+            self.assertEqual(status, 200, body)
+            texts = [(p["text"], p["at"]) for p in json.loads(body)["take"]["phrases"]]
+            self.assertEqual(texts, [("here", 0.0), ("one", 5.0), ("two", 6.0)])
+            status, body = s.request("POST", f"/api/take/line/copy?take={song.name}",
+                                     {"from": rec.name, "lines": ["x"]}, TOKEN)
+            self.assertEqual(status, 400, body)
+
+            status, body = s.request("POST", f"/api/take/rename?take={rec.name}", {"name": "Verse"}, TOKEN)
+            self.assertEqual(json.loads(body)["take"]["name"], "Verse")
+            self.assertEqual(s.request("POST", f"/api/take/rename?take={rec.name}", {"name": "x"})[0], 403)
+            # Another voice needs the relay running.
+            status, body = s.request("POST", f"/api/take/revoice?take={rec.name}", {"bank": "neru"}, TOKEN)
+            self.assertEqual(status, 400)
+            self.assertIn("Start", json.loads(body)["error"])
+
+    def test_recorded_with_no_project_open_starts_one(self):
+        from teto_relay import music
+        from teto_relay.takes import Take, read_info
+
+        with _TempHome() as home, _PanelServer() as s:
+            song = home / "takes" / music.NEXT
+            song.mkdir(parents=True)
+            (song / "music.wav").write_bytes(_song())
+            take = Take(home / "takes")
+            take.music_from, take.music_id = song, "next"
+            take.phrases = [_phrase(0.5, "one")]
+            s.controller._took(take.finish())
+            self.assertEqual(s.controller.last_recording, take.folder.name)
+            project = home / "takes" / s.controller.last_take
+            self.assertNotEqual(project, take.folder)
+            self.assertEqual(read_info(project)["kind"], "project")
+            self.assertEqual([p["at"] for p in read_info(project)["phrases"]], [0.5])
+            self.assertTrue((project / "music.wav").is_file())
+
+            # Sung for a project that is open: it waits in the Recordings.
+            other = Take(home / "takes")
+            other.project = project.name
+            other.phrases = [_phrase(0.0, "two")]
+            other.folder = home / "takes" / "take_20990101_000000"
+            s.controller._took(other.finish())
+            self.assertEqual(s.controller.last_take, other.folder.name)
+            self.assertEqual(len(read_info(project)["phrases"]), 1)
+
+    def test_the_page_has_projects_and_recordings(self):
+        page = (ROOT / "teto_relay" / "web" / "index.html").read_text(encoding="utf-8")
+        for needle in ("api/take/revoice?take=", "api/take/rename?take=", "lines:'all'",
+                       "Recordings", "Projects"):
+            self.assertIn(needle, page)
+
+
+class TestAnotherVoice(unittest.TestCase):
+    """A line keeps the voicebank and tuning that sang it, so it sounds the
+    same after a restart; and it can be sung again with another voice."""
+
+    def relay(self, home):
+        relay = TestTunePreview.relay(TestTunePreview(), home)
+        from teto_relay.voicebank import Voicebank
+
+        relay.neru = Voicebank(key="neru", name="Neru", root=home / "neru", flavour="en-cvvc")
+        relay.banks = [relay.bank, relay.neru]
+        relay._bank_tones = {str(Path(relay.neru.root)): (66.0, 0.1)}
+        relay._take = None
+        return relay
+
+    def recorded(self, relay, home):
+        """One line sung with the voice in force, saved as a recording."""
+        import numpy as np
+
+        from teto_relay.capture import Chunk
+        from teto_relay.takes import Take
+
+        take = Take(home / "takes")
+        relay._take = take
+        rate = relay.cfg.sample_rate
+        t = np.arange(int(1.2 * rate)) / rate
+        job = relay.analyse(Chunk((0.3 * np.sin(2 * np.pi * 150 * t)).astype(np.float32), rate, "release",
+                                  captured_at=take.started + 1.5))
+        relay._side_pool.shutdown()
+        relay._side_pool = None
+        job.wav_path = job.ustx_path.with_suffix(".wav")
+        job.wav_origin = relay._render(job.ustx_path, job.wav_path)
+        take.add(job, relay.voice_now())
+        relay._take = None
+        info = take.finish()
+        return take.folder, info
+
+    def test_a_line_keeps_its_voice_when_the_voice_in_force_changes(self):
+        import yaml
+
+        with _TempHome() as home:
+            relay = self.relay(home)
+            folder, info = self.recorded(relay, home)
+            voice = info["phrases"][0]["voice"]
+            self.assertEqual(voice["bank"], "english")
+            self.assertEqual(voice["settings"]["fx_reverb"], 0.0)
+            before = yaml.safe_load((folder / "lines" / "01.ustx").read_text(encoding="utf-8"))
+            tones = [n["tone"] for p in before["voice_parts"] for n in p["notes"]]
+
+            # As after a restart with another voice and tuning picked for Live:
+            relay.bank = relay.neru
+            relay.cfg.fx_reverb, relay.cfg.vibrato_depth_cents = 0.4, 40.0
+            fixed = relay.resing(folder, 1, ["goodbye", "there"])
+            line = fixed["phrases"][0]
+            self.assertEqual(line["voice"]["bank"], "english")
+            self.assertEqual(line["voice"]["settings"]["fx_reverb"], 0.0)
+            doc = yaml.safe_load((folder / "lines" / "01.ustx").read_text(encoding="utf-8"))
+            self.assertEqual(doc["tracks"][0]["singer"], "bank")
+            self.assertEqual([n["tone"] for p in doc["voice_parts"] for n in p["notes"]], tones)
+
+    def test_sung_again_with_another_voicebank_and_tuning(self):
+        import soundfile as sf
+        import yaml
+
+        from teto_relay.app import TetoRelayError
+
+        with _TempHome() as home:
+            relay = self.relay(home)
+            folder, _ = self.recorded(relay, home)
+            dry = len(sf.read(str(folder / "lines" / "01.wav"))[0])
+            out = relay.revoice(folder, None, "neru", "builtin:choir")
+            line = out["phrases"][0]
+            self.assertEqual(out["skipped"], 0)
+            self.assertEqual((line["voice"]["bank"], line["voice"]["bank_name"]), ("neru", "Neru"))
+            self.assertEqual((line["voice"]["tuning"], line["voice"]["tuning_id"]), ("Choir", "builtin:choir"))
+            self.assertEqual(out["voice"]["bank"], "neru")
+            doc = yaml.safe_load((folder / "lines" / "01.ustx").read_text(encoding="utf-8"))
+            self.assertEqual(doc["tracks"][0]["singer"], "neru")
+            # The choir's reverb has a tail.
+            self.assertGreater(len(sf.read(str(folder / "lines" / "01.wav"))[0]), dry)
+            # The words and their timing are the ones that were sung.
+            self.assertEqual([w["text"] for w in line["words"]], ["hello", "there"])
+            # Fixing a word later keeps Neru and the choir.
+            again = relay.resing(folder, 1, ["hello", "you"])["phrases"][0]
+            self.assertEqual((again["voice"]["bank"], again["voice"]["tuning"]), ("neru", "Choir"))
+            # The tuning alone, keeping the bank.
+            out = relay.revoice(folder, [1], "", "builtin:robot")
+            self.assertEqual((out["phrases"][0]["voice"]["bank"], out["phrases"][0]["voice"]["tuning"]),
+                             ("neru", "Robot"))
+            for bad in (("gone", ""), ("", "builtin:nope")):
+                with self.assertRaises(TetoRelayError):
+                    relay.revoice(folder, None, *bad)
+            with self.assertRaises(TetoRelayError):
+                relay.revoice(folder, [9], "neru", "")

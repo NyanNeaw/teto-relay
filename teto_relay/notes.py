@@ -11,6 +11,8 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import japanese as jp
 from . import pitch as pitch_mod
 from . import pronunciations as pron
@@ -506,6 +508,44 @@ def _follow_melody(words, spans, joined, hints, track, cfg):
     return out_words, out_spans, out_joined, out_hints, tones
 
 
+#: Sing on "auto": held pitches past this share of the voiced time is
+#: singing (follow the notes), under FOLLOW_TUNE talking (make a tune). In
+#: between, or on a scrap too short to judge, the last decision stands. The
+#: gap is the measured one: speech reached 0.34 at most, singing 0.41 at least.
+FOLLOW_NOTES = 0.42
+FOLLOW_TUNE = 0.34
+FOLLOW_MIN_VOICED = 0.6  # seconds
+
+
+def follows_notes(style: str, track, cfg, state: dict | None) -> bool:
+    """Whether this phrase is sung from the notes you sang (what was the
+    Cover style) rather than made into a tune. Speech never is; Sing is on
+    `sing_source` "notes", never on "tune", and on "auto" when you sang:
+    held pitches (pitch.held_share), with the previous phrase's decision
+    kept in `state["follow"]` when it is unclear."""
+    style = (style or "speech").lower()
+    if style == "cover":
+        return True
+    if style != "sung":
+        return False
+    source = (getattr(cfg, "sing_source", "auto") or "auto").lower()
+    if source in ("notes", "tune"):
+        return source == "notes"
+    state = state if state is not None else {}
+    previous = bool(state.get("follow", False))
+    voiced = np.asarray(getattr(track, "voiced", []), dtype=bool)
+    times = np.asarray(getattr(track, "times", []), dtype=float)
+    hop = float(times[1] - times[0]) if times.size > 1 else 0.01
+    if voiced.sum() * hop < FOLLOW_MIN_VOICED:
+        return previous
+    share = pitch_mod.held_share(track)
+    follow = True if share >= FOLLOW_NOTES else False if share <= FOLLOW_TUNE else previous
+    if follow != previous:
+        log.info("Sing: %s (held %.2f)", "following your notes" if follow else "making a tune", share)
+    state["follow"] = follow
+    return follow
+
+
 def build_notes(
     words: list[Word],
     track: pitch_mod.F0Track,
@@ -717,7 +757,7 @@ def build_notes(
     # the wrong pitch.
     spans = [spoken for _, spoken, _ in adjusted]
     style = (getattr(cfg, "singing_style", "speech") or "speech").lower()
-    cover = style == "cover"
+    cover = follows_notes(style, track, cfg, singing_state)
     sung_tones: list = []
     if cover:
         if len(word_hints) != len(words):
@@ -788,7 +828,7 @@ def build_notes(
     if style in ("sung", "cover"):
         from .singing import musicalize
 
-        musicalize(notes, cfg, singing_state)
+        musicalize(notes, cfg, singing_state, follow=cover)
 
     log.info(
         "Built %d note(s): %s",

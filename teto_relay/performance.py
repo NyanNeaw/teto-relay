@@ -142,6 +142,67 @@ def _loudness(audio, rate: int):
     return np.arange(frames) / 100.0, db
 
 
+#: The tuning's attack and release (note_attack, note_release) as dynamics:
+#: WORLDLINE-R sings OpenUtau's dyn curve but not its per-phoneme attack and
+#: decay (measured: the same audio with or without them), so they are drawn
+#: into dyn instead. dB at the ends of the ranges, and how long each ramp is.
+SOFT_DB, ACCENT_DB, FADE_DB = 24.0, 6.0, 24.0
+ATTACK_S, ACCENT_S, RELEASE_S = 0.12, 0.08, 0.2
+DYN_LOWEST, DYN_HIGHEST = -240.0, 120.0
+
+
+def _note_shape(notes: list, cfg):
+    """Ramps in dyn (tenths of a dB) at each note's start and end for the
+    tuning's attack and release, as (x0, y0, x1, y1); [] when neutral. A note
+    carried on from the one before gets half the attack, and one carried
+    into the next half the release, so a legato line is not chopped up."""
+    attack = getattr(cfg, "note_attack", 100.0)
+    attack = 100.0 if attack is None else float(attack)
+    release = float(getattr(cfg, "note_release", 0.0) or 0.0)
+    ramps: list[tuple[float, float, float, float]] = []
+    if attack == 100.0 and release == 0.0:
+        return ramps
+    for i, note in enumerate(notes):
+        length = max(0.02, note.end - note.start)
+        joined = i > 0 and bool(getattr(note, "legato", False))
+        following = notes[i + 1] if i + 1 < len(notes) else None
+        ends = following is None or (not getattr(following, "legato", False) and following.start - note.end > 0.05)
+        if attack < 100.0:
+            depth = -(100.0 - attack) / 100.0 * SOFT_DB * 10.0 * (0.5 if joined else 1.0)
+            ramps.append((note.start, depth, note.start + min(ATTACK_S, length * 0.4), 0.0))
+        elif attack > 100.0:
+            lift = (attack - 100.0) / 100.0 * ACCENT_DB * 10.0 * (0.5 if joined else 1.0)
+            ramps.append((note.start, lift, note.start + min(ACCENT_S, length * 0.4), 0.0))
+        if release > 0.0:
+            depth = -release / 100.0 * FADE_DB * 10.0 * (1.0 if ends else 0.5)
+            ramps.append((note.end - min(RELEASE_S, length * 0.5), 0.0, note.end, depth))
+    return ramps
+
+
+def _shaped_dyn(dyn: list[tuple[float, float]], ramps: list) -> list[tuple[float, float]]:
+    """`dyn` with the attack and release ramps added on top."""
+    if not ramps:
+        return dyn
+    xs = [x for x, _ in dyn]
+    ys = [y for _, y in dyn]
+    points = set(xs)
+    for x0, _, x1, _ in ramps:
+        points.update((x0 - 0.004, x0, x1, x1 + 0.004))
+
+    def base(x: float) -> float:
+        return float(np.interp(x, xs, ys)) if xs else 0.0
+
+    def ramp(x: float) -> float:
+        total = 0.0
+        for x0, y0, x1, y1 in ramps:
+            if x0 <= x <= x1 and x1 > x0:
+                total += y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+        return total
+
+    return [(float(x), round(max(DYN_LOWEST, min(DYN_HIGHEST, base(x) + ramp(x))), 1))
+            for x in sorted(p for p in points if p >= 0)]
+
+
 def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tuple[float, float]]]:
     """Part-level curves, as {abbr: [(seconds, value)]} in the utterance's time.
 
@@ -152,10 +213,33 @@ def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tupl
     mid-song. ``brec`` and ``voic`` touch only the last moment of each phrase
     and are held neutral from its start: with points only at phrase ends
     they had ramped across the whole next phrase, which was sung half
-    whispered and breathy. Empty when `expressive` is off.
+    whispered and breathy.
+
+    The tuning's tone (tone_gender, tone_tension, tone_breath, tone_voicing)
+    goes on top: ``genc`` and ``tenc`` held through every phrase, ``brec``
+    raised by the breath, ``voic`` scaled by the voicing. With `expressive`
+    off only the tone is there (and nothing at all when it is neutral).
     """
-    if not getattr(cfg, "expressive", True) or not notes:
+    if not notes:
         return {}
+    gender = float(getattr(cfg, "tone_gender", 0.0) or 0.0)
+    tension = float(getattr(cfg, "tone_tension", 0.0) or 0.0)
+    breath = float(getattr(cfg, "tone_breath", 0.0) or 0.0)
+    voicing = float(getattr(cfg, "tone_voicing", 100.0) if getattr(cfg, "tone_voicing", None) is not None else 100.0)
+    tone: dict[str, list[tuple[float, float]]] = {}
+    start, end = notes[0].start, notes[-1].end
+    for abbr, value, neutral in (("genc", gender, 0.0), ("tenc", tension, 0.0)):
+        if value != neutral:
+            tone[abbr] = [(start, round(value)), (end, round(value))]
+    ramps = _note_shape(notes, cfg)
+    if not getattr(cfg, "expressive", True):
+        if breath:
+            tone["brec"] = [(start, round(breath)), (end, round(breath))]
+        if voicing != 100.0:
+            tone["voic"] = [(start, round(voicing)), (end, round(voicing))]
+        if ramps:
+            tone["dyn"] = _monotonic(_shaped_dyn([(start, 0.0), (end, 0.0)], ramps))
+        return tone
     times, db = _loudness(audio, rate) if audio is not None else (np.zeros(0), np.zeros(0))
     if db.size >= ENVELOPE_WINDOW:
         # The phrasing, not the syllables: the upper envelope over 200 ms.
@@ -184,11 +268,14 @@ def expression_curves(notes: list, audio, rate: int, cfg) -> dict[str, list[tupl
 
         last = phrase[-1]
         tail = min(BREATH_MS / 1000.0, last.duration * 0.6)
-        brec += [(start, 0.0), (end - tail, 0.0), (end, BREATH_TAIL)]
+        air = round(breath)
+        brec += [(start, air), (end - tail, air), (end, min(100.0, air + BREATH_TAIL))]
         devoice = min(DEVOICE_MS / 1000.0, last.duration * 0.3)
-        voic += [(start, 100.0), (end - devoice, 100.0), (end, DEVOICE_TO)]
+        full = round(voicing)
+        voic += [(start, full), (end - devoice, full), (end, round(DEVOICE_TO * voicing / 100.0))]
 
-    return {"dyn": _monotonic(dyn), "brec": _monotonic(brec), "voic": _monotonic(voic)}
+    return {"dyn": _monotonic(_shaped_dyn(_monotonic(dyn), ramps)), "brec": _monotonic(brec),
+            "voic": _monotonic(voic), **tone}
 
 
 def _monotonic(points: list[tuple[float, float]]) -> list[tuple[float, float]]:

@@ -236,10 +236,17 @@ class Config:
     # "speech" - notes follow your spoken pitch exactly (the original sound).
     # "sung"   - notes snap to a key, hold steadier, long ones get vibrato,
     #            and the last one is held: speech turned into a tune.
-    # "cover"  - for singing a real song: she sings the notes you sing, a
-    #            note for each pitch even inside one word, in your key (moved
-    #            only by whole octaves), so she is in tune with the music.
+    # "cover"  - kept for older settings: "sung" following your notes.
     singing_style: str = "speech"
+    # What "sung" does with each phrase:
+    #   "tune"  - makes a tune of it: your speech moved onto her range, the
+    #             melody widened, a note per word, in a key;
+    #   "notes" - follows the notes you sang, a note for each pitch even
+    #             inside one word, in your key (moved only by whole octaves),
+    #             so she is in tune with a song's music (once "cover");
+    #   "auto"  - decides per phrase: notes when you sang (held pitches,
+    #             pitch.held_share), a tune when you talked.
+    sing_source: str = "auto"
     scale: str = "major"  # major | minor | pentatonic | chromatic
     scale_key: str = "auto"  # "auto", or a note name such as "C", "F#", "Bb"
     sung_contour_amount: float = 0.35  # how much spoken inflection survives
@@ -271,6 +278,37 @@ class Config:
     # muddies speech (the user's verdict) - "always" doubles every phrase.
     double_voice: float = 0.5
     double_when: str = "singing"  # off | singing | always
+    # Her voice's tone, as an OpenUtau tuner sets it: WORLDLINE-R curves over
+    # each whole phrase (teto_relay.performance). Gender + is darker and
+    # bigger, - smaller, a child; tension + presses and belts, - softens;
+    # breath adds air; voicing below ~60 is half whispered, 0 a whisper.
+    tone_gender: float = 0.0
+    tone_tension: float = 0.0
+    tone_breath: float = 0.0
+    tone_voicing: float = 100.0
+    # The shape of each note, as OpenUtau sings it (ustx._shape): a scoop up
+    # into the note from below (cents), a fall off the end of a phrase's last
+    # note (cents), and the per-phoneme expressions consonant speed (vel),
+    # attack (atk) and release (dec). Neutral: 0, 0, 100, 100, 0.
+    note_scoop_cents: float = 0.0
+    note_fall_cents: float = 0.0
+    consonant_speed: float = 100.0
+    note_attack: float = 100.0
+    note_release: float = 0.0
+    # Effects on her rendered voice (teto_relay.effects), all off at 0: the
+    # tones a renderer can't make - a scream, a robot, a radio, a hall.
+    fx_octave: float = 0.0   # an octave layer: + up, - down
+    fx_bright: float = 0.0   # + brighter, - darker
+    fx_drive: float = 0.0    # distortion
+    fx_growl: float = 0.0    # a fried, rattling edge...
+    fx_growl_hz: float = 70.0  # ...this many times a second (75 scream, 45 demon)
+    fx_ring: float = 0.0     # metallic, robotic
+    fx_crush: float = 0.0    # fewer bits: an old game console
+    fx_band: float = 0.0     # a telephone or an old radio
+    fx_air: float = 0.0      # breath over the voice
+    fx_chorus: float = 0.0   # a few voices instead of one
+    fx_reverb: float = 0.0   # a room around her...
+    fx_size: float = 0.3     # ...from a booth (0) to a hall (1)
 
     # -------------------------------------------------------- stage 4: ustx
     # Where the Teto banks live. Discovery walks this for character.txt/oto.ini,
@@ -278,6 +316,9 @@ class Config:
     # Left empty, the usual places are searched (see teto_relay.locate): the
     # `voicebanks` folder beside the config, then OpenUtau's Singers folders.
     voicebank_root: str = ""
+    # The Market server (market-server/, teto_relay.market): an https address,
+    # or http://127.0.0.1:8787 for one run on this PC. Empty: the plain list.
+    market_url: str = ""
     voicebank: str = "english"  # selector key; override per render
     # "native"   - sing the words as they are, through an English bank.
     # "japanese" - convert to Japanese-style pronunciation first ("i love you"
@@ -400,6 +441,10 @@ class Config:
         # Settings of removed features are dropped without a word: they are
         # in every config written before, and are gone after the next save.
         data = {k: v for k, v in data.items() if k not in RETIRED}
+        # Sing and Cover became one Sing: "cover" is Sing following your notes.
+        if str(data.get("singing_style", "")).strip().lower() == "cover":
+            data = {**data, "singing_style": "sung"}
+            data.setdefault("sing_source", "notes")
         # A config from an older version spells out every value, so a changed
         # default never reached it; an old default is dropped so the new one
         # applies. A value the user chose differs and is kept.
@@ -501,8 +546,27 @@ class Config:
                     pass  # outside the data folder: kept as given
         with _SAVE_LOCK:
             tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-            tmp.replace(path)
+            _replace(tmp, path)
         return path
+
+
+def _replace(tmp: Path, path: Path, tries: int = 12) -> None:
+    """Swap `tmp` in as `path`. On Windows that is refused ("Access is
+    denied") while anything else has the file open - a load on another
+    thread, a restart reading it, antivirus scanning the new file - so it is
+    tried again for about a second and a half before giving up. Turning a
+    knob saves often, and this was what made it fail now and then."""
+    import time
+
+    for attempt in range(tries):
+        try:
+            tmp.replace(path)
+            return
+        except PermissionError:
+            if attempt == tries - 1:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.02 * (attempt + 1))
 
 
 _SAVE_LOCK = __import__("threading").Lock()
@@ -518,6 +582,7 @@ CHOICES: dict[str, set[str]] = {
     "crepe_model": {"full", "tiny"},
     "whisper_device": {"cpu", "cuda", "auto"},
     "singing_style": {"speech", "sung", "cover"},
+    "sing_source": {"auto", "tune", "notes"},
     "scale": {"major", "minor", "pentatonic", "chromatic"},
     "double_when": {"off", "singing", "always"},
     "panel_window": {"app", "browser"},
@@ -578,6 +643,27 @@ RANGES: dict[str, tuple[float, float]] = {
     "vibrato_depth_cents": (0.0, 200.0),
     "vibrato_period_ms": (40.0, 1000.0),
     "final_hold_seconds": (0.0, 5.0),
+    "tone_gender": (-100.0, 100.0),
+    "tone_tension": (-100.0, 100.0),
+    "tone_breath": (0.0, 100.0),
+    "tone_voicing": (0.0, 100.0),
+    "note_scoop_cents": (0.0, 400.0),
+    "note_fall_cents": (0.0, 1200.0),
+    "consonant_speed": (0.0, 200.0),
+    "note_attack": (0.0, 200.0),
+    "note_release": (0.0, 100.0),
+    "fx_octave": (-1.0, 1.0),
+    "fx_bright": (-1.0, 1.0),
+    "fx_drive": (0.0, 1.0),
+    "fx_growl": (0.0, 1.0),
+    "fx_growl_hz": (30.0, 120.0),
+    "fx_ring": (0.0, 1.0),
+    "fx_crush": (0.0, 1.0),
+    "fx_band": (0.0, 1.0),
+    "fx_air": (0.0, 1.0),
+    "fx_chorus": (0.0, 1.0),
+    "fx_reverb": (0.0, 1.0),
+    "fx_size": (0.0, 1.0),
     "queue_size": (1, 64),
     "studio_offset_ms": (-2000.0, 2000.0),
 }

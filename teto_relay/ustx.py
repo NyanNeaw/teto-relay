@@ -56,6 +56,71 @@ def _pitch_block(note: Note, cfg) -> dict:
     return {"data": data, "snap_first": True}
 
 
+#: The longest a scoop up into a note, and a fall off its end, take (ms).
+SCOOP_MS, FALL_MS = 90.0, 160.0
+#: The per-phoneme expressions a tuning sets, with OpenUtau's defaults:
+#: consonant speed (vel). Attack and release are drawn into the dyn curve
+#: instead (performance._note_shape): WORLDLINE-R ignores atk and dec.
+NOTE_EXPRESSIONS = (("vel", "consonant_speed", 100.0),)
+#: Phonemes of a note the expressions are written for (a CV note has two, a
+#: VCV transition three); an index past the note's last is ignored.
+PHONEMES_PER_NOTE = 3
+
+
+def _y_at(data: list[dict], x: float) -> float:
+    """The pitch envelope's height at `x` ms, straight between its points."""
+    if not data:
+        return 0.0
+    if x <= data[0]["x"]:
+        return data[0]["y"]
+    for a, b in zip(data, data[1:]):
+        if a["x"] <= x <= b["x"]:
+            span = b["x"] - a["x"]
+            return a["y"] if span <= 0 else a["y"] + (b["y"] - a["y"]) * (x - a["x"]) / span
+    return data[-1]["y"]
+
+
+def _shape(notes: list[Note], blocks: list[dict], cfg) -> None:
+    """A tuning's note shape, on the written notes: a scoop up into each note
+    (half as deep where it carries on from the note before), a fall off the
+    last note before a rest, and the consonant speed (vel) OpenUtau gives
+    every phoneme. All off by default. Attack and release are in the dyn
+    curve (performance._note_shape)."""
+    scoop = float(getattr(cfg, "note_scoop_cents", 0.0) or 0.0) / CENTS_PER_PITCH_UNIT
+    fall = float(getattr(cfg, "note_fall_cents", 0.0) or 0.0) / CENTS_PER_PITCH_UNIT
+    expressions = []
+    for abbr, key, default in NOTE_EXPRESSIONS:
+        value = float(getattr(cfg, key, default) if getattr(cfg, key, None) is not None else default)
+        if abs(value - default) > 1e-6:
+            expressions += [{"index": i, "abbr": abbr, "value": round(value, 1)} for i in range(PHONEMES_PER_NOTE)]
+    for i, (note, block) in enumerate(zip(notes, blocks)):
+        if expressions:
+            block["phoneme_expressions"] = [dict(e) for e in expressions]
+        if scoop <= 0 and fall <= 0:
+            continue
+        length = max(1.0, note.duration * 1000.0)
+        data = [dict(p) for p in block["pitch"]["data"]]
+        if scoop > 0:
+            depth = scoop * (0.5 if note.legato else 1.0)
+            span = min(SCOOP_MS, length * 0.35)
+            settled = _y_at(data, span)
+            start = _y_at(data, 0.0)
+            for p in data:
+                if 0.0 <= p["x"] < span:
+                    p["y"] -= depth * (1.0 - p["x"] / span)
+            data = [p for p in data if abs(p["x"]) > 1e-6 and abs(p["x"] - span) > 1e-6]
+            data += [{"x": 0.0, "y": start - depth, "shape": "io"}, {"x": span, "y": settled, "shape": "io"}]
+            data.sort(key=lambda p: p["x"])
+        following = notes[i + 1] if i + 1 < len(notes) else None
+        ends_phrase = following is None or (not following.legato and following.start - note.end > 0.05)
+        if fall > 0 and ends_phrase:
+            begin = length - min(FALL_MS, length * 0.4)
+            level = _y_at(data, begin)
+            data = [p for p in data if p["x"] < begin - 1e-6]
+            data += [{"x": begin, "y": level, "shape": "io"}, {"x": length, "y": level - fall, "shape": "i"}]
+        block["pitch"]["data"] = [{"x": round(p["x"], 2), "y": round(p["y"], 3), "shape": p["shape"]} for p in data]
+
+
 def _vibrato_block(note: Note) -> dict:
     """OpenUtau's vibrato fields. Length 0 (the default) means no vibrato."""
     block = {"length": 0, "period": 175, "depth": 25, "in": 10, "out": 10,
@@ -234,6 +299,7 @@ def build_project(notes: list[Note], bank: Voicebank, cfg, curves: dict | None =
 
     part_start = notes[0].start
     note_blocks = _space_in_ticks(notes, [_note_block(n, part_start, cfg) for n in notes], cfg)
+    _shape(notes, note_blocks, cfg)
     part_duration = max(b["position"] + b["duration"] for b in note_blocks)
     phonemizer = cfg.phonemizer or bank.phonemizer
     if bank.flavour.startswith("ja-"):
